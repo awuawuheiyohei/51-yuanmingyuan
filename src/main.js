@@ -377,6 +377,20 @@ async function loadScene() {
       `耗时 ${Math.round(performance.now() - t0)} ms`
   );
 
+  // 开发期自检：找出含 NaN 的几何体
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    const pos = o.geometry.attributes.position;
+    if (!pos) return;
+    const arr = pos.array;
+    for (let i = 0; i < arr.length; i++) {
+      if (!Number.isFinite(arr[i])) {
+        console.error('✗ NaN 几何体:', o.name || o.type, '父级:', o.parent?.name);
+        break;
+      }
+    }
+  });
+
   state.ready = true;
   initHud({
     state,

@@ -60,11 +60,12 @@ X → 东     Z → 南     Y → 上
 - 单座建筑的几何**按材质合并**（`mergeGeometries`），每建筑控制在 6~8 个 draw call。
 - 假山：全部合并成**一个** Mesh（`nature.js` 的 `buildRockery`）。
 - 树木：按树种 + 变体**实例化**（`trees.js`，5 树种 × 4 变体 × 枝干/树冠 两组 InstancedMesh）。
+- 游廊：全部合并成 4 个 Mesh（`corridor.js` 的 `buildCorridors`）。
 - 水面：全部合并成**一个** Mesh（水位烘进顶点）；驳岸同理。
 - 步道：全部合并成**一个** Mesh。
 - 院墙：分段贴地但**整院合并**成 2 个 Mesh（墙身 + 压顶）。
 - 改动后跑一次 `npm run dev`，看控制台里的 `draw calls` 与三角面数，
-  **当前基线：约 5.3M 三角面 / 346 draw calls。**
+  **当前基线：约 9.3M 三角面 / 2822 draw calls。**
   数量级突变要查清楚原因（合并丢失是最常见的原因）。
 
 ## 4.1 视觉保真度是硬要求
@@ -83,6 +84,18 @@ X → 东     Z → 南     Y → 上
 | 光照 | 有环境光（IBL），背光面不死黑 |
 
 新增构件时要问一句：**这个远看像不像真的？**
+
+## 4.2 素材来源（国内网络）
+
+| 用途 | 走哪条路 | 备注 |
+|---|---|---|
+| OSM 要素 | Overpass，多端点轮询 + 退避 | `out geom` 会超时，按要素类型拆查询 |
+| 地形高程 | AWS Terrain Tiles (Terrarium) | z=14，Terrarium 解码 |
+| 官方导览图 | `www.yuanmingyuanpark.cn` | 10016×5197，标全全部景区 |
+| 扩散模型权重 | **ModelScope**（22MB/s） | hf-mirror 只有 500KB/s 且 xet 后端 401 |
+| PyPI 包 | 清华源 | torch 2.15 + MPS 可用 |
+
+⚠ ModelScope 上的 `.bin` 是 torch zip 格式，**改名成 `.safetensors` 会加载失败**。
 
 ## 5. 构建期 vs 运行期
 

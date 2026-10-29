@@ -19,19 +19,25 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/**
+ * 模数（米）。以清式大式建筑的实际尺度为准：
+ *   坐斗底面 0.30 见方、总高 0.26；三跳累计出挑约 1.8m；
+ *   蚂蚱头/耍头再挑出约 0.55m；通高约 0.92m。
+ * 比例上"竖高 : 横长"约 1 : 2.6，这正是斗栱看起来的样子。
+ */
 const D = {
   zDouBottom: 0.3, // 坐斗斗底边长
-  zDouHeight: 0.24, // 坐斗总高
-  douEar: 0.07, // 斗耳高
-  douWaist: 0.08, // 斗腰高
+  zDouHeight: 0.26, // 坐斗总高
+  douEar: 0.075, // 斗耳高
+  douWaist: 0.09, // 斗腰高
   shiBaDou: 0.18, // 十八斗底边长
-  shiBaHeight: 0.14,
+  shiBaHeight: 0.16,
   sheng: 0.13, // 升底边长
   shengHeight: 0.1,
-  armSection: 0.16, // 翘/昂断面
-  armLength: 0.9, // 每跳水平出挑
-  angSlope: 0.34, // 昂的斜度（垂直/水平）
-  tiaoLength: 0.62, // 蚂蚱头/耍头挑出长
+  armSection: 0.2, // 翘/昂断面
+  armLength: 0.62, // 每跳水平出挑
+  angSlope: 0.22, // 昂的斜度（垂直/水平）
+  tiaoLength: 0.55, // 蚂蚱头/耍头挑出长
 };
 
 /** 方锥台：上小下大的斗（栌斗/十八斗/升） */
@@ -148,51 +154,54 @@ function makeShuaTou(len, section) {
 export function buildDougongSet(scale = 1, axis = 'x') {
   const parts = [];
   const s = scale;
+
+  // 所有尺寸先用**未缩放**的模数算好，最后统一乘 s。
+  // （早前在造构件时乘一次、装配时又乘一次，出挑会变成 s² 倍。）
   const P = (g, x, y, z) => {
     g.scale(s, s, s);
     g.translate(x * s, y * s, z * s);
     parts.push(g);
   };
 
-  const sec = D.armSection * s;
-  const jump = D.armLength * s;
+  const sec = D.armSection;
+  const jump = D.armLength;
 
   // 坐斗
-  const zdou = makeDou(D.zDouBottom * s, D.zDouHeight * s);
+  const zdou = makeDou(D.zDouBottom, D.zDouHeight);
   P(zdou, 0, 0, 0);
 
-  let y = D.zDouHeight * s;
+  let y = D.zDouHeight;
   let x = 0;
 
-  // 第一跳：昂（斜出）+ 其上十八斗
+  // 第一跳：昂（斜出）+ 昂上十八斗
   const ang = makeAng(jump, sec);
   P(ang, x, y + sec * 0.5, 0);
-  const angTipX = x + jump * s;
-  const angTipY = y + sec * 0.5 - jump * s * D.angSlope;
-  const sb1 = makeDou(D.shiBaDou * s, D.shiBaHeight * s);
-  P(sb1, angTipX - D.shiBaBottom * 0.3 * s, angTipY + D.shiBaHeight * 0.5 * s, 0);
+  const angTipX = x + jump;
+  const angTipY = y + sec * 0.5 - jump * D.angSlope;
+  const sb1 = makeDou(D.shiBaDou, D.shiBaHeight);
+  P(sb1, angTipX - D.shiBaDou * 0.3, angTipY + D.shiBaHeight * 0.5, 0);
 
   // 第二跳：翘（平出）
-  y = angTipY + D.shiBaHeight * s + sec * 0.5;
-  x = angTipX - D.shiBaBottom * 0.3 * s;
+  y = angTipY + D.shiBaHeight + sec * 0.5;
+  x = angTipX - D.shiBaDou * 0.3;
   const qiao2 = makeQiao(jump, sec);
   P(qiao2, x, y, 0);
-  const t2x = x + jump * s;
-  const sb2 = makeDou(D.shiBaDou * s, D.shiBaHeight * s);
-  P(sb2, t2x - D.shiBaBottom * 0.3 * s, y + D.shiBaHeight * 0.5 * s, 0);
+  const t2x = x + jump;
+  const sb2 = makeDou(D.shiBaDou, D.shiBaHeight);
+  P(sb2, t2x - D.shiBaDou * 0.3, y + D.shiBaHeight * 0.5, 0);
 
   // 第三跳：翘
-  y = y + D.shiBaHeight * s + sec * 0.5;
-  x = t2x - D.shiBaBottom * 0.3 * s;
+  y = y + D.shiBaHeight + sec * 0.5;
+  x = t2x - D.shiBaDou * 0.3;
   const qiao3 = makeQiao(jump * 0.92, sec);
   P(qiao3, x, y, 0);
-  const t3x = x + jump * 0.92 * s;
+  const t3x = x + jump * 0.92;
 
   // 最上层：蚂蚱头 + 耍头
-  const mzt = makeMaZhaTou(D.tiaoLength * s, sec);
+  const mzt = makeMaZhaTou(D.tiaoLength, sec);
   P(mzt, t3x, y + sec * 0.5, 0);
-  const st = makeShuaTou(D.tiaoLength * 0.85 * s, sec);
-  P(st, t3x + D.tiaoLength * 0.5 * s, y + sec * 0.5, 0);
+  const st = makeShuaTou(D.tiaoLength * 0.85, sec);
+  P(st, t3x + D.tiaoLength * 0.5, y + sec * 0.5, 0);
 
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
@@ -200,12 +209,20 @@ export function buildDougongSet(scale = 1, axis = 'x') {
   return merged;
 }
 
-/** 斗栱的总出挑（用于让屋檐出挑与斗栱对齐） */
+/** 斗栱的总出挑（含蚂蚱头/耍头），用于让屋檐出挑与斗栱对齐 */
 export function dougongProjection(scale = 1) {
-  return (D.armLength * 2.2 + D.tiaoLength * 0.5) * scale;
+  return (D.armLength * 2.92 + D.tiaoLength * 1.25) * scale;
 }
 
-/** 斗栱总高（约 1.25m，与清式大式建筑相符） */
+/** 斗栱总高（按实际堆叠高度算出，不写死） */
 export function dougongHeight(scale = 1) {
-  return 1.25 * scale;
+  const sec = D.armSection;
+  const jump = D.armLength;
+  const drop = jump * D.angSlope;
+  // 坐斗顶 → 昂中 → 昂端（十八斗底）→ 翘 → 翘端（十八斗底）→ 翘 → 蚂蚱头顶
+  const y1 = D.zDouHeight + sec * 0.5 - drop * 0.5;
+  const y2 = y1 + D.shiBaHeight + sec * 0.5;
+  const y3 = y2 + D.shiBaHeight + sec * 0.5;
+  const top = y3 + sec * 1.05;
+  return top * scale;
 }
