@@ -45,7 +45,7 @@ export const TILE_COLORS = {
   jinbi: { glazed: true,  color: '#c09a2c' }, // 金碧二色琉璃
   // 五色琉璃（红紫孔雀蓝粉天青）：整片屋顶做成单色会失真，
   // 取其中最中性的孔雀蓝作主体，宝顶用金色，五色感由脊饰与斗栱彩画承担。
-  wuse:  { glazed: true,  color: '#2f7d8c' },
+  wuse:  { glazed: true,  color: '#256a72' },
 };
 
 export const SCENE_PROGRAM = {

@@ -48,7 +48,9 @@ X → 东     Z → 南     Y → 上
 | 要改什么 | 去哪 |
 |---|---|
 | 某个景的建筑形制 / 解说词 | `src/scene/scenes-program.js` |
-| 屋顶形式、举折、翼角 | `src/scene/buildings/parts/roof.js` |
+| **某景的开间/屋顶/瓦色从哪来** | `data/research/architecture-notes.md`（考据摘录，逐条对应） |
+| 屋顶形式、举折、翼角、重檐、卷棚歇山 | `src/scene/buildings/parts/roof.js` |
+| 瓦色制度（黄/绿/孔雀绿/蓝/红琉璃…） | `src/scene/scenes-program.js` 的 `TILE_COLORS` |
 | 台基柱网额枋斗栱墙体 | `src/scene/buildings/parts/structure.js` |
 | 贴图（瓦垄/彩画/棂心/砖石） | `src/scene/buildings/textures.js` |
 | 取数范围、坐标原点 | `scripts/config.mjs` |
@@ -57,7 +59,9 @@ X → 东     Z → 南     Y → 上
 
 ## 4. 性能底线
 
-- 单座建筑的几何**按材质合并**（`mergeGeometries`），每建筑控制在 6~8 个 draw call。
+- 单座建筑的几何**按材质合并**（`mergeGeometries`），每建筑控制在 6~8 个 draw call；
+- **整景再合并一次**（`src/scene/buildings/merge.js`），否则建筑一多 draw calls 就线性膨胀
+  （实测不加这层合并：287 座建筑 → 2354 draw calls；加了 → 486）。
 - 假山：全部合并成**一个** Mesh（`nature.js` 的 `buildRockery`）。
 - 树木：按树种 + 变体**实例化**（`trees.js`，5 树种 × 4 变体 × 枝干/树冠 两组 InstancedMesh）。
 - 游廊：全部合并成 4 个 Mesh（`corridor.js` 的 `buildCorridors`）。
@@ -65,7 +69,8 @@ X → 东     Z → 南     Y → 上
 - 步道：全部合并成**一个** Mesh。
 - 院墙：分段贴地但**整院合并**成 2 个 Mesh（墙身 + 压顶）。
 - 改动后跑一次 `npm run dev`，看控制台里的 `draw calls` 与三角面数，
-  **当前基线：约 10.9M 三角面 / 410 draw calls；场景构建约 9~15s。**
+  **当前基线：约 11.0M 三角面 / 486 draw calls；场景构建约 15~20s；
+  建筑 287 座（41 景 × 5~9 座，含考据实记的有名附属建筑）。**
   数量级突变要查清楚原因（合并丢失是最常见的原因）。
 
 ## 4.1 视觉保真度是硬要求

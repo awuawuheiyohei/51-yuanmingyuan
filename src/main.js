@@ -333,7 +333,8 @@ async function loadScene() {
   controls.update();
 
   // 调试视角：?view=top 俯视全景 / ?view=scene 贴近正大光明
-  const view = new URLSearchParams(location.search).get('view');
+  const q = new URLSearchParams(location.search);
+  const view = q.get('view');
   if (view === 'top') {
     // 以园界包围盒中心为俯视中心
     let minX = Infinity;
@@ -356,7 +357,6 @@ async function loadScene() {
     controls.update();
   } else if (view === 'scene' || view === 'close') {
     // ?view=scene&name=<景名> 看某一景；?view=close&name=<景名> 更近的正面
-    const q = new URLSearchParams(location.search);
     const s = byName(q.get('name') || '正大光明');
     if (s) {
       const close = view === 'close';
@@ -365,6 +365,15 @@ async function loadScene() {
       // 从南面看正殿正面（隔扇门所在面）
       camera.position.set(s.x - (close ? 18 : 44), heightAt(s.x, s.z) + high, s.z + dist);
       controls.target.set(s.x, heightAt(s.x, s.z) + (close ? 9 : 12), s.z);
+      controls.update();
+    }
+  } else if (view === 'plan' && q.get('name')) {
+    // 正投影俯看某一景：查平面形制（卍字/田字这类）用
+    const s = byName(q.get('name'));
+    if (s) {
+      const h = heightAt(s.x, s.z);
+      camera.position.set(s.x, h + 90, s.z + 0.01);
+      controls.target.set(s.x, h, s.z);
       controls.update();
     }
   } else if (view === 'garden') {

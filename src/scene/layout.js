@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
 import { mergeGroupByMaterial } from './buildings/merge.js';
+import { stoneMaterial } from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM } from './scenes-program.js';
@@ -33,9 +34,50 @@ function pointInRing(x, z, ring) {
 }
 
 /**
+ * 特殊平面（考据实记）
+ *
+ * - **万方安和**：平面呈"卍"字型房屋，共三十三间，建筑基础筑在水底。
+ * - **澹泊宁静**：主体建筑为"田"字形殿。
+ *
+ * 屋面生成器按矩形轮廓工作，做不出折线平面；这里用若干矩形体量拼出轮廓，
+ * 各体量共用檐高与瓦色，视觉上是一座复合建筑。
+ * 体量划分是**推定**（考据只说平面形状，没给开间分配）。
+ */
+const PLAN_PARTS = {
+  // 田字：中心方殿 + 四向翼
+  tian: (w, d) => {
+    const aw = w * 0.3;
+    const ad = d * 0.3;
+    return [
+      { dx: 0, dz: 0, w: w * 0.62, d: d * 0.62 },
+      { dx: 0, dz: -d * 0.31, w: aw, d: ad },
+      { dx: 0, dz: d * 0.31, w: aw, d: ad },
+      { dx: -w * 0.31, dz: 0, w: aw, d: ad },
+      { dx: w * 0.31, dz: 0, w: aw, d: ad },
+    ];
+  },
+  // 卍字：中心方殿 + 四条折向的臂
+  wan: (w, d) => {
+    const aw = w * 0.26;
+    const ad = d * 0.26;
+    return [
+      { dx: 0, dz: 0, w: w * 0.5, d: d * 0.5 },
+      { dx: 0, dz: -d * 0.28, w: aw, d: ad },
+      { dx: -w * 0.13, dz: -d * 0.44, w: aw, d: ad },
+      { dx: 0, dz: d * 0.28, w: aw, d: ad },
+      { dx: w * 0.13, dz: d * 0.44, w: aw, d: ad },
+      { dx: -w * 0.28, dz: 0, w: aw, d: ad },
+      { dx: -w * 0.44, dz: -d * 0.13, w: aw, d: ad },
+      { dx: w * 0.28, dz: 0, w: aw, d: ad },
+      { dx: w * 0.44, dz: d * 0.13, w: aw, d: ad },
+    ];
+  },
+};
+
+/**
  * 四十景聚落：严格按《scenes-program.js》的逐景考证配置生成
  *
- * 主建筑形制取自 program.main（开间/进深/屋顶/彩画/台基/檐高），
+ * 主建筑形制取自 program.main（开间/进深/屋顶/彩画/台基/檐高/瓦色），
  * 配建筑群按 program.aux 的方位摆放，院落围墙按主建筑尺度围合。
  */
 function buildSceneCluster(scene, heightAt, rnd) {
@@ -66,30 +108,70 @@ function buildSceneCluster(scene, heightAt, rnd) {
   const bayD = m.jin * 3.3; // 进深
   const platformH =
     m.platform === 'xumizuo' ? 1.8 : m.platform === 'simple' ? 1.0 : 0;
-  place(
-    {
-      rank: program.rank,
-      width: bayW,
-      depth: bayD,
-      mian: m.mian,
-      jin: m.jin,
-      platformH,
-      platform: m.platform,
-      eaveY: platformH + m.eave,
-      roof: m.roof,
-      caihua: m.caihua,
-      tile: m.tile,
-      doubleEave: !!m.doubleEave,
-      plan: m.plan,
-      circular: !!m.circular,
-      doors: centerDoors(m.mian),
-      caojing: m.mian >= 5,
-      rise: Math.max(2.0, bayW * 0.26),
-    },
-    0,
-    0,
-    0
-  );
+
+  const mainSpec = {
+    rank: program.rank,
+    width: bayW,
+    depth: bayD,
+    mian: m.mian,
+    jin: m.jin,
+    platformH,
+    platform: m.platform,
+    eaveY: platformH + m.eave,
+    roof: m.roof,
+    caihua: m.caihua,
+    tile: m.tile,
+    doubleEave: !!m.doubleEave,
+    circular: !!m.circular,
+    doors: centerDoors(m.mian),
+    caojing: m.mian >= 5,
+    rise: Math.max(2.0, bayW * 0.26),
+  };
+
+  if (m.plan && PLAN_PARTS[m.plan]) {
+    // 特殊平面（万方安和"卍"字、澹泊宁静"田"字）：
+    // 考据实记的平面形制，用若干体量拼出平面轮廓，各体量共用檐高。
+    const parts = PLAN_PARTS[m.plan](bayW, bayD);
+    let extW = 0;
+    let extD = 0;
+    for (const p of parts) {
+      extW = Math.max(extW, Math.abs(p.dx) + p.w / 2);
+      extD = Math.max(extD, Math.abs(p.dz) + p.d / 2);
+      const pm = Math.max(1, Math.round(p.w / 3.6));
+      const pj = Math.max(1, Math.round(p.d / 3.3));
+      place(
+        {
+          ...mainSpec,
+          width: p.w,
+          depth: p.d,
+          mian: pm,
+          jin: pj,
+          platform: 'none',
+          platformH: 0,
+          eaveY: platformH + m.eave,
+          doors: centerDoors(pm),
+          caojing: pm >= 5,
+          rise: Math.max(1.6, p.w * 0.26),
+        },
+        p.dx,
+        p.dz,
+        0
+      );
+    }
+    // 整座建筑共用一个台基（万方安和"基础筑在水底"）
+    if (platformH > 0.05) {
+      const g = new THREE.BoxGeometry(extW * 2 + 2.6, platformH, extD * 2 + 2.6);
+      const y = heightAt(scene.x, scene.z);
+      g.translate(scene.x, y + platformH / 2, scene.z);
+      const mesh = new THREE.Mesh(g, stoneMaterial());
+      mesh.name = 'stone';
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  } else {
+    place(mainSpec, 0, 0, 0);
+  }
 
   /* ---- 配建筑群 ---- */
   for (const a of program.aux || []) {

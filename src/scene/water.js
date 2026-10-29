@@ -19,11 +19,13 @@ function rippleNormalTexture() {
       const dx =
         Math.cos(u * 2 + v * 0.9) * 0.35 +
         Math.cos(u * 5.3 - v * 3.7 + 1.2) * 0.16 +
-        Math.cos(u * 9.1 + v * 7.4) * 0.07;
+        Math.cos(u * 9.1 + v * 7.4) * 0.07 +
+        Math.cos(u * 13.7 - v * 11.1 + 2.4) * 0.035;
       const dy =
         Math.sin(v * 2 - u * 0.7) * 0.35 +
         Math.sin(v * 4.7 + u * 3.1 + 0.7) * 0.16 +
-        Math.sin(v * 8.3 - u * 6.9) * 0.07;
+        Math.sin(v * 8.3 - u * 6.9) * 0.07 +
+        Math.sin(v * 12.1 + u * 9.7) * 0.035;
       const len = Math.hypot(dx, dy, 1);
       const i = (y * S + x) * 4;
       img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
@@ -48,17 +50,18 @@ export function buildWater(sceneData) {
   normalMap.repeat.set(1 / 3.5, 1 / 3.5);
 
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x1d5c68,
-    roughness: 0.09,
+    color: 0x14454f,
+    roughness: 0.15,
     metalness: 0.0,
     transparent: true,
     opacity: 0.965,
     normalMap,
-    normalScale: new THREE.Vector2(0.07, 0.07),
+    // 波纹必须看得见：0.07 时水面就是一块平涂色板。
+    normalScale: new THREE.Vector2(0.38, 0.38),
     side: THREE.DoubleSide,
-    envMapIntensity: 1.05,
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.1,
+    envMapIntensity: 0.9,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.08,
     // 多片水面交界处共面，用 polygonOffset 避免 z-fighting
     polygonOffset: true,
     polygonOffsetFactor: -1,

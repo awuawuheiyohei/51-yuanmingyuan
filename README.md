@@ -35,7 +35,17 @@ HF_HUB_DISABLE_XET=1 .venv-ai/bin/python scripts/gen-textures.py
 
 首次拉取后，`data/raw/` 已缓存全部原始数据，之后 `npm run scene && npm run dev` 即可离线重建。
 
-调试视角：`?view=top`（全园俯视）、`?view=scene`（正大光明正面）。
+调试视角：
+
+| 视角 | 用途 |
+|---|---|
+| `?view=top` | 全园俯视（查平面关系） |
+| `?view=scene` | 正大光明正面 |
+| `?view=scene&name=<景名>` | 换成其它景（四十景名，见 `scenes-program.js`） |
+| `?view=close&name=<景名>` | 该景近景（查构件细节） |
+| `?view=plan&name=<景名>` | 该景正俯视（查平面形制，如卍字/田字） |
+| `?view=garden` | 福海西岸望对岸 |
+
 俯视诊断图：`python3 scripts/plan-view.py && ffmpeg -i public/scene/plan.ppm public/scene/plan.png`。
 
 ## 目录
@@ -52,6 +62,8 @@ scripts/          构建期（Node ESM，无框架）
   plan-view.py    俯视诊断图（核对布局用）
 data/
   guide-georef.json  官方导览图 → 经纬度的配准参数与控制点
+  research/
+    architecture-notes.md  ★ 建筑形制考据摘录（每景开间/屋顶/瓦色/附属建筑）
 src/
   main.js         应用入口：渲染器/天空/光照/相机循环
   scene/
@@ -62,7 +74,8 @@ src/
     ground.js     草土地面贴图 + OSM 步道 + 水岸驳岸
     layout.js     装配：现状建筑 + 四十景聚落 + 西洋楼
     western.js    西洋楼欧式建筑与大水法喷泉群
-    scenes-program.js  ★ 逐景考证配置表
+    scenes-program.js  ★ 逐景考证配置表（含瓦色制度与特殊平面）
+    buildings/merge.js  按材质整景合并几何（控制 draw call）
     camera-tour.js 一镜到底巡游样条
     buildings/    明清官式建筑参数化生成器
       parts/roof.js      举折曲面 / 翼角起翘 / 各式屋顶 / **真瓦作**（筒瓦·瓦当·滴水·椽头）
@@ -85,8 +98,9 @@ src/
 | 水面（138 公顷） | OSM `natural=water` + relation | 高 |
 | 现状建筑轮廓 | OSM `building` | 高（限三园核心范围内） |
 | 高程 | AWS Terrain Tiles z=14 | 中（10m 级，园内本为平地） |
+| **各景开间 / 屋顶 / 瓦色 / 有名附属建筑** | **维基百科「圆明园」条目「圆明园四十景」「西洋楼园林规划」两节**（摘录见 `data/research/architecture-notes.md`） | **中高**（逐条实记，含"正大光明用灰瓦""鸿慈永祜黄琉璃瓦重檐歇山顶"等） |
 | 四十景解说词 | 参考视频《圆明园…一镜到底数字复原》画面内文字 | 二手（视频自述参照四十景图与西洋楼透视图） |
-| 各景建筑数量与尺度 | 依据解说词与官式等级推定 | **参考级，非测绘** |
+| 各景建筑**数量**与**尺寸** | 考据只给开间数与有名建筑；其余按清式模数与等级推定 | **参考级，非测绘** |
 
 ### 官方导览图配准
 
@@ -120,6 +134,16 @@ src/
   远瀛观在大水法正北，泽兰堂、转湘帆在大水法东南
 - 三园核心范围实测 **东西 2361m × 南北 1672m**
 
+### 建筑形制的考据边界
+
+- **开间数、屋顶形式、瓦色、有名附属建筑**：来自维基百科条目逐条实记，
+  逐条摘录在 `data/research/architecture-notes.md`，场景里每个字段都能对回去。
+- **尺寸**：考据只给开间数不给尺寸，尺寸按清式模数推定（面阔 3.6m/间等），
+  推定规则登记在 research 文件第四节。
+- **建筑数量**：考据只点名了部分建筑，其余数量仍是推定。
+- **特殊平面**：万方安和"卍"字、澹泊宁静"田"字为考据实记；
+  拆分方式（各体量的开间分配）为推定。
+
 ⚠ 官方"数字圆明园"项目（2009 年起，2000+ 建筑模型）不开源，
 本项目的官式建筑全部由参数化生成器按清式做法重建，不等同样式雷图复原。
 
@@ -130,7 +154,8 @@ src/
 2. **改动建筑生成器**后不需要重跑 `npm run fetch`，但需要 `npm run scene`
    （场景数据含逐景配置与假山/树木布局）。
 3. **贴图全部程序化生成**（`textures.js`），不要引入外部素材文件。
-4. **建筑几何按材质合并**（`mergeGeometries`），保持每建筑 6~8 个 draw call。
+4. **建筑几何按材质合并**（`mergeGeometries`），保持每建筑 6~8 个 draw call；
+   **整景再合并一次**（`buildings/merge.js`），使一景只出 6~8 个 draw call。
    新增构件时放进对应的材质桶，不要单独建 Mesh。
 5. **假山与树木一次性合并/实例化**，不要为每座假山单独建 Mesh。
 6. 新增景点：在 `src/scene/scenes-program.js` 加配置，

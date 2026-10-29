@@ -313,7 +313,7 @@ export function buildRevetment(sceneData, heightAt) {
   if (!parts.length) return group;
 
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x9d968a,
+    color: 0x8a8377,
     roughness: 0.95,
     side: THREE.DoubleSide,
   });

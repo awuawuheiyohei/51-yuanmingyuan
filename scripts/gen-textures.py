@@ -89,12 +89,18 @@ MATERIALS = {
     },
     "grass": {
         "prompt": (
-            "seamless texture of an old imperial Chinese garden lawn, "
-            "mixed green and dry yellow grass, clover, moss patches, bare soil, "
+            "seamless tileable texture of an untended natural meadow, "
+            "irregular mottled patches of green grass, dry straw-colored grass, "
+            "clover, moss and small bare soil patches, uneven random pattern, "
             "flat even lighting, top-down orthographic, "
             "photorealistic ground material, no shadows, high detail"
         ),
-        "negative": "people, buildings, sky, perspective, vignette, blur, text, watermark",
+        # 负向里必须压掉"割草条纹"：SD 很爱给草地加修剪纹，
+        # 一张带斜条纹的贴图平铺到全园就是一片灯芯绒。
+        "negative": (
+            "people, buildings, sky, perspective, vignette, blur, text, watermark, "
+            "stripes, mowing pattern, lines, rows, symmetry, repeating pattern"
+        ),
         "steps": 32,
     },
 }
