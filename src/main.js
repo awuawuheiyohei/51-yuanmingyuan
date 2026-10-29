@@ -123,8 +123,11 @@ sun.shadow.camera.left = -SHADOW_SPAN;
 sun.shadow.camera.right = SHADOW_SPAN;
 sun.shadow.camera.top = SHADOW_SPAN;
 sun.shadow.camera.bottom = -SHADOW_SPAN;
-sun.shadow.bias = -0.0006;
-sun.shadow.normalBias = 0.45;
+sun.shadow.bias = -0.0004;
+// normalBias 必须与阴影贴图的实际分辨率匹配：阴影相机跨度 400m / 4096 texels
+// ≈ 0.1m 一个 texel，而筒瓦半径只有 0.115m。偏置取 0.45m 会把瓦管整个
+// 推出自己的阴影范围，瓦沟里就是死黑一片。
+sun.shadow.normalBias = 0.12;
 sun.shadow.radius = 2;
 scene.add(sun);
 scene.add(sun.target);

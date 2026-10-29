@@ -50,8 +50,8 @@ export function buildWater(sceneData) {
   normalMap.repeat.set(1 / 3.5, 1 / 3.5);
 
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x14454f,
-    roughness: 0.15,
+    color: 0x0f3b45,
+    roughness: 0.26,
     metalness: 0.0,
     transparent: true,
     opacity: 0.965,
@@ -59,8 +59,8 @@ export function buildWater(sceneData) {
     // 波纹必须看得见：0.07 时水面就是一块平涂色板。
     normalScale: new THREE.Vector2(0.38, 0.38),
     side: THREE.DoubleSide,
-    envMapIntensity: 0.9,
-    clearcoat: 0.5,
+    envMapIntensity: 0.45,
+    clearcoat: 0.35,
     clearcoatRoughness: 0.08,
     // 多片水面交界处共面，用 polygonOffset 避免 z-fighting
     polygonOffset: true,
