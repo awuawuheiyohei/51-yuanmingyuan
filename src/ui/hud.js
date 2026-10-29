@@ -1,6 +1,11 @@
 /**
  * HUD：景点列表、镜头控制、时段调节、说明面板
  */
+import { SCENE_ORDER } from '../scene/scenes-program.js';
+
+/** 非四十景的景点（接在四十景之后） */
+const EXTRA_ORDER = ['福海', '西洋楼', '绮春园'];
+
 export function initHud(ctx) {
   const { state, sceneData, controls, tour, onTimeChange, onFocusScene, onShot } = ctx;
 
@@ -9,18 +14,15 @@ export function initHud(ctx) {
   /* ---------- 景点列表 ---------- */
   const list = el('scene-list');
   const scenes = (sceneData.scenes || []).filter((s) => s.name);
-  const ordered = [
-    '正大光明', '勤政亲贤', '九洲清晏', '镂月开云', '天然图画', '碧桐书院',
-    '慈云普护', '上下天光', '坦坦荡荡', '茹古涵今', '廓然大公', '坐石临流',
-    '夹镜鸣琴', '鸿慈永祜', '武陵春色', '濂溪乐处', '多稼如云', '淡泊宁静',
-    '映水兰香', '杏花春馆', '山高水长', '月地云居', '汇芳书院', '方壶胜境',
-    '蓬岛瑶台', '平湖秋月', '洞天深处', '万方安和', '日光琳宇', '水流云在',
-    '北远山村', '福海', '西洋楼',
-  ];
-  const sorted = [...scenes].sort(
-    (a, b) =>
-      ordered.indexOf(a.name) - ordered.indexOf(b.name)
-  );
+  // 顺序取自 scenes-program.js 的 SCENE_ORDER（四十景的唯一真源），
+  // 另有福海、西洋楼等非四十景的景点接在后面。
+  const rank = (name) => {
+    const i = SCENE_ORDER.indexOf(name);
+    if (i >= 0) return i;
+    const j = EXTRA_ORDER.indexOf(name);
+    return SCENE_ORDER.length + (j >= 0 ? j : EXTRA_ORDER.length);
+  };
+  const sorted = [...scenes].sort((a, b) => rank(a.name) - rank(b.name));
   for (const s of sorted) {
     const li = document.createElement('button');
     li.className = 'scene-item';
