@@ -379,6 +379,20 @@ async function loadScene() {
       controls.target.set(s.x, h, s.z);
       controls.update();
     }
+  } else if (view === 'at' && q.get('x') != null) {
+    // 任意点：?view=at&x=<局部x>&z=<局部z>&h=<相机高>&d=<距离>
+    const x = Number(q.get('x'));
+    const z = Number(q.get('z'));
+    const h = Number(q.get('h') || 12);
+    const d = Number(q.get('d') || 60);
+    const yaw = Number(q.get('yaw') || 0);
+    camera.position.set(
+      x + Math.sin(yaw) * d,
+      heightAt(x, z) + h,
+      z + Math.cos(yaw) * d
+    );
+    controls.target.set(x, heightAt(x, z) + h * 0.3, z);
+    controls.update();
   } else if (view === 'garden') {
     // 园中景：站在福海西岸看整片水面与对岸建筑
     const s = byName('福海');

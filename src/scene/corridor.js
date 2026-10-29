@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { roofMaterial } from './buildings/materials.js';
 
 const CORRIDOR = {
   width: 2.7,
@@ -41,7 +42,8 @@ export function buildCorridors(sceneData, heightAt) {
 
   const mats = {
     column: new THREE.MeshStandardMaterial({ color: 0x9c3327, roughness: 0.7 }),
-    roof: new THREE.MeshStandardMaterial({ color: 0x5f6266, roughness: 0.9 }),
+    // 游廊屋面复用官式建筑的瓦材质：瓦垄靠贴图，几何只出双坡
+    roof: roofMaterial(false),
     wood: new THREE.MeshStandardMaterial({ color: 0x6b4426, roughness: 0.85 }),
     stone: new THREE.MeshStandardMaterial({ color: 0xa9a396, roughness: 0.95 }),
   };
@@ -177,6 +179,12 @@ function buildCorridorRoof(pts, heightAt) {
   const uvs = [];
   const idx = [];
 
+  // UV 与瓦贴图布局对齐（贴图横向 6 垄、纵向 6 层瓦当）：
+  // u 沿廊子方向 → 一循环 6 垄 = 2.52m；v 沿坡向 → 一循环 6 层 = 1.5m。
+  // 之前 u 是 i*0.5，一张贴图被拉到十几米长，瓦垄糊成一片。
+  const U_PER_M = 1 / 2.52;
+  const V_PER_M = 1 / 1.5;
+  let run = 0;
   for (let i = 0; i < pts.length; i++) {
     const [x, z] = pts[i];
     const prev = pts[Math.max(0, i - 1)];
@@ -190,11 +198,15 @@ function buildCorridorRoof(pts, heightAt) {
     const nz = dx;
     const y = (heightAt?.(x, z) ?? 0) + 0.16 + CORRIDOR.colH + 0.6;
     const over = 0.85; // 出檐
+    if (i > 0) {
+      run += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
+    }
+    const u = run * U_PER_M;
+    const slope = Math.hypot(half + over, rise); // 檐口到脊的坡长
     verts.push(x + nx * (half + over), y, z + nz * (half + over));
     verts.push(x, y + rise, z);
     verts.push(x - nx * (half + over), y, z - nz * (half + over));
-    const v = i * 0.5;
-    uvs.push(v, 0, v, 0.5, v, 1);
+    uvs.push(u, 0, u, slope * V_PER_M * 0.5, u, slope * V_PER_M);
   }
   for (let i = 0; i < pts.length - 1; i++) {
     const a = i * 3;
