@@ -1,0 +1,22 @@
+{
+  "name": "51-yuanmingyuan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "本地 3D 圆明园复原 —— 真实地理骨架 + 参数化明清官式建筑",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "fetch": "node scripts/fetch-osm.mjs && node scripts/fetch-dem.mjs && node scripts/fetch-guide.mjs",
+    "scene": "node scripts/build-scene.mjs",
+    "setup": "npm install && npm run fetch && npm run scene"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "vite": "^6.0.0"
+  }
+}
