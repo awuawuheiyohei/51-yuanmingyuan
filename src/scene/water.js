@@ -59,6 +59,10 @@ export function buildWater(sceneData) {
     envMapIntensity: 1.05,
     clearcoat: 0.45,
     clearcoatRoughness: 0.1,
+    // 多片水面交界处共面，用 polygonOffset 避免 z-fighting
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
   // 所有水面合并成一个 Mesh：各自的水位烘进顶点位置

@@ -49,6 +49,40 @@ function smoothstep(a, b, x) {
  * @returns {{ geoms: Map<string, THREE.BufferGeometry[]>, meta: object }}
  */
 export function buildRoof(spec) {
+  const { doubleEave, ...rest } = spec;
+  if (!doubleEave) return buildRoofCore(rest);
+
+  /* ---- 重檐（清式"重檐歇山"）：下檐（腰檐）一圈 + 上檐 ---- */
+  const geoms = new Map();
+  const inset = Math.max(1.1, Math.min(2.4, Math.min(rest.width, rest.depth) * 0.085));
+  const lowerRise = spec.lowerRise ?? Math.max(0.9, (rest.rise ?? 3) * 0.3);
+  const Wx = rest.width / 2 + (rest.overhang ?? 1.3);
+  const Wz = rest.depth / 2 + (rest.overhang ?? 1.3);
+
+  const lower = buildLowerEave(Wx, Wz, rest.eaveY, lowerRise, inset);
+  const upper = buildRoofCore({
+    ...rest,
+    width: rest.width - 2 * inset,
+    depth: rest.depth - 2 * inset,
+    eaveY: rest.eaveY + lowerRise,
+    rise: Math.max(1.4, (rest.rise ?? 3) - lowerRise),
+  });
+
+  for (const src of [lower, upper]) {
+    for (const [k, list] of src.geoms) {
+      if (!geoms.has(k)) geoms.set(k, []);
+      geoms.get(k).push(...list);
+    }
+  }
+  return { geoms, meta: { ...upper.meta, doubleEave: true, lowerEaveY: rest.eaveY } };
+}
+
+/**
+ * 屋面核心：单层屋面的完整几何（屋面 + 瓦作 + 山花/山墙 + 屋脊 + 檐口）。
+ * @param {RoofSpec} spec
+ * @param {Map<string, THREE.BufferGeometry[]>} [geomsIn] 复用已有材质桶
+ */
+function buildRoofCore(spec, geomsIn) {
   const {
     width,
     depth,
@@ -64,7 +98,7 @@ export function buildRoof(spec) {
     segments = 1,
   } = spec;
 
-  const geoms = new Map();
+  const geoms = geomsIn || new Map();
   const push = (key, g) => {
     if (!geoms.has(key)) geoms.set(key, []);
     geoms.get(key).push(g);
@@ -78,12 +112,15 @@ export function buildRoof(spec) {
   let xh; // 硬山/悬山：脊沿 X 贯通；庑殿：按 45° 斜脊收进
   if (type === 'wudian') xh = Math.max(0, Wx - Wz);
   else if (type === 'zanjiandian') xh = 0;
-  else if (type === 'xieshan') xh = Math.max(0.5, Wx - hipRunX);
+  else if (type === 'xieshan' || type === 'juanpengxieshan')
+    xh = Math.max(0.5, Wx - hipRunX);
   else if (type === 'yingshan') xh = width / 2;
   else xh = Wx; // 悬山 / 卷棚
 
   // 歇山的折线高度与折线半深
-  const yBreak = eaveY + rise * 0.42;
+  // 折线（山花底边）的高度必须与上下两段屋面在折线处接得上，
+  // 否则屋面在折线处会多出一道竖直台阶——远看就是一条黑带。
+  const yBreak = eaveY + rise * 0.58;
   const tBreak = Math.pow(0.42, 1 / P_CURVE); // 使 fold(tBreak)=0.42
   const zBreak = Wz * tBreak;
 
@@ -110,18 +147,33 @@ export function buildRoof(spec) {
     if (type === 'xieshan') {
       // 上部：山面之上的悬山段（|z| ≤ zBreak，|x| ≤ xh）
       // 下部：庑殿段
+      // 两段在折线处必须都等于 yBreak，否则接缝处会裂出一道竖直台阶。
       if (az <= zBreak) {
         if (ax <= xh) {
-          return ridgeY - rise * fold(az / zBreak);
+          return ridgeY - (ridgeY - yBreak) * fold(az / zBreak);
         }
         return null; // 山花区域：竖直面，稍后单独生成
       }
       const u = Math.max(0, ax - xh);
       const tz = (az - zBreak) / (Wz - zBreak);
-      const gLower = (1 - fold(tz)) * (1 - Math.min(1, u / hipRunX));
-      // 与上部衔接：|z|=zBreak 处必须等于 yBreak
       const base = yBreak - (yBreak - eaveY) * fold(tz);
-      return base * (0.5 + 0.5 * (1 - Math.min(1, u / hipRunX))) + (1 - (1 - Math.min(1, u / hipRunX))) * ridgeY * 0;
+      return base * (0.5 + 0.5 * (1 - Math.min(1, u / hipRunX)));
+    }
+
+    if (type === 'juanpengxieshan') {
+      // 卷棚歇山：下部同庑殿（斜脊收进），上部为卷棚——脊两端圆缓卷落，
+      // 没有歇山的竖直山花面。
+      if (az <= zBreak) {
+        const y = ridgeY - (ridgeY - yBreak) * fold(az / zBreak);
+        const span = Math.max(1.0, Wx - xh);
+        const u = Math.min(1, Math.max(0, (ax - xh) / span));
+        const k = 1 - smoothstep(0, 1, u);
+        return eaveY + (y - eaveY) * k;
+      }
+      const u = Math.max(0, ax - xh);
+      const tz = (az - zBreak) / (Wz - zBreak);
+      const base = yBreak - (yBreak - eaveY) * fold(tz);
+      return base * (0.5 + 0.5 * (1 - Math.min(1, u / hipRunX)));
     }
 
     // 庑殿 / 悬山 / 硬山 / 卷棚
@@ -367,6 +419,18 @@ export function buildRoof(spec) {
       pts.push(new THREE.Vector3(x, y, 0));
     }
     ridges.push({ kind: 'roll', pts });
+  } else if (type === 'juanpengxieshan') {
+    // 卷棚歇山：圆缓的卷棚脊（两端略垂，中段微拱）
+    const pts = [];
+    const N = 18;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const x = -xh + 2 * xh * t;
+      const dip = Math.pow(Math.abs(2 * t - 1), 2.4);
+      const y = ridgeY - rise * 0.055 * dip + rise * 0.012 * Math.sin(t * Math.PI);
+      pts.push(new THREE.Vector3(x, y, 0));
+    }
+    ridges.push({ kind: 'roll', pts });
   } else if (type === 'zanjiandian') {
     ridges.push({ kind: 'finial', apex: new THREE.Vector3(0, eaveY + rise, 0) });
   }
@@ -381,7 +445,7 @@ export function buildRoof(spec) {
         });
       }
     }
-  } else if (type === 'xieshan') {
+  } else if (type === 'xieshan' || type === 'juanpengxieshan') {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         ridges.push({
@@ -448,6 +512,148 @@ export function buildRoof(spec) {
     geoms,
     meta: { Wx, Wz, ridgeY, eaveY, xh, zBreak, yBreak, type },
   };
+}
+
+/**
+ * 重檐建筑的下檐（腰檐）。
+ *
+ * 形制：外圈矩形檐口 → 内圈矩形（上檐的檐口），四面坡面 + 四角戗脊。
+ * 四个坡面各由四个角点围成，四面共享四条斜向戗脊，既不重叠也不留缝。
+ * 坡面按垄距铺真筒瓦，檐口排瓦当滴水，檐下一圈檐檩。
+ *
+ * @param {number} Wx 外檐口半宽（X）
+ * @param {number} Wz 外檐口半深（Z）
+ * @param {number} eaveY 下檐高度
+ * @param {number} rise 下檐升起高度
+ * @param {number} inset 内圈相对外圈的内收量
+ */
+function buildLowerEave(Wx, Wz, eaveY, rise, inset) {
+  const geoms = new Map();
+  const push = (k, g) => {
+    if (!geoms.has(k)) geoms.set(k, []);
+    geoms.get(k).push(g);
+  };
+
+  const ix = Wx - inset;
+  const iz = Wz - inset;
+  const yi = eaveY + rise;
+
+  // 四个坡面：o = 外檐口两点，i = 内圈两点。四面共享斜向戗脊。
+  const faces = [
+    { o0: [-Wx, Wz], o1: [Wx, Wz], i0: [-ix, iz], i1: [ix, iz] }, // 南（+Z）
+    { o0: [Wx, -Wz], o1: [-Wx, -Wz], i0: [ix, -iz], i1: [-ix, -iz] }, // 北（-Z）
+    { o0: [Wx, Wz], o1: [Wx, -Wz], i0: [ix, iz], i1: [ix, -iz] }, // 东（+X）
+    { o0: [-Wx, -Wz], o1: [-Wx, Wz], i0: [-ix, -iz], i1: [-ix, iz] }, // 西（-X）
+  ];
+
+  for (const f of faces) {
+    // 坡面（平面梯形，四个角点）
+    const p = [
+      f.o0[0], eaveY, f.o0[1],
+      f.o1[0], eaveY, f.o1[1],
+      f.i1[0], yi, f.i1[1],
+      f.i0[0], yi, f.i0[1],
+    ];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute(
+      'uv',
+      new THREE.Float32BufferAttribute([0.02, 0, 0.17, 0, 0.17, 6, 0.02, 6], 2)
+    );
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.computeVertexNormals();
+    push('tile', g);
+
+    // 真筒瓦：沿坡向自外檐口铺到内圈
+    const oLen = Math.hypot(f.o1[0] - f.o0[0], f.o1[1] - f.o0[1]);
+    const count = Math.max(4, Math.floor(oLen / TILE.gang));
+    for (let i = 0; i <= count; i++) {
+      const s = i / count;
+      const ox = f.o0[0] + (f.o1[0] - f.o0[0]) * s;
+      const oz = f.o0[1] + (f.o1[1] - f.o0[1]) * s;
+      const qx = f.i0[0] + (f.i1[0] - f.i0[0]) * s;
+      const qz = f.i0[1] + (f.i1[1] - f.i0[1]) * s;
+      const sampler = (t) => ({
+        x: ox + (qx - ox) * t,
+        y: eaveY + rise * t,
+        z: oz + (qz - oz) * t,
+      });
+      for (const gg of buildTongWa(sampler, 0, 1)) push('tile', gg);
+    }
+
+    // 檐口：瓦当 + 滴水
+    for (const gg of buildWadangEdge(
+      [f.o0[0], f.o0[1]],
+      [f.o1[0], f.o1[1]],
+      eaveY,
+      count
+    )) {
+      push('tile', gg);
+    }
+
+    // 檐下檐檩
+    const lm = new THREE.BoxGeometry(
+      Math.abs(f.o1[0] - f.o0[0]) || 0.16,
+      0.2,
+      Math.abs(f.o1[1] - f.o0[1]) || 0.16
+    );
+    lm.translate((f.o0[0] + f.o1[0]) / 2, eaveY - 0.14, (f.o0[1] + f.o1[1]) / 2);
+    push('wood', lm);
+  }
+
+  // 四角戗脊：外檐角 → 内圈角
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const pts = [
+        new THREE.Vector3(sx * Wx, eaveY + 0.06, sz * Wz),
+        new THREE.Vector3(sx * ix, yi + 0.04, sz * iz),
+      ];
+      push('ridge', buildRidgeBar(pts, 0.4, 0.38));
+    }
+  }
+
+  return { geoms };
+}
+
+/**
+ * 沿一条檐口线排瓦当（圆盘）与滴水（三角片）。
+ * @param {[number,number]} p0 起点 [x,z]
+ * @param {[number,number]} p1 终点 [x,z]
+ */
+function buildWadangEdge(p0, p1, eaveY, count) {
+  const parts = [];
+  const r = 0.115;
+  const dx = p1[0] - p0[0];
+  const dz = p1[1] - p0[1];
+  const len = Math.hypot(dx, dz) || 1;
+  const dirX = dx / len;
+  const dirZ = dz / len;
+  // 外法线：垂直于檐口线、背向中心
+  const cx = (p0[0] + p1[0]) / 2;
+  const cz = (p0[1] + p1[1]) / 2;
+  let nx = dirZ;
+  let nz = -dirX;
+  if (nx * cx + nz * cz < 0) {
+    nx = -nx;
+    nz = -nz;
+  }
+  const yaw = Math.atan2(nx, nz);
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    const x = p0[0] + dx * t;
+    const z = p0[1] + dz * t;
+    const disc = new THREE.CylinderGeometry(r, r, 0.07, 10);
+    disc.rotateX(Math.PI / 2);
+    disc.rotateY(yaw);
+    disc.translate(x + nx * 0.03, eaveY - 0.13, z + nz * 0.03);
+    parts.push(disc);
+    const drip = new THREE.CylinderGeometry(r * 1.2, 0.02, 0.15, 3);
+    drip.rotateX(Math.PI / 2);
+    drip.rotateY(yaw);
+    drip.translate(x + nx * 0.11, eaveY - 0.27, z + nz * 0.11);
+    parts.push(drip);
+  }
+  return parts;
 }
 
 /** 鸱吻：正脊两端的兽头饰件 */
@@ -542,12 +748,21 @@ const TILE = {
  */
 function buildTongWa(sampler, t0, t1) {
   // 整垄生成**一个**几何体（早前每段一个，40 万个对象直接把加载拖到十几秒）
-  const steps = 10;
-  const ring = 6;
+  // 网格密度：半圆断面 5 段足够圆滑；坡向 7 段足以表达翼角起翘。
+  // 再密下去只是把三角面数翻倍（真瓦是全园最大的一笔几何开销）。
+  const steps = 7;
+  const ring = 5;
   const R = TILE.tongR;
   const verts = [];
   const uvs = [];
   const idx = [];
+
+  // UV 约定（与贴图布局严格对应，否则屋面会被采样成一片黑）：
+  // 贴图横向一个循环含 6 垄瓦（见 textures.js 的 cols），纵向一个循环含 6 层瓦当。
+  // 一根筒瓦 = 一垄，所以 u 只取其中一垄的窗口 [0.02, 0.17]；
+  // v 沿坡向铺 6 个循环 → 36 层瓦当，与真实瓦作搭接密度一致。
+  const U0 = 0.02;
+  const U1 = 0.17;
 
   let prevSide = null;
   for (let i = 0; i <= steps; i++) {
@@ -569,7 +784,7 @@ function buildTongWa(sampler, t0, t1) {
         p.y + side.y * ox + up.y * oy,
         p.z + side.z * ox + up.z * oy
       );
-      uvs.push(k / ring, (i / steps) * 6);
+      uvs.push(U0 + (k / ring) * (U1 - U0), (i / steps) * 6);
     }
   }
   const stride = ring + 1;

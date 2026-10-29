@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import {
   roofTiles,
   roofTilesNormal,
-  glazedTiles,
   caihua,
   columnPaint,
   brickWall,
@@ -14,6 +13,7 @@ import {
   caoJing,
   latticeWindow,
 } from './textures.js';
+import { TILE_COLORS } from '../scenes-program.js';
 
 const cache = new Map();
 
@@ -22,24 +22,40 @@ function make(key, factory) {
   return cache.get(key);
 }
 
-export function roofMaterial(glazed = false, color = '#3f6b4f') {
+/**
+ * 屋面材质。
+ *
+ * - **灰瓦**：贴图给出砖缝与苔痕等连续表面，筒瓦的形状由几何提供。
+ * - **琉璃瓦**：釉面是单色的，靠几何（筒瓦/板瓦/瓦当/滴水）出形、靠法线出釉面高光，
+ *   不再贴条纹图——条纹贴在半圆管上会变成"每垄 16 条竖线"，一眼假。
+ */
+export function roofMaterial(glazed = false, color = '#2f7a4a') {
   return make(`roof-${glazed}-${color}`, () => {
-    const map = glazed ? glazedTiles(color) : roofTiles().map;
     const normalMap = roofTilesNormal();
+    if (glazed) {
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color),
+        normalMap,
+        normalScale: new THREE.Vector2(0.45, 0.45),
+        roughness: 0.3,
+        metalness: 0.06,
+        envMapIntensity: 1.25,
+      });
+    }
     return new THREE.MeshStandardMaterial({
-      map,
+      map: roofTiles().map,
       normalMap,
       normalScale: new THREE.Vector2(0.85, 0.85),
       roughness: 0.88,
       metalness: 0.02,
-      color: glazed ? 0xffffff : 0xb9bcc2,
+      color: 0xb9bcc2,
     });
   });
 }
 
-export function ridgeMaterial() {
-  return make('ridge', () =>
-    new THREE.MeshStandardMaterial({ color: 0x6e7176, roughness: 0.9 })
+export function ridgeMaterial(color = '#6e7176') {
+  return make(`ridge-${color}`, () =>
+    new THREE.MeshStandardMaterial({ color, roughness: 0.9 })
   );
 }
 
@@ -138,11 +154,20 @@ export function plaqueMaterial() {
 
 /** 材质键 → 材质实例 的映射 */
 export function materialFor(key, spec = {}) {
+  // 瓦色键（'hui'|'huang'|'lv'…）→ 琉璃/灰瓦参数
+  const tileSpec = TILE_COLORS[spec.tile] || null;
+  const glazed = tileSpec ? tileSpec.glazed : !!spec.glazed;
+  const tileColor = tileSpec ? tileSpec.color : spec.glazedColor || '#2f7a4a';
   switch (key) {
     case 'tile':
-      return roofMaterial(spec.glazed, spec.glazedColor);
+      return roofMaterial(glazed, tileColor);
     case 'ridge':
-      return ridgeMaterial();
+      // 琉璃瓦的脊与瓦同色相（只是更暗），灰瓦脊用深灰
+      return ridgeMaterial(
+        tileSpec
+          ? new THREE.Color(tileSpec.color).multiplyScalar(0.72).getStyle()
+          : '#6e7176'
+      );
     case 'eave':
       return eaveMaterial();
     case 'finial':

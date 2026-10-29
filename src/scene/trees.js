@@ -32,7 +32,8 @@ function mulberry32(seed) {
 function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   // 叶子数量少而大 —— 早前 120 片小叶挤在 256px 里，
   // 放大到近景就是一团糊；改成可辨认的单叶
-  const n = kind === 'needle' ? 120 : kind === 'flower' ? 34 : 46;
+  // 数量按 512px 画布重算：单叶只占十几像素，必须多画才密
+  const n = kind === 'needle' ? 420 : kind === 'flower' ? 150 : 260;
   for (let i = 0; i < n; i++) {
     const a = rnd() * Math.PI * 2;
     const rr = Math.pow(rnd(), 0.62) * r;
@@ -43,17 +44,17 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
     g.fillStyle = c;
     if (kind === 'needle') {
       // 针叶束：一撮细线（稍长，近看能分出针）
-      const len = r * (0.14 + rnd() * 0.22);
+      const len = r * (0.05 + rnd() * 0.09);
       const ang = rnd() * Math.PI * 2;
       g.strokeStyle = c;
-      g.lineWidth = 1.1 + rnd();
+      g.lineWidth = 0.8 + rnd() * 0.9;
       g.beginPath();
       g.moveTo(x, y);
       g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
       g.stroke();
     } else if (kind === 'flower') {
       // 五瓣花
-      const s = r * (0.045 + rnd() * 0.05);
+      const s = r * (0.022 + rnd() * 0.026);
       g.beginPath();
       for (let p = 0; p < 5; p++) {
         const pa = (p / 5) * Math.PI * 2 + rnd() * 0.4;
@@ -71,8 +72,8 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
         g.fill();
       }
     } else {
-      // 单片叶子：带尖端的卵形，能看出叶脉
-      const s = r * (0.11 + rnd() * 0.1);
+      // 单片叶子：带尖端的卵形，能看出叶脉（10~22cm，与真实树叶同尺）
+      const s = r * (0.05 + rnd() * 0.05);
       const ang = rnd() * Math.PI * 2;
       g.save();
       g.translate(x, y);
@@ -134,7 +135,9 @@ const SPECIES_TEX = {
 };
 
 function makeFoliageTexture(species, seed) {
-  const S = 256;
+  // 512px：树冠卡片在世界尺度上约 4~6m，512px ≈ 1cm/px，
+  // 单叶画到 10~20cm 才是真的叶子；256px 时一片叶有半米，近景就成了"草束"。
+  const S = 512;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
@@ -152,14 +155,14 @@ function makeFoliageTexture(species, seed) {
       spec.palette,
       'leaf'
     );
-    for (let i = 0; i < 230; i++) {
-      const x = S * 0.16 + rnd() * S * 0.68;
-      const y0 = S * (0.22 + rnd() * 0.3);
-      const len = S * (0.22 + rnd() * 0.6);
-      const sway = (rnd() - 0.5) * 30;
+    for (let i = 0; i < 520; i++) {
+      const x = S * 0.12 + rnd() * S * 0.76;
+      const y0 = S * (0.18 + rnd() * 0.32);
+      const len = S * (0.18 + rnd() * 0.58);
+      const sway = (rnd() - 0.5) * 38;
       g.strokeStyle = spec.palette[Math.floor(rnd() * spec.palette.length)];
       g.globalAlpha = 0.3 + rnd() * 0.45;
-      g.lineWidth = 0.7 + rnd() * 2.1;
+      g.lineWidth = 0.5 + rnd() * 1.4;
       g.beginPath();
       g.moveTo(x, y0);
       g.bezierCurveTo(
@@ -171,15 +174,17 @@ function makeFoliageTexture(species, seed) {
         y0 + len
       );
       g.stroke();
-      // 柳叶点缀
-      if (rnd() < 0.5) {
-        g.globalAlpha = 0.5 + rnd() * 0.4;
+      // 柳叶点缀：每条垂枝上挂若干小叶，柳条才不是光杆
+      const leaves = 4 + Math.floor(rnd() * 7);
+      for (let k = 0; k < leaves; k++) {
+        const t = 0.25 + (k / leaves) * 0.72 + rnd() * 0.08;
+        g.globalAlpha = 0.55 + rnd() * 0.4;
         g.fillStyle = spec.palette[Math.floor(rnd() * spec.palette.length)];
         g.save();
-        g.translate(x + sway * 0.6, y0 + len * 0.55);
-        g.rotate(rnd() * Math.PI);
+        g.translate(x + sway * t, y0 + len * t);
+        g.rotate((rnd() - 0.5) * 1.2 + Math.PI * 0.15);
         g.beginPath();
-        g.ellipse(0, 0, 1.6 + rnd() * 1.4, 0.7 + rnd() * 0.7, 0, 0, Math.PI * 2);
+        g.ellipse(0, 0, 5 + rnd() * 5, 1.4 + rnd() * 1.6, 0, 0, Math.PI * 2);
         g.fill();
         g.restore();
       }
@@ -193,7 +198,7 @@ function makeFoliageTexture(species, seed) {
   }
   if (spec.leaves) {
     // 花树里掺些绿叶，不至于整团都是粉
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 220; i++) {
       const a = rnd() * Math.PI * 2;
       const rr = Math.pow(rnd(), 0.5) * S * 0.44;
       const x = S * 0.5 + Math.cos(a) * rr;
@@ -204,7 +209,7 @@ function makeFoliageTexture(species, seed) {
       g.translate(x, y);
       g.rotate(rnd() * Math.PI * 2);
       g.beginPath();
-      g.ellipse(0, 0, S * 0.028, S * 0.016, 0, 0, Math.PI * 2);
+      g.ellipse(0, 0, S * 0.016, S * 0.009, 0, 0, Math.PI * 2);
       g.fill();
       g.restore();
     }

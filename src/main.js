@@ -354,12 +354,17 @@ async function loadScene() {
     camera.position.set(cx, cy + span * 0.92, cz + span * 0.3);
     controls.target.set(cx, cy, cz);
     controls.update();
-  } else if (view === 'scene') {
-    const s = byName('正大光明');
+  } else if (view === 'scene' || view === 'close') {
+    // ?view=scene&name=<景名> 看某一景；?view=close&name=<景名> 更近的正面
+    const q = new URLSearchParams(location.search);
+    const s = byName(q.get('name') || '正大光明');
     if (s) {
+      const close = view === 'close';
+      const dist = close ? 52 : 112;
+      const high = close ? 16 : 34;
       // 从南面看正殿正面（隔扇门所在面）
-      camera.position.set(s.x - 44, heightAt(s.x, s.z) + 34, s.z + 112);
-      controls.target.set(s.x, heightAt(s.x, s.z) + 12, s.z);
+      camera.position.set(s.x - (close ? 18 : 44), heightAt(s.x, s.z) + high, s.z + dist);
+      controls.target.set(s.x, heightAt(s.x, s.z) + (close ? 9 : 12), s.z);
       controls.update();
     }
   } else if (view === 'garden') {

@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getTextureOverrides } from './buildings/textures.js';
+import { ringArea } from './buildings/index.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -242,7 +243,11 @@ export function buildRevetment(sceneData, heightAt) {
   const group = new THREE.Group();
   group.name = 'revetment';
   const parts = [];
-  for (const w of sceneData.water || []) {
+  const waters = sceneData.water || [];
+  // 水面大小比较用多边形面积（scene.json 里没存 area）
+  const areas = waters.map((w) => (w.ring ? Math.abs(ringArea(w.ring)) : 0));
+  for (let wi = 0; wi < waters.length; wi++) {
+    const w = waters[wi];
     const ring = w.ring;
     if (!ring || ring.length < 3) continue;
     const level = w.level ?? 0;
@@ -259,22 +264,45 @@ export function buildRevetment(sceneData, heightAt) {
     const idx = [];
     const uvs = [];
     for (let i = 0; i < ring.length; i++) {
-      const [x, z] = ring[i];
-      const dx = x - cx;
-      const dz = z - cz;
-      const d = Math.hypot(dx, dz) || 1;
-      const ox = (dx / d) * 2.2;
-      const oz = (dz / d) * 2.2;
-      const y = heightAt?.(x, z) ?? level;
-      verts.push(x, level + 0.35, z);
-      verts.push(x + ox, y + 0.12, z + oz);
-      uvs.push(i * 0.5, 0, i * 0.5, 1);
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+
+      // 岸线只画**真正露出**的那一段。
+      // OSM 里常有互相重叠的两片水面（如后湖与福海），它们的接缝在几何上
+      // 是一条几百米长的直线——照着画就会在湖面上凭空多出一条石堤。
+      const mx = (a[0] + b[0]) / 2;
+      const mz = (a[1] + b[1]) / 2;
+      let covered = false;
+      for (let wj = 0; wj < waters.length; wj++) {
+        if (wj === wi) continue;
+        const o = waters[wj];
+        if (areas[wj] <= areas[wi]) continue;
+        if (o.ring && pointInRing(mx, mz, o.ring)) {
+          covered = true;
+          break;
+        }
+      }
+      if (covered) continue;
+
+      // 每段边各自出一个四边形：跳过某段时不会把前后两段硬连起来
+      const outer = (p) => {
+        const dx = p[0] - cx;
+        const dz = p[1] - cz;
+        const d = Math.hypot(dx, dz) || 1;
+        const y = heightAt?.(p[0], p[1]) ?? level;
+        return [p[0] + (dx / d) * 2.2, y + 0.12, p[1] + (dz / d) * 2.2];
+      };
+      const oa = outer(a);
+      const ob = outer(b);
+      const base = verts.length / 3;
+      verts.push(a[0], level + 0.35, a[1]);
+      verts.push(oa[0], oa[1], oa[2]);
+      verts.push(ob[0], ob[1], ob[2]);
+      verts.push(b[0], level + 0.35, b[1]);
+      uvs.push(i * 0.5, 0, i * 0.5, 1, i * 0.5 + 0.5, 1, i * 0.5 + 0.5, 0);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
-    for (let i = 0; i < ring.length; i++) {
-      const a = i * 2;
-      const b = ((i + 1) % ring.length) * 2;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
-    }
+    if (!verts.length) continue;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));

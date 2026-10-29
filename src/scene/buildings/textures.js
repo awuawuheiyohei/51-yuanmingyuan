@@ -95,7 +95,7 @@ export function roofTiles() {
   g.fillStyle = '#5d5f63';
   g.fillRect(0, 0, W, H);
 
-  const cols = 16; // 垄数
+  const cols = 6; // 垄数（与 AI 生成贴图布局对齐：横向 6 垄）
   const colW = W / cols;
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
@@ -112,7 +112,7 @@ export function roofTiles() {
     g.fillRect(x, 0, colW, H);
 
     // 瓦片搭接缝（横向）
-    const rows = 14;
+    const rows = 6;
     for (let r = 1; r < rows; r++) {
       const y = (r / rows) * H;
       g.strokeStyle = `rgba(30,32,35,${0.30 + rnd() * 0.14})`;
@@ -153,8 +153,8 @@ export function roofTilesNormal() {
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const img = g.createImageData(W, H);
-  const cols = 16;
-  const rows = 14;
+  const cols = 6;
+  const rows = 6;
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {

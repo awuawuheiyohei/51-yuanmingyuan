@@ -75,13 +75,22 @@ export function buildBuilding(spec) {
   const colDia = Math.max(0.28, Math.min(0.62, bayW / 10));
   const dgScale = form.dougongScale ?? Math.min(1.15, Math.max(0.72, colDia / 0.45));
   const overhang = form.overhang ?? dougongProjection(dgScale) + 0.35;
+  const rise = form.rise ?? Math.max(1.8, form.width * 0.26);
 
-  const structure = buildStructure({ ...form, dougongScale: dgScale });
+  // 重檐：下檐（腰檐）在外，上檐抬高；柱网上达上檐，下檐处再挑一层斗栱
+  const lowerRise = form.doubleEave ? Math.max(0.9, rise * 0.3) : 0;
+
+  const structure = buildStructure({
+    ...form,
+    eaveY: form.eaveY + lowerRise,
+    lowerEaveY: form.doubleEave ? form.eaveY : null,
+    dougongScale: dgScale,
+  });
   const roof = buildRoof({
     width: form.width,
     depth: form.depth,
     eaveY: form.eaveY,
-    rise: form.rise ?? Math.max(1.8, form.width * 0.26),
+    rise,
     type: form.roof,
     overhang,
     overhangX: form.overhangX ?? overhang * 0.8,
@@ -90,6 +99,8 @@ export function buildBuilding(spec) {
     bulge: form.bulge ?? 0.45,
     circular: form.roof === 'zanjiandian' && form.circular === true,
     segments: form.segments ?? 30,
+    doubleEave: !!form.doubleEave,
+    lowerRise,
   });
 
   // 合并前统一几何格式：ExtrudeGeometry 是非索引的、有些构件没有 uv，

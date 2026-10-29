@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding } from './buildings/index.js';
+import { mergeGroupByMaterial } from './buildings/merge.js';
 
 const STONE = 0xd8d2c4;
 const STONE_DARK = 0xbdb6a6;
@@ -445,5 +446,7 @@ export function buildWesternEnsemble(sceneData, heightAt) {
     });
   }
 
+  // 整组西洋楼按材质合并：逐座建筑出 Mesh 会让 draw calls 翻好几倍
+  mergeGroupByMaterial(group);
   return group;
 }

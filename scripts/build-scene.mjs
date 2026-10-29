@@ -370,6 +370,8 @@ async function main() {
   for (const el of waterEls) {
     const t = el.tags || {};
     const isBig = t.name || t.water === 'lake' || t.natural === 'water';
+    // 清河、万泉河是穿园而过的现代河道，不是园内水面
+    if (/河|渠|沟/.test(t.name || '')) continue;
     for (const ring of elementRings(el)) {
       const a = Math.abs(ringArea(ring));
       if (a < 220) continue; // 过滤小水塘
@@ -408,7 +410,29 @@ async function main() {
     }
   }
   water.sort((a, b) => b.area - a.area);
-  const waterKeep = water.slice(0, 60);
+  // 去掉重叠：若小水面 85% 以上落在大水面内，视为重复或误标的内环
+  const dropped = [];
+  const waterKeep = [];
+  for (const w of water) {
+    let covered = 0;
+    for (const s2 of waterKeep) {
+      let inside = 0;
+      for (const [x, z] of w.ring) if (pointInRing(x, z, s2.ring)) inside++;
+      if (inside / w.ring.length > 0.85) {
+        covered = 1;
+        break;
+      }
+    }
+    if (covered) {
+      dropped.push(w);
+      continue;
+    }
+    waterKeep.push(w);
+    if (waterKeep.length >= 60) break;
+  }
+  if (dropped.length) {
+    console.log(`  ✓ 剔除重叠水面 ${dropped.length} 片`);
+  }
 
   // 逐景水景：考据中明确有池的景，在其旁补一小片水面
   let pondAdded = 0;
@@ -557,11 +581,66 @@ async function main() {
   }
   console.log(`  ✓ 步道/林地 ${paths.length} 条`);
 
+  /* ---- 步道裁剪 ----
+   * OSM 的路网是连续的，穿过湖面、也一直延伸到园外去。
+   * 直接铺出来就是：一条白线横穿福海、几条白线伸出园界。
+   * 这里按"在三园内 且 不在水上"把折线切成若干干地段。 */
+  const waterPts = (x, z) => waterKeep.some((w) => pointInRing(x, z, w.ring));
+  const dryInGarden = (x, z) => inGarden(x, z) && !waterPts(x, z);
+
+  /**
+   * 按 insideFn 把折线切成若干连续段。
+   * 端点与中点都测一次，免得漏掉两点之间那一小段跨水。
+   */
+  function splitBy(line, insideFn) {
+    const runs = [];
+    let cur = null;
+    for (let i = 0; i < line.length; i++) {
+      const [x, z] = line[i];
+      let ok = insideFn(x, z);
+      if (ok && i > 0) {
+        const [px, pz] = line[i - 1];
+        ok = insideFn((x + px) / 2, (z + pz) / 2);
+      }
+      if (ok) {
+        if (!cur) {
+          cur = [];
+          runs.push(cur);
+        }
+        cur.push([x, z]);
+      } else cur = null;
+    }
+    return runs;
+  }
+
+  const pathSegs = [];
+  let cutCross = 0;
+  for (const p of paths) {
+    const runs = splitBy(p.line, dryInGarden);
+    if (runs.length !== 1) cutCross++;
+    for (const r of runs) {
+      // 太短的碎段没有意义（多为跨界时被切出来的残段）
+      let len = 0;
+      for (let i = 0; i < r.length - 1; i++)
+        len += Math.hypot(r[i + 1][0] - r[i][0], r[i + 1][1] - r[i][1]);
+      if (len < 6) continue;
+      pathSegs.push({ kind: p.kind, line: r, len });
+    }
+  }
+  console.log(
+    `  ✓ 步道裁剪：${paths.length} 条 → ${pathSegs.length} 段（切掉跨水/出园 ${cutCross} 条）`
+  );
+
   /* ---- 游廊选线 ----
    * 圆明园的长廊沿水岸与景点之间连接。选"园内较长、且靠近景点"的
    * 游路来起廊，让廊出现在该出现的地方，而不是满园乱铺。 */
   const sceneAnchors = SCENES.map((s2) => [toX(s2.lon), toZ(s2.lat)]);
+  // 落在水面上的点
+  const inAnyWater = (x, z) =>
+    waterKeep.some((w) => pointInRing(x, z, w.ring));
   const corridorCandidates = [];
+  // 游廊沿**原始**长路径选线（一条路可能只被湖面切开一小段，
+  // 裁剪后就没法起廊了）；跨水的部分在成线后再切。
   for (const p of paths) {
     if (p.kind !== 'footway' && p.kind !== 'path' && p.kind !== 'pedestrian') continue;
     const line = p.line;
@@ -585,7 +664,17 @@ async function main() {
     corridorCandidates.push({ line, len });
   }
   corridorCandidates.sort((a, b) => b.len - a.len);
-  const corridors = corridorCandidates.slice(0, 14).map((c) => c.line);
+  // 成线后再切掉跨水段：长廊不能从湖面上架过去
+  const corridors = [];
+  for (const c of corridorCandidates.slice(0, 14)) {
+    for (const run of splitBy(c.line, (x, z) => inGarden(x, z) && !inAnyWater(x, z))) {
+      let l = 0;
+      for (let i = 0; i < run.length - 1; i++)
+        l += Math.hypot(run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1]);
+      if (l < 25) continue;
+      corridors.push(run);
+    }
+  }
   console.log(
     `  ✓ 游廊选线 ${corridors.length} 条（总长 ${corridors
       .reduce((s2, l) => {
@@ -791,11 +880,8 @@ async function main() {
       area: b.area,
       tags: b.tags,
     })),
-    // 只把三园核心范围内的路网铺出来，园外的城市道路与园林无关
-    paths: paths.filter((p) => {
-      const mid = p.line[Math.floor(p.line.length / 2)];
-      return inGarden(mid[0], mid[1]);
-    }),
+    // 路网已在构建期裁剪（三园内、不跨水），这里直接用裁剪后的段
+    paths: pathSegs.map((p) => ({ kind: p.kind, line: p.line })),
     corridors,
     scenes: sceneOut,
     westAnchor,

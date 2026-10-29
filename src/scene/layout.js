@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
+import { mergeGroupByMaterial } from './buildings/merge.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM } from './scenes-program.js';
@@ -77,6 +78,9 @@ function buildSceneCluster(scene, heightAt, rnd) {
       eaveY: platformH + m.eave,
       roof: m.roof,
       caihua: m.caihua,
+      tile: m.tile,
+      doubleEave: !!m.doubleEave,
+      plan: m.plan,
       circular: !!m.circular,
       doors: centerDoors(m.mian),
       caojing: m.mian >= 5,
@@ -90,27 +94,39 @@ function buildSceneCluster(scene, heightAt, rnd) {
   /* ---- 配建筑群 ---- */
   for (const a of program.aux || []) {
     const af = defaultForm(a.rank);
-    const w = af.mian * (a.rank === 'pavilion' ? 3.0 : 3.5);
-    const d = af.jin * 3.2;
+    const mian = a.mian ?? af.mian;
+    const jin = a.jin ?? af.jin;
+    const w = mian * (a.rank === 'pavilion' ? 3.0 : 3.5);
+    const d = jin * 3.2;
     const ph = a.rank === 'pavilion' ? 0.7 : 1.0;
     const eh =
-      a.rank === 'tower' ? 8.5 : a.rank === 'pavilion' ? 4.2 : a.rank === 'gate' ? 5.2 : 5.6;
-    place(
+      a.eave ??
+      (a.rank === 'tower' ? 8.5 : a.rank === 'pavilion' ? 4.2 : a.rank === 'gate' ? 5.2 : 5.6);
+    const b = place(
       {
         rank: a.rank,
         width: w,
         depth: d,
-        mian: af.mian,
-        jin: af.jin,
+        mian,
+        jin,
         platformH: ph,
         eaveY: ph + eh,
-        doors: centerDoors(af.mian),
+        roof: af.roof,
+        caihua: af.caihua,
+        // 配建筑默认随主建筑的瓦色等级；考据里另有实记的用 a.tile 覆盖
+        tile: a.tile ?? m.tile,
+        doors: centerDoors(mian),
         rise: Math.max(1.6, w * 0.26),
       },
       a.x,
       a.z,
       a.rot || 0
     );
+    // 有实名者把名字挂到建筑上，便于巡游与核查
+    if (a.name) {
+      b.name = a.name;
+      b.userData.sceneName = scene.name;
+    }
   }
 
   /* ---- 院落围墙 ---- */
@@ -123,6 +139,8 @@ function buildSceneCluster(scene, heightAt, rnd) {
   );
   group.add(buildCourtyardWall(half, half * 0.78, heightAt, scene.x, scene.z));
 
+  // 整景按材质再合并一次：一景 5~9 座建筑，逐座出 Mesh 会让 draw calls 爆掉
+  mergeGroupByMaterial(group);
   return group;
 }
 
@@ -257,6 +275,7 @@ export function buildLayout(sceneData, heightAt) {
     existingGroup.add(bld);
     existing++;
   }
+  mergeGroupByMaterial(existingGroup);
   group.add(existingGroup);
 
   /* ---- 四十景聚落 ---- */

@@ -206,6 +206,26 @@ export function buildStructure(spec) {
       bucket(geoms, KEY.dougong).push(g);
     }
     unit.dispose();
+
+    // 重檐：下檐（腰檐）再挑一层斗栱，坐在同一圈柱头的中段
+    if (spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6) {
+      const lowerUnit = buildDougongSet(dgScale * 0.86, 'x');
+      for (const [x, z, rot] of placements) {
+        const g = lowerUnit.clone();
+        const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
+        const out = colDia * 0.55;
+        const m = new THREE.Matrix4()
+          .makeRotationY(rot)
+          .setPosition(
+            x + dir.x * out,
+            spec.lowerEaveY - beamH - dgHeight * 0.86,
+            z + dir.z * out
+          );
+        g.applyMatrix4(m);
+        bucket(geoms, KEY.dougong).push(g);
+      }
+      lowerUnit.dispose();
+    }
   }
 
   /* ----------------------------------------------------------- 墙体 */
