@@ -25,8 +25,8 @@ export function buildTerrain(sceneData, opts = {}) {
   const colors = new Float32Array(pos.count * 3);
 
   // 颜色：低处偏暖土黄，高处偏冷灰；缓坡草绿，陡坡露岩
-  const cGrass = new THREE.Color('#5d6b41');
-  const cEarth = new THREE.Color('#7d7154');
+  const cGrass = new THREE.Color('#4e5c37');
+  const cEarth = new THREE.Color('#6b6149');
   const cRock = new THREE.Color('#84837c');
   const cSand = new THREE.Color('#a89d80');
   const tmp = new THREE.Color();

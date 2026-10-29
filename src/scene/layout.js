@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
 import { buildWesternEnsemble } from './western.js';
+import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM } from './scenes-program.js';
 
 function mulberry32(seed) {
@@ -139,8 +140,8 @@ function buildCourtyardWall(halfW, halfD, heightAt, cx, cz) {
   const group = new THREE.Group();
   const wallParts = [];
   const capParts = [];
-  const h = 3.4;
-  const t = 0.9;
+  const h = 2.9;
+  const t = 0.75;
   const SEG = 14;
 
   const sides = [
@@ -178,7 +179,18 @@ function buildCourtyardWall(halfW, halfD, heightAt, cx, cz) {
     }
   }
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0x6e6a61, roughness: 0.97 });
+  // 用 AI 生成的青砖贴图，院墙才不像一块灰板
+  const ov = getTextureOverrides();
+  const wallMap = ov.brick ? ov.brick.clone() : null;
+  if (wallMap) {
+    wallMap.needsUpdate = true;
+    wallMap.repeat.set(3, 1.4);
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    map: wallMap || null,
+    color: wallMap ? 0xffffff : 0x6e6a61,
+    roughness: 0.97,
+  });
   const capMat = new THREE.MeshStandardMaterial({ color: 0x42454a, roughness: 0.92 });
   const wall = new THREE.Mesh(mergeGeometries(wallParts, false), mat);
   const cap = new THREE.Mesh(mergeGeometries(capParts, false), capMat);

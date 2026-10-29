@@ -791,7 +791,11 @@ async function main() {
       area: b.area,
       tags: b.tags,
     })),
-    paths,
+    // 只把三园核心范围内的路网铺出来，园外的城市道路与园林无关
+    paths: paths.filter((p) => {
+      const mid = p.line[Math.floor(p.line.length / 2)];
+      return inGarden(mid[0], mid[1]);
+    }),
     corridors,
     scenes: sceneOut,
     westAnchor,

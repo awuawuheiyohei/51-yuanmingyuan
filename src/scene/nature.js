@@ -28,26 +28,37 @@ function mulberry32(seed) {
  * 按层堆叠并逐层旋转、收分；另配少量瘦长的太湖石峰。
  */
 
-/** 一块石头：低面数多面体 + 噪声位移 + 明显压扁成片状 */
+/**
+ * 一块石头。
+ * 太湖石的形态要点：瘦（有向上的长势）、皱（表面凹凸）、漏（孔洞）、透（镂空）。
+ * 这里用带噪声的多面体，噪声取"低频大起伏 + 高频细皱"，避免炸成碎片。
+ */
 function makeRock(size, rnd) {
-  const g = new THREE.IcosahedronGeometry(size, 1);
+  const g = new THREE.IcosahedronGeometry(size, 2);
   const pos = g.attributes.position;
   const v = new THREE.Vector3();
+  const seed = rnd() * 10;
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    // 噪声要"皱"不要"炸"：幅度收住，主频低一些
-    const n =
-      Math.sin(v.x * 1.15 + rnd() * 0.3) * 0.09 +
-      Math.cos(v.y * 0.95 + v.z * 0.7) * 0.08 +
-      Math.sin(v.z * 1.4 + v.x * 0.8) * 0.05;
-    v.multiplyScalar(1 + n);
-    v.y *= 0.42 + rnd() * 0.2; // 压成片状
+    const nrm = v.clone().normalize();
+    // 低频大起伏（决定整体轮廓）
+    const low =
+      Math.sin(nrm.x * 2.1 + seed) * 0.14 +
+      Math.cos(nrm.y * 1.7 + seed * 1.3) * 0.12 +
+      Math.sin(nrm.z * 2.4 + seed * 0.7) * 0.1;
+    // 高频细皱（表面质感）
+    const hi =
+      Math.sin(nrm.x * 9.5 + seed) * 0.035 +
+      Math.cos(nrm.z * 11.2 + seed) * 0.03;
+    v.multiplyScalar(1 + low + hi);
+    // 压成片状，但保留一点"瘦"的竖向感
+    v.y *= 0.46 + rnd() * 0.16;
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   g.computeVertexNormals();
-  g.rotateX(rnd() * 0.5);
+  g.rotateX((rnd() - 0.5) * 0.7);
   g.rotateY(rnd() * Math.PI * 2);
-  g.rotateZ(rnd() * 0.4);
+  g.rotateZ((rnd() - 0.5) * 0.5);
   return g;
 }
 

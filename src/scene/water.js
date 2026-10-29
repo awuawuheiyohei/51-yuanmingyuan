@@ -43,8 +43,9 @@ export function buildWater(sceneData) {
   group.name = 'water';
 
   const normalMap = rippleNormalTexture();
-  // 水面几何的 UV 是米制坐标，一张波纹贴图覆盖约 9m
-  normalMap.repeat.set(1 / 9, 1 / 9);
+  // 水面几何的 UV 是米制坐标，一张波纹贴图覆盖约 3.5m
+  // （之前 9m 一张，主频波长 4.5m，远看像瓦楞板）
+  normalMap.repeat.set(1 / 3.5, 1 / 3.5);
 
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0x1d5c68,
@@ -53,7 +54,7 @@ export function buildWater(sceneData) {
     transparent: true,
     opacity: 0.965,
     normalMap,
-    normalScale: new THREE.Vector2(0.3, 0.3),
+    normalScale: new THREE.Vector2(0.07, 0.07),
     side: THREE.DoubleSide,
     envMapIntensity: 1.05,
     clearcoat: 0.45,

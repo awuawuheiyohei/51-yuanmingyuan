@@ -65,7 +65,9 @@ src/
     scenes-program.js  ★ 逐景考证配置表
     camera-tour.js 一镜到底巡游样条
     buildings/    明清官式建筑参数化生成器
-      parts/roof.js      举折曲面 / 翼角起翘 / 各式屋顶
+      parts/roof.js      举折曲面 / 翼角起翘 / 各式屋顶 / **真瓦作**（筒瓦·瓦当·滴水·椽头）
+      parts/lattice.js   隔扇与槛窗（框料·绦环板·步步锦格心·裙板）
+      parts/details.js   柱础(覆盆式)·望柱·栏板·壸门·地霞·御路
       parts/structure.js 台基柱网额枋斗栱墙体
       textures.js        程序化贴图（瓦垄/彩画/砖石/棂心）
       materials.js       材质库

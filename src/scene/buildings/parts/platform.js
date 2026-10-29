@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildBaluster, buildBalustradePanel, buildDiXia, buildShouMenPanels, buildYuLu } from './details.js';
 
 /** 四棱台（上小下大 / 上大下小） */
 function frustum(bw, bd, tw, td, h) {
@@ -99,12 +100,28 @@ export function buildXumizuo(w, d, h, out = 1.2) {
   parts.push(xia);
   y += hXia;
 
-  // 束腰（收进）
+  // 束腰（收进）+ 壸门式凹龛
   const waistW = W - out * 0.55;
   const waistD = Dp - out * 0.55;
   const shou = new THREE.BoxGeometry(waistW, hShou, waistD);
   shou.translate(0, y + hShou / 2, 0);
   parts.push(shou);
+  // 壸门：四面各一排
+  for (const [mw, md, rot, ox, oz] of [
+    [waistW, waistD, 0, 0, waistD / 2],
+    [waistW, waistD, Math.PI, 0, -waistD / 2],
+  ]) {
+    const panels = buildShouMenPanels(mw - 0.2, hShou * 0.9, 0.02);
+    panels.rotateY(rot);
+    panels.translate(ox, y + hShou / 2, oz);
+    parts.push(panels);
+  }
+  for (const sx of [-1, 1]) {
+    const panels = buildShouMenPanels(waistD - 0.2, hShou * 0.9, 0.02);
+    panels.rotateY((sx * Math.PI) / 2);
+    panels.translate(sx * waistW / 2, y + hShou / 2, 0);
+    parts.push(panels);
+  }
   y += hShou;
 
   // 上枋
@@ -157,9 +174,9 @@ export function buildSteps(width, h, depth, dirZ = -1) {
     parts.push(g);
   }
 
-  // 御路（中间斜坡石，稍高）
-  const ramp = new THREE.BoxGeometry(width * 0.3, 0.14, depth * 1.75);
-  ramp.rotateX(dirZ * Math.atan2(h, depth * 1.7));
+  // 御路（中间斜坡石 + 两侧雕线）
+  const ramp = buildYuLu(width * 0.3, h, depth);
+  ramp.rotateY(dirZ > 0 ? 0 : Math.PI);
   ramp.translate(0, h / 2 + 0.13, dirZ * depth * 0.42);
   parts.push(ramp);
 
@@ -173,25 +190,24 @@ export function buildSteps(width, h, depth, dirZ = -1) {
  */
 export function buildRailing(width, z, height = 1.0, dirZ = -1) {
   const parts = [];
-  const post = 0.18;
   const n = Math.max(2, Math.round(width / 1.6));
+  // 地霞（承托石）
+  const di = buildDiXia(width, 0.16);
+  di.translate(0, 0, z);
+  parts.push(di);
+  // 望柱
   for (let i = 0; i <= n; i++) {
     const x = -width / 2 + (width * i) / n;
-    const g = new THREE.BoxGeometry(post, height, post);
-    g.translate(x, height / 2, z);
-    parts.push(g);
-    const cap = new THREE.BoxGeometry(post * 1.35, 0.09, post * 1.35);
-    cap.translate(x, height + 0.04, z);
-    parts.push(cap);
+    const post = buildBaluster(height - 0.16, 0.19);
+    post.translate(x, 0.16, z);
+    parts.push(post);
   }
+  // 栏板（华板 + 寻杖）
   for (let i = 0; i < n; i++) {
     const x = -width / 2 + (width * (i + 0.5)) / n;
-    const panel = new THREE.BoxGeometry((width / n) - post, height * 0.52, 0.1);
-    panel.translate(x, height * 0.34, z);
+    const panel = buildBalustradePanel(width / n - 0.19, height - 0.16);
+    panel.translate(x, 0.16, z);
     parts.push(panel);
-    const dia = new THREE.BoxGeometry((width / n) - post, height * 0.2, 0.12);
-    dia.translate(x, height * 0.78, z);
-    parts.push(dia);
   }
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();

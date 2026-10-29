@@ -11,6 +11,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildDougongSet, dougongProjection } from './dougong.js';
 import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
+import { buildShanGe, buildJianChuang } from './lattice.js';
+import { buildColumnBase } from './details.js';
 
 const KEY = {
   stone: 'stone',
@@ -124,9 +126,9 @@ export function buildStructure(spec) {
     const g = new THREE.CylinderGeometry(colDia / 2, colDia / 2 * 1.02, h, 12);
     g.translate(x, floorY + h / 2, z);
     bucket(geoms, KEY.column).push(g);
-    // 柱础
-    const b = new THREE.CylinderGeometry(colDia * 0.85, colDia * 0.95, 0.14, 12);
-    b.translate(x, floorY + 0.07, z);
+    // 柱础：覆盆式（真建筑是圆转收分的，不是方柱墩）
+    const b = buildColumnBase(colDia);
+    b.translate(x, floorY, z);
     bucket(geoms, KEY.stone).push(b);
   };
 
@@ -220,17 +222,17 @@ export function buildStructure(spec) {
       side.translate(sx * (width / 2 - wallThick / 2), floorY + wallH / 2, 0);
       bucket(geoms, KEY.wall).push(side);
 
-      // 两侧山墙开槛窗：每间一扇棂心窗
+      // 两侧山墙开槛窗：真框料 + 步步锦格心
       for (let j = 0; j < jin; j++) {
         const cz = (colZs[j] + colZs[j + 1]) / 2;
-        const lat = new THREE.PlaneGeometry(bayD * 0.46, wallH * 0.44);
-        lat.rotateY((sx * Math.PI) / 2);
-        lat.translate(
-          sx * (width / 2 - wallThick / 2 + 0.06),
+        const win = buildJianChuang(bayD * 0.52, wallH * 0.46);
+        win.rotateY((sx * Math.PI) / 2);
+        win.translate(
+          sx * (width / 2 - wallThick / 2 + 0.05),
           floorY + wallH * 0.56,
           cz
         );
-        bucket(geoms, KEY.lattice).push(lat);
+        bucket(geoms, KEY.wood).push(win);
       }
     }
 
@@ -245,17 +247,13 @@ export function buildStructure(spec) {
         const back = new THREE.BoxGeometry(bayW - colDia, wallH, 0.1);
         back.translate(cx, floorY + wallH / 2, frontZ - wallThick * 0.42);
         bucket(geoms, KEY.wall).push(back);
-        // 隔扇门（四扇槅扇）
+        // 隔扇门（四扇槅扇）—— 框料/绦环板/步步锦格心/裙板，全是实体
         const leafW = (bayW - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
           const lx = cx - (bayW - colDia * 1.2) / 2 + leafW * (k + 0.5);
-          const frame = new THREE.BoxGeometry(leafW * 0.94, wallH * 0.96, 0.08);
-          frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.1);
-          bucket(geoms, KEY.wood).push(frame);
-          // 棂心（花窗）
-          const lat = new THREE.PlaneGeometry(leafW * 0.78, wallH * 0.6);
-          lat.translate(lx, floorY + wallH * 0.6, frontZ + wallThick * 0.16);
-          bucket(geoms, KEY.lattice).push(lat);
+          const leaf = buildShanGe(leafW * 0.94, wallH * 0.96);
+          leaf.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+          bucket(geoms, KEY.wood).push(leaf);
         }
         // 门楣
         const lintel = new THREE.BoxGeometry(bayW - colDia * 0.6, 0.22, wallThick * 1.1);
