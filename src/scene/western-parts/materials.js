@@ -163,8 +163,16 @@ function rippleNormalTexture() {
 /* ------------------------------------------------------------------ 材质 */
 
 export function makeWesternMaterials() {
-  // 汉白玉 / 大理石：复用建筑系统的石材材质（带 AI 生成的番花浮雕贴图）
+  // 汉白玉 / 大理石：复用建筑系统的石材材质（带 AI 生成的番花浮雕贴图）。
+  // 但要**放大贴图密度**：默认一张贴图铺 8m，番花浮雕每块约 2m——
+  // 铺在广场大面上就密排成一张"地毯"。这里改成一张铺 32m，浮雕每块约 8m。
   const stone = stoneMaterial();
+  if (stone.map) {
+    stone.map = stone.map.clone();
+    stone.map.needsUpdate = true;
+    stone.map.wrapS = stone.map.wrapT = THREE.RepeatWrapping;
+    stone.map.repeat.set(1, 1);
+  }
 
   // 太湖石：粗糙灰石（平面着色，靠形体出细节）
   const rockTex = brickWall().clone();
@@ -188,7 +196,7 @@ export function makeWesternMaterials() {
   });
 
   // 彩画（额枋）：复用建筑系统的和玺彩画贴图
-  const paint = caihuaMaterial('hexi'); paint.color.setHex(0xff00ff); paint.map = null;
+  const paint = caihuaMaterial('hexi');
 
   // 斗栱：彩画木件
   const dougong = dougongMaterial();

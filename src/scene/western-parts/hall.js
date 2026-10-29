@@ -340,7 +340,9 @@ export function buildHall(c, opts) {
       else if (key === 'ridge') bucket = ridgeBucket;
       else if (key === 'finial') bucket = rf.finialBucket ?? tileBucket;
       else if (key === 'wall') bucket = rf.wallBucket ?? wallBucket;
-      else if (key === 'shanhua') bucket = 'paint';
+      // 山花是**砖石山墙**（清式做法是抹灰墙 + 博风板 + 悬鱼），
+      // 不是彩画。用和玺彩画刷上去，一大片山花看着像铺了地毯。
+      else if (key === 'shanhua') bucket = rf.gableBucket ?? 'stone';
       else if (key === 'eave' || key === 'wood') bucket = 'wood';
       c.addAll(bucket, list);
     }

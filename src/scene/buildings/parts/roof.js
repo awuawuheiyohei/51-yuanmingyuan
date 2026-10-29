@@ -311,17 +311,22 @@ function buildRoofCore(spec, geomsIn) {
   roofGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   roofGeo.setIndex(idx);
   roofGeo.computeVertexNormals();
-  // UV 按实际尺寸铺瓦垄，避免屋面出现拉伸
-  const uvAttr = roofGeo.getAttribute('uv');
-  for (let i = 0; i < uvAttr.count; i++) {
-    uvAttr.setXY(i, uvAttr.getX(i) * (width / 8), uvAttr.getY(i) * (depth / 8));
-  }
-  uvAttr.needsUpdate = true;
-  push('tile', roofGeo);
-
   /* ---------------------------------------------------- 瓦作（真构件） */
   // 筒瓦：每垄一道半圆管，沿坡向逐段铺
   const gangCount = Math.max(4, Math.floor((Wx * 2) / TILE.gang));
+
+  // 屋面 UV 与**筒瓦垄距对齐**：贴图横向一个循环 6 垄，纵向一个循环 6 层瓦当，
+  // 而一根筒瓦只取其中一垄（见 buildTongWa 的 U0/U1）。
+  // 之前屋面网格按 (width/8, depth/8) 铺，与瓦管的取样窗口对不上——
+  // 露出来的板瓦面频率是瓦管的数倍，远看整片屋面成了一张花地毯。
+  const uvAttr = roofGeo.getAttribute('uv');
+  const uScale = gangCount / 6; // 一循环 6 垄 = 6 根筒瓦
+  const vScale = (Wz * 2) / 1.5; // 一循环 6 层瓦当 = 1.5 m
+  for (let i = 0; i < uvAttr.count; i++) {
+    uvAttr.setXY(i, uvAttr.getX(i) * uScale, uvAttr.getY(i) * vScale);
+  }
+  uvAttr.needsUpdate = true;
+  push('tile', roofGeo);
   // 小屋顶（亭、轩）不做真瓦：远看无差别，却占掉大半构建时间
   const detailTiles = Wx > 3.0;
   const findStart = (x, sign) => {
