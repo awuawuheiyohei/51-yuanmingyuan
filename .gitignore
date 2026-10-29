@@ -9,3 +9,4 @@ public/scene/plan.png
 .venv-ai/
 data/hf-cache/
 data/hf-local/
+data/raw/ai-tex/

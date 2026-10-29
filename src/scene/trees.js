@@ -30,7 +30,9 @@ function mulberry32(seed) {
 
 /** 画一个不规则叶簇（很多小叶/针束叠在一起） */
 function drawCluster(g, cx, cy, r, rnd, palette, kind) {
-  const n = kind === 'needle' ? 190 : 120;
+  // 叶子数量少而大 —— 早前 120 片小叶挤在 256px 里，
+  // 放大到近景就是一团糊；改成可辨认的单叶
+  const n = kind === 'needle' ? 120 : kind === 'flower' ? 34 : 46;
   for (let i = 0; i < n; i++) {
     const a = rnd() * Math.PI * 2;
     const rr = Math.pow(rnd(), 0.62) * r;
@@ -40,8 +42,8 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
     g.globalAlpha = 0.5 + rnd() * 0.5;
     g.fillStyle = c;
     if (kind === 'needle') {
-      // 针叶束：一撮细线
-      const len = r * (0.1 + rnd() * 0.16);
+      // 针叶束：一撮细线（稍长，近看能分出针）
+      const len = r * (0.14 + rnd() * 0.22);
       const ang = rnd() * Math.PI * 2;
       g.strokeStyle = c;
       g.lineWidth = 1.1 + rnd();
@@ -69,15 +71,25 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
         g.fill();
       }
     } else {
-      // 叶片
-      const s = r * (0.07 + rnd() * 0.09);
+      // 单片叶子：带尖端的卵形，能看出叶脉
+      const s = r * (0.11 + rnd() * 0.1);
       const ang = rnd() * Math.PI * 2;
       g.save();
       g.translate(x, y);
       g.rotate(ang);
       g.beginPath();
-      g.ellipse(0, 0, s, s * 0.55, 0, 0, Math.PI * 2);
+      g.moveTo(-s, 0);
+      g.quadraticCurveTo(0, -s * 0.72, s, 0);
+      g.quadraticCurveTo(0, s * 0.72, -s, 0);
+      g.closePath();
       g.fill();
+      // 叶脉
+      g.strokeStyle = 'rgba(30,44,24,0.45)';
+      g.lineWidth = Math.max(0.6, s * 0.09);
+      g.beginPath();
+      g.moveTo(-s * 0.9, 0);
+      g.lineTo(s * 0.9, 0);
+      g.stroke();
       g.restore();
     }
   }
@@ -201,10 +213,31 @@ function makeFoliageTexture(species, seed) {
   return finishTex(c);
 }
 
+/**
+ * 边缘径向透明衰减：否则卡片边界会切出一条硬直边，
+ * 近看就是"方形贴图"。
+ */
+function applyEdgeFalloff(c) {
+  const S = c.width;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(
+    S * 0.5, S * 0.5, S * 0.16,
+    S * 0.5, S * 0.5, S * 0.52
+  );
+  grd.addColorStop(0, 'rgba(0,0,0,1)');
+  grd.addColorStop(0.68, 'rgba(0,0,0,0.9)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.globalCompositeOperation = 'destination-in';
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  g.globalCompositeOperation = 'source-over';
+}
+
 function finishTex(c) {
+  applyEdgeFalloff(c);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
 }
@@ -281,10 +314,18 @@ function growBranches(opts) {
 /** 一片树冠卡片：三片交叉面片 */
 function makeCard(pos, size, rnd, species) {
   const parts = [];
-  for (let k = 0; k < 3; k++) {
+  // 五片、朝向全错开：轮廓才碎得开，不会看成一块板
+  for (let k = 0; k < 5; k++) {
     const p = new THREE.PlaneGeometry(size * 2, size * 2);
     p.rotateZ(rnd() * Math.PI);
-    p.rotateY(k * (Math.PI / 3) + rnd() * 0.4);
+    p.rotateY(rnd() * Math.PI);
+    p.rotateX((rnd() - 0.5) * 0.8);
+    // 每片略偏一点，避免五片完全重合
+    p.translate(
+      (rnd() - 0.5) * size * 0.7,
+      (rnd() - 0.5) * size * 0.5,
+      (rnd() - 0.5) * size * 0.7
+    );
     p.translate(pos.x, pos.y, pos.z);
     parts.push(p);
   }
@@ -488,8 +529,10 @@ export function buildTrees(sceneData, heightAt) {
       const tex = makeFoliageTexture(species, 1000 + v * 97 + species.length * 13);
       const leafMat = new THREE.MeshStandardMaterial({
         map: tex,
-        alphaTest: 0.42,
+        alphaTest: 0.35,
         transparent: false,
+        // 用 MSAA 做 alpha 裁剪：边缘平滑，又不需要透明排序
+        alphaToCoverage: true,
         side: THREE.DoubleSide,
         roughness: 0.88,
         metalness: 0,
