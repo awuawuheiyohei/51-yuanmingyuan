@@ -189,181 +189,255 @@ const PALETTE = {
 };
 
 /** 旋子：一条螺旋卷尾的抽象纹样 */
-function drawXuanzi(g, cx, cy, r, color, lw) {
-  g.save();
-  g.translate(cx, cy);
-  g.strokeStyle = color;
-  g.lineWidth = lw;
-  g.beginPath();
+/**
+ * 旋子：清式旋子彩画的基本母题。
+ * 带"沥粉"效果：金色线条外再描一道深色边，模拟沥粉贴金。
+ */
+function drawXuanzi(g, cx, cy, r, color, lw, gilt = true) {
+  const path = [];
   const turns = 2.15;
   const steps = 90;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const a = t * Math.PI * 2 * turns;
     const rr = r * (0.18 + 0.82 * t);
-    const x = Math.cos(a) * rr;
-    const y = Math.sin(a) * rr * 0.86;
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
+    path.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.86]);
   }
-  g.stroke();
-  g.restore();
+  const stroke = (w, col) => {
+    g.strokeStyle = col;
+    g.lineWidth = w;
+    g.beginPath();
+    path.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.stroke();
+  };
+  if (gilt) stroke(lw + 2.6, 'rgba(38,26,10,0.6)');
+  stroke(lw, color);
 }
 
-/** 箍头（两端的小方段） */
-function drawGutou(g, x, y, w, h) {
+/** 盒子：藻头中段的三方连续方格（清式"盒子"） */
+function drawHezi(g, x, y, w, h, color, gilt = true) {
+  const cells = 3;
+  const cw = w / cells;
+  const ch = h / cells;
+  if (gilt) {
+    g.strokeStyle = 'rgba(38,26,10,0.55)';
+    g.lineWidth = 4;
+    g.strokeRect(x, y, w, h);
+  }
+  g.strokeStyle = color;
+  g.lineWidth = 2.4;
+  g.strokeRect(x, y, w, h);
+  for (let i = 0; i < cells; i++) {
+    for (let j = 0; j < cells; j++) {
+      const cx = x + i * cw;
+      const cy = y + j * ch;
+      g.strokeStyle = color;
+      g.lineWidth = 1.8;
+      g.beginPath();
+      g.moveTo(cx + cw * 0.24, cy + ch * 0.76);
+      g.lineTo(cx + cw * 0.76, cy + ch * 0.76);
+      g.lineTo(cx + cw * 0.76, cy + ch * 0.24);
+      g.lineTo(cx + cw * 0.24, cy + ch * 0.24);
+      g.closePath();
+      g.stroke();
+    }
+  }
+}
+
+/** 箍头：找头 + 盒子两段 */
+function drawGutou(g, x, y, w, h, color, gilt = true) {
   g.fillStyle = PALETTE.qing;
   g.fillRect(x, y, w, h);
-  g.strokeStyle = PALETTE.jin;
-  g.lineWidth = 3;
-  g.strokeRect(x + 2, y + 2, w - 4, h - 4);
-  // 内部的万字/回纹
-  g.strokeStyle = PALETTE.jin;
-  g.lineWidth = 2;
-  g.beginPath();
-  const n = 3;
-  for (let i = 0; i < n; i++) {
-    const yy = y + 6 + (i * (h - 12)) / n;
-    g.moveTo(x + 6, yy + 6);
-    g.lineTo(x + w - 6, yy + 6);
-    g.moveTo(x + 6, yy + 6);
-    g.lineTo(x + 6, yy + 1);
-    g.lineTo(x + w - 6, yy + 1);
+  if (gilt) {
+    g.strokeStyle = 'rgba(38,26,10,0.5)';
+    g.lineWidth = 3.6;
+    g.strokeRect(x, y, w, h);
   }
+  g.strokeStyle = color;
+  g.lineWidth = 2.2;
+  g.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+  g.beginPath();
+  g.moveTo(x + w * 0.12, y + h * 0.84);
+  g.lineTo(x + w * 0.52, y + h * 0.16);
   g.stroke();
+  drawHezi(g, x + w * 0.56, y + h * 0.16, w * 0.34, h * 0.68, color, gilt);
 }
 
 /**
  * 枋上彩画带（额枋贴图）。
- * 横向布局：箍头 | 藻头 | 枋心 | 藻头 | 箍头
- * style: 'hexi' 和玺 / 'xuanzi' 旋子 / 'su' 苏式
+ * 清式彩画横向五段：箍头 | 藻头 | 枋心 | 藻头 | 箍头
+ *   藻头 = 旋眼（三瓣旋转） + 盒子（三方连续） + 找头
+ * style: 'hexi' 和玺 / 'xuanzi' 旋子 / 'su' 苏式（包袱）
  */
 export function caihua(style = 'xuanzi') {
   const key = `caihua-${style}`;
   if (cache.has(key)) return cache.get(key);
-  const W = 1024;
-  const H = 128;
+  const W = 2048;
+  const H = 256;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const rnd = mulberry32(4242);
 
-  // 底
+  // 底：青地
   g.fillStyle = PALETTE.qing;
   g.fillRect(0, 0, W, H);
-  // 底色渐变
   const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, 'rgba(255,255,255,0.10)');
-  bg.addColorStop(0.5, 'rgba(0,0,0,0.0)');
-  bg.addColorStop(1, 'rgba(0,0,0,0.22)');
+  bg.addColorStop(0, 'rgba(255,255,255,0.12)');
+  bg.addColorStop(0.5, 'rgba(0,0,0,0)');
+  bg.addColorStop(1, 'rgba(0,0,0,0.24)');
   g.fillStyle = bg;
   g.fillRect(0, 0, W, H);
 
-  const gutouW = 74;
-  const zaoTouW = 168;
+  const gutouW = W * 0.075;
+  const zaoTouW = W * 0.185;
   const fangXinW = W - 2 * (gutouW + zaoTouW);
 
-  drawGutou(g, 0, 0, gutouW, H);
-  drawGutou(g, W - gutouW, 0, gutouW, H);
+  drawGutou(g, 0, 0, gutouW, H, PALETTE.jin);
+  drawGutou(g, W - gutouW, 0, gutouW, H, PALETTE.jin);
 
-  // 藻头
+  // 藻头：旋眼 + 盒子 + 找头
   for (const ax of [gutouW, W - gutouW - zaoTouW]) {
     g.fillStyle = PALETTE.qing;
     g.fillRect(ax, 0, zaoTouW, H);
     g.strokeStyle = PALETTE.jin;
+    g.lineWidth = 4;
+    g.strokeRect(ax + 4, 4, zaoTouW - 8, H - 8);
+
+    const rr = H * 0.34;
+    for (let k = 0; k < 3; k++) {
+      const cxx = ax + zaoTouW * 0.27;
+      const cyy = H * 0.5;
+      const s = 1 - k * 0.26;
+      g.save();
+      g.translate(cxx, cyy);
+      g.rotate(k * 0.5);
+      g.translate(-cxx, -cyy);
+      drawXuanzi(g, cxx, cyy, rr * s, PALETTE.jin, 3.4);
+      g.restore();
+    }
+    drawHezi(g, ax + zaoTouW * 0.45, H * 0.15, zaoTouW * 0.3, H * 0.7, PALETTE.jin);
+    g.strokeStyle = PALETTE.jin;
     g.lineWidth = 3;
-    g.strokeRect(ax + 3, 3, zaoTouW - 6, H - 6);
-    drawXuanzi(g, ax + zaoTouW / 2, H / 2, H * 0.33, PALETTE.jin, 3.5);
-    drawXuanzi(g, ax + zaoTouW / 2, H / 2, H * 0.2, PALETTE.jin, 2.2);
+    for (let k = 0; k < 3; k++) {
+      g.beginPath();
+      g.moveTo(ax + zaoTouW * 0.8, H * (0.28 + k * 0.2));
+      g.lineTo(ax + zaoTouW * 0.95, H * (0.14 + k * 0.2));
+      g.stroke();
+    }
   }
 
   // 枋心
   const fx = gutouW + zaoTouW;
   g.fillStyle = PALETTE.qing;
   g.fillRect(fx, 0, fangXinW, H);
+  g.strokeStyle = 'rgba(38,26,10,0.55)';
+  g.lineWidth = 6;
+  g.strokeRect(fx + 6, 6, fangXinW - 12, H - 12);
   g.strokeStyle = PALETTE.jin;
-  g.lineWidth = 4;
-  g.strokeRect(fx + 5, 5, fangXinW - 10, H - 10);
+  g.lineWidth = 3;
+  g.strokeRect(fx + 6, 6, fangXinW - 12, H - 12);
 
   if (style === 'hexi') {
-    // 和玺：枋心金龙 —— 用龙鳞+火焰的方式暗示龙纹
+    // 和玺：枋心画金龙
     g.save();
     g.beginPath();
-    g.rect(fx + 12, 12, fangXinW - 24, H - 24);
+    g.rect(fx + 14, 14, fangXinW - 28, H - 28);
     g.clip();
-    const cx = fx + fangXinW / 2;
     const cy = H / 2;
-    // 龙身
-    g.strokeStyle = PALETTE.jin;
-    g.lineWidth = 9;
-    g.beginPath();
-    for (let i = 0; i <= 120; i++) {
-      const t = i / 120;
-      const x = fx + 30 + t * (fangXinW - 60);
-      const y = cy + Math.sin(t * Math.PI * 2.4) * (H * 0.2);
-      if (i === 0) g.moveTo(x, y);
-      else g.lineTo(x, y);
+    const spine = [];
+    for (let i = 0; i <= 160; i++) {
+      const t = i / 160;
+      spine.push([
+        fx + 30 + t * (fangXinW - 60),
+        cy + Math.sin(t * Math.PI * 2.6) * (H * 0.21),
+      ]);
     }
-    g.stroke();
-    // 鳞片
-    g.fillStyle = 'rgba(240,210,130,0.85)';
-    for (let i = 0; i < 90; i++) {
-      const t = rnd();
-      const x = fx + 30 + t * (fangXinW - 60);
-      const y = cy + Math.sin(t * Math.PI * 2.4) * (H * 0.2);
+    const drawSpine = (w, col) => {
+      g.strokeStyle = col;
+      g.lineWidth = w;
+      g.lineJoin = 'round';
       g.beginPath();
-      g.arc(x, y, 2.6, 0, Math.PI * 2);
+      spine.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.stroke();
+    };
+    drawSpine(16, 'rgba(38,26,10,0.62)');
+    drawSpine(10, PALETTE.jin);
+    g.fillStyle = 'rgba(244,214,140,0.9)';
+    for (let i = 0; i < 260; i++) {
+      const idx = Math.floor(rnd() * spine.length);
+      const [x, y] = spine[idx];
+      g.beginPath();
+      g.arc(x + (rnd() - 0.5) * 8, y + (rnd() - 0.5) * 13, 2.8, 0, Math.PI * 2);
       g.fill();
     }
-    // 火焰/宝珠
+    const cx = fx + fangXinW / 2;
+    g.strokeStyle = 'rgba(38,26,10,0.6)';
+    g.lineWidth = 7;
+    g.beginPath();
+    g.arc(cx, cy - H * 0.02, 19, 0, Math.PI * 2);
+    g.stroke();
     g.fillStyle = PALETTE.jin;
     g.beginPath();
-    g.arc(cx, cy - H * 0.02, 12, 0, Math.PI * 2);
+    g.arc(cx, cy - H * 0.02, 16, 0, Math.PI * 2);
     g.fill();
     g.restore();
   } else if (style === 'su') {
-    // 苏式：包袱 —— 两端画山水人物，中央留白
+    // 苏式：包袱山水
     g.save();
     g.beginPath();
-    g.rect(fx + 12, 12, fangXinW - 24, H - 24);
+    g.rect(fx + 14, 14, fangXinW - 28, H - 28);
     g.clip();
-    const cx = fx + fangXinW / 2;
     const cy = H / 2;
-    // 远山
-    g.fillStyle = 'rgba(200,220,230,0.55)';
+    g.fillStyle = 'rgba(176,206,220,0.62)';
     g.beginPath();
-    g.moveTo(fx + 40, H - 20);
-    for (let i = 0; i <= 20; i++) {
-      const t = i / 20;
-      const x = fx + 40 + t * (fangXinW - 80);
-      const y = H - 26 - Math.abs(Math.sin(t * 6.1)) * 26;
-      g.lineTo(x, y);
+    g.moveTo(fx + 40, H - 24);
+    for (let i = 0; i <= 30; i++) {
+      const t = i / 30;
+      g.lineTo(
+        fx + 40 + t * (fangXinW - 80),
+        H - 30 - Math.abs(Math.sin(t * 7.3)) * 36
+      );
     }
-    g.lineTo(fx + fangXinW - 40, H - 20);
+    g.lineTo(fx + fangXinW - 40, H - 24);
     g.closePath();
     g.fill();
-    // 宝瓶
+    const cx = fx + fangXinW / 2;
+    g.strokeStyle = 'rgba(38,26,10,0.6)';
+    g.lineWidth = 7;
+    g.beginPath();
+    g.ellipse(cx, cy + 4, 18, 24, 0, 0, Math.PI * 2);
+    g.stroke();
     g.fillStyle = PALETTE.jin;
     g.beginPath();
-    g.ellipse(cx, cy + 4, 13, 17, 0, 0, Math.PI * 2);
+    g.ellipse(cx, cy + 4, 15, 21, 0, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = PALETTE.zhu;
-    g.lineWidth = 3;
-    g.stroke();
     g.restore();
   } else {
-    // 旋子：枋心一个大旋子 + 找头
+    // 旋子：一整二破旋子（枋心中央一个整旋子，两侧各半个）
     const cx = fx + fangXinW / 2;
-    drawXuanzi(g, cx, H / 2, H * 0.36, PALETTE.jin, 5);
-    drawXuanzi(g, cx, H / 2, H * 0.2, PALETTE.jin, 3);
+    drawXuanzi(g, cx, H / 2, H * 0.4, PALETTE.jin, 5);
+    for (const sgn of [-1, 1]) {
+      g.save();
+      g.beginPath();
+      g.rect(cx + sgn * fangXinW * 0.16, 14, fangXinW * 0.18, H - 28);
+      g.clip();
+      drawXuanzi(g, cx + sgn * fangXinW * 0.34, H / 2, H * 0.3, PALETTE.jin, 4);
+      g.restore();
+    }
     g.strokeStyle = PALETTE.jin;
-    g.lineWidth = 2;
-    g.strokeRect(fx + 18, 16, fangXinW - 36, H - 32);
+    g.lineWidth = 2.8;
+    g.beginPath();
+    g.moveTo(fx + 20, 20);
+    g.lineTo(fx + fangXinW - 20, 20);
+    g.moveTo(fx + 20, H - 20);
+    g.lineTo(fx + fangXinW - 20, H - 20);
+    g.stroke();
   }
 
   // 老化磨损
-  for (let i = 0; i < 600; i++) {
-    g.fillStyle = `rgba(0,0,0,${rnd() * 0.07})`;
-    g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 4, 1 + rnd() * 3);
+  for (let i = 0; i < 1100; i++) {
+    g.fillStyle = `rgba(0,0,0,${rnd() * 0.06})`;
+    g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 5, 1 + rnd() * 4);
   }
 
   const tex = toTexture(c, { repeat: [1, 1] });

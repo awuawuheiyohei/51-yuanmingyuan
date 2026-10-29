@@ -9,6 +9,8 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildDougongSet, dougongProjection } from './dougong.js';
+import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
 
 const KEY = {
   stone: 'stone',
@@ -69,56 +71,40 @@ export function buildStructure(spec) {
   const plinthOut = 1.1;
 
   /* ------------------------------------------------------------- 台基 */
+  let floorY = 0;
   if (platform !== 'none' && platformH > 0.05) {
-    const pw = width + plinthOut * 2;
-    const pd = depth + plinthOut * 2;
     if (platform === 'xumizuo') {
-      // 须弥座：圭角(下) — 束腰(中) — 上枭(上)
-      const h0 = platformH * 0.28;
-      const h1 = platformH * 0.26;
-      const h2 = platformH * 0.46;
-      const g0 = new THREE.BoxGeometry(pw, h0, pd);
-      g0.translate(0, h0 / 2, 0);
-      bucket(geoms, KEY.stone).push(g0);
-      const g1 = new THREE.BoxGeometry(pw - 0.34, h1, pd - 0.34);
-      g1.translate(0, h0 + h1 / 2, 0);
-      bucket(geoms, KEY.stone).push(g1);
-      const g2 = new THREE.BoxGeometry(pw - 0.1, h2, pd - 0.1);
-      g2.translate(0, h0 + h1 + h2 / 2, 0);
-      bucket(geoms, KEY.stone).push(g2);
+      // 须弥座：圭角 — 下枋 — 束腰 — 上枋 — 上枭 — 台面
+      const xm = buildXumizuo(width, depth, platformH, 1.25);
+      xm.geometry.translate(0, platformH / 2, 0);
+      bucket(geoms, KEY.stone).push(xm.geometry);
+      floorY = platformH;
     } else {
+      // 素台基
+      const pw = width + 1.9;
+      const pd = depth + 1.9;
       const g = new THREE.BoxGeometry(pw, platformH, pd);
       g.translate(0, platformH / 2, 0);
       bucket(geoms, KEY.stone).push(g);
+      floorY = platformH;
     }
 
-    // 踏跺（台阶）：正面（南，+Z）居中
-    const steps = Math.max(2, Math.round(platformH / 0.17));
-    const sw = Math.min(bayW * 2.6, 8.5);
-    for (let i = 0; i < steps; i++) {
-      const h = platformH / steps;
-      const w = sw + (steps - i) * 0.34;
-      const g = new THREE.BoxGeometry(w, h + 0.02, 0.36);
-      g.translate(0, h * (i + 0.5), pd / 2 + 0.18 - i * 0.36);
-      bucket(geoms, KEY.stone).push(g);
-    }
-    // 御路石（中间斜坡石）
-    const ramp = new THREE.BoxGeometry(sw * 0.34, 0.12, platformH * 1.35);
-    ramp.rotateX(-Math.atan2(platformH, platformH * 1.35));
-    ramp.translate(0, platformH / 2, pd / 2 + 0.2);
-    bucket(geoms, KEY.stone).push(ramp);
+    // 踏跺（台阶 + 垂带 + 御路）：正面（南，+Z）
+    const sw = Math.min(bayW * 2.8, 9.5);
+    const steps = buildSteps(sw, platformH, 1.6, 1);
+    steps.translate(0, 0, depth / 2 + 0.95);
+    bucket(geoms, KEY.stone).push(steps);
 
-    // 四周栏板（可选，简单石栏）
-    if (platform === 'xumizuo') {
-      for (const sz of [-1, 1]) {
-        const g = new THREE.BoxGeometry(pw, 0.5, 0.2);
-        g.translate(0, platformH + 0.25, sz * (pd / 2 - 0.1));
-        bucket(geoms, KEY.stone).push(g);
-      }
+    // 正面栏杆（望柱 + 栏板），踏跺两侧
+    for (const sx of [-1, 1]) {
+      const rw = Math.max(2, (width - sw) / 2 - 0.4);
+      if (rw < 1.2) continue;
+      const rail = buildRailing(rw, 0, 1.0, 1);
+      rail.translate(sx * (sw / 2 + rw / 2 + 0.25), platformH, depth / 2 + 0.55);
+      bucket(geoms, KEY.stone).push(rail);
     }
   }
 
-  const floorY = platformH; // 室内地坪
 
   /* ------------------------------------------------------------- 柱网 */
   const colXs = [];
@@ -191,7 +177,9 @@ export function buildStructure(spec) {
 
   /* ----------------------------------------------------------- 斗栱 */
   if (hasDougong) {
-    const unit = buildDougongUnit(colDia);
+    // 斗栱按清式真尺：坐斗 0.30 见方、三跳总出挑 1.80、通高约 1.25
+    const dgScale = spec.dougongScale ?? 1;
+    const unit = buildDougongSet(dgScale, 'x');
     const placements = [];
     for (let i = 0; i <= mian; i++) {
       placements.push([colXs[i], colZs[0], 0]);
@@ -201,11 +189,11 @@ export function buildStructure(spec) {
       placements.push([colXs[0], colZs[j], Math.PI / 2]);
       placements.push([colXs[mian], colZs[j], Math.PI / 2]);
     }
-    // 斗栱外挑：略出柱心，才能从檐下看见
-    const out = colDia * 0.85;
     for (const [x, z, rot] of placements) {
       const g = unit.clone();
+      // 斗栱坐在柱头，略微出柱心才看得见
       const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
+      const out = colDia * 0.55;
       const m = new THREE.Matrix4()
         .makeRotationY(rot)
         .setPosition(x + dir.x * out, eaveY - 0.02, z + dir.z * out);

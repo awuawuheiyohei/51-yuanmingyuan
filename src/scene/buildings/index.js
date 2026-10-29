@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildStructure } from './parts/structure.js';
 import { buildRoof } from './parts/roof.js';
+import { dougongProjection } from './parts/dougong.js';
 import { materialFor } from './materials.js';
 
 /**
@@ -68,20 +69,27 @@ export function buildBuilding(spec) {
 
   const group = new THREE.Group();
 
-  const structure = buildStructure(form);
+  // 斗栱尺度与出檐必须联动：清式是"出檐 = 斗栱出挑 + 飞椽"，
+  // 两者脱节会一眼看穿比例不对。
+  const bayW = form.width / (form.mian || 1);
+  const colDia = Math.max(0.28, Math.min(0.62, bayW / 10));
+  const dgScale = form.dougongScale ?? Math.min(1.15, Math.max(0.72, colDia / 0.45));
+  const overhang = form.overhang ?? dougongProjection(dgScale) + 0.35;
+
+  const structure = buildStructure({ ...form, dougongScale: dgScale });
   const roof = buildRoof({
     width: form.width,
     depth: form.depth,
     eaveY: form.eaveY,
     rise: form.rise ?? Math.max(1.8, form.width * 0.26),
     type: form.roof,
-    overhang: form.overhang ?? 1.75,
-    overhangX: form.overhangX ?? 0.8,
+    overhang,
+    overhangX: form.overhangX ?? overhang * 0.8,
     hipRunX: form.hipRunX ?? Math.max(2.2, form.depth * 0.24),
     upturn: form.upturn ?? 0.8,
     bulge: form.bulge ?? 0.45,
     circular: form.roof === 'zanjiandian' && form.circular === true,
-    segments: form.segments ?? 26,
+    segments: form.segments ?? 30,
   });
 
   // 合并各材质键的几何

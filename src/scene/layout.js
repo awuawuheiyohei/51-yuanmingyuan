@@ -178,8 +178,8 @@ function buildCourtyardWall(halfW, halfD, heightAt, cx, cz) {
     }
   }
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0x7d786e, roughness: 0.96 });
-  const capMat = new THREE.MeshStandardMaterial({ color: 0x4b4e52, roughness: 0.9 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6e6a61, roughness: 0.97 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x42454a, roughness: 0.92 });
   const wall = new THREE.Mesh(mergeGeometries(wallParts, false), mat);
   const cap = new THREE.Mesh(mergeGeometries(capParts, false), capMat);
   wall.castShadow = wall.receiveShadow = true;
