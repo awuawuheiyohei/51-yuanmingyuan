@@ -92,6 +92,24 @@ export function buildBuilding(spec) {
     segments: form.segments ?? 30,
   });
 
+  // 合并前统一几何格式：ExtrudeGeometry 是非索引的、有些构件没有 uv，
+  // 直接混合会让 mergeGeometries 静默返回 null（那一整个材质桶就没了）。
+  const normalizeGeo = (g) => {
+    if (!g || !g.attributes) return null;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) {
+      const n = g.attributes.position.count;
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+    }
+    if (!g.index) {
+      const n = g.attributes.position.count;
+      const arr = n > 65535 ? new Uint32Array(n) : new Uint16Array(n);
+      for (let i = 0; i < n; i++) arr[i] = i;
+      g.setIndex(new THREE.BufferAttribute(arr, 1));
+    }
+    return g;
+  };
+
   // 合并各材质键的几何
   const merged = new Map();
   const add = (key, geom) => {
@@ -103,12 +121,18 @@ export function buildBuilding(spec) {
   for (const [key, list] of roof.geoms) for (const g of list) add(key, g);
 
   for (const [key, list] of merged) {
-    if (!list.length) continue;
+    const valid = list.filter((g) => g && g.attributes && g.attributes.position);
+    if (!valid.length) continue;
+    for (const g of valid) normalizeGeo(g);
     let geo = null;
     try {
-      geo = list.length === 1 ? list[0] : mergeGeometries(list, false);
+      geo = valid.length === 1 ? valid[0] : mergeGeometries(valid, false);
     } catch {
       geo = list[0];
+    }
+    if (!geo) {
+      console.warn(`建筑 ${form.rank}: ${key} 几何合并失败（${valid.length} 件），退回单件`);
+      geo = valid[0];
     }
     if (!geo) continue;
     if (!geo.attributes.uv) {
@@ -120,7 +144,7 @@ export function buildBuilding(spec) {
     mesh.receiveShadow = true;
     mesh.name = key;
     group.add(mesh);
-    if (list.length > 1) for (const g of list) if (g !== geo) g.dispose();
+    for (const g of valid) if (g !== geo) g.dispose();
   }
 
   if (form.rotation) group.rotation.y = form.rotation;

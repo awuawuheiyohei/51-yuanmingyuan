@@ -267,6 +267,41 @@ export function buildRoof(spec) {
   uvAttr.needsUpdate = true;
   push('tile', roofGeo);
 
+  /* ---------------------------------------------------- 瓦作（真构件） */
+  // 筒瓦：每垄一道半圆管，沿坡向逐段铺
+  const gangCount = Math.max(4, Math.floor((Wx * 2) / TILE.gang));
+  // 小屋顶（亭、轩）不做真瓦：远看无差别，却占掉大半构建时间
+  const detailTiles = Wx > 3.0;
+  const findStart = (x, sign) => {
+    // 找出该垄在坡面上的起点（遇到山花区域会跳过）
+    for (let i = 0; i <= 30; i++) {
+      const z = sign * (Wz * i) / 30;
+      if (heightAt(x, z) !== null) return z;
+    }
+    return null;
+  };
+  for (let gi = 0; gi <= gangCount && detailTiles; gi++) {
+    const x = -Wx + (gi * Wx * 2) / gangCount;
+    for (const sign of [1, -1]) {
+      const z0 = findStart(x, sign);
+      if (z0 === null) continue;
+      const sampler = (t) => {
+        const z = z0 + (sign * Wz - z0) * t;
+        return { x, y: heightAt(x, z), z };
+      };
+      for (const g of buildTongWa(sampler, 0, 1)) push('tile', g);
+    }
+  }
+
+  // 檐口：瓦当、滴水、椽头、飞椽（前后两面）
+  if (detailTiles) {
+    for (const g of buildWadang(Wx, Wz, eaveY, gangCount, 1)) push('tile', g);
+    for (const g of buildWadang(Wx, Wz, eaveY, gangCount, -1)) push('tile', g);
+  }
+  const rc = Math.floor((Wx * 2) / TILE.rafterGap);
+  for (const g of buildRafters(Wx, Wz, eaveY, rc, 1)) push('wood', g);
+  for (const g of buildRafters(Wx, Wz, eaveY, rc, -1)) push('wood', g);
+
   /* -------------------------------------------------- 山花（歇山竖面） */
   if (type === 'xieshan') {
     for (const sgn of [-1, 1]) {
@@ -390,7 +425,10 @@ export function buildRoof(spec) {
     if (r.kind === 'finial') {
       push('finial', buildFinial(r.apex, width));
     } else {
-      push('ridge', buildRidgeBar(r.pts, r.kind === 'hip' ? 0.42 : 0.55, r.kind === 'hip' ? 0.42 : 0.62));
+      const rw = r.kind === 'hip' ? 0.42 : 0.62;
+      push('ridge', buildRidgeBar(r.pts, rw, r.kind === 'hip' ? 0.42 : 0.62));
+      // 脊上垒的小筒瓦
+      for (const g of buildXiTong(r.pts, rw)) push('ridge', g);
       // 正脊两端的鸱吻 + 脊上小兽
       if (r.kind === 'main') {
         push('finial', buildChiwen(r.pts, 0.62));
@@ -459,28 +497,7 @@ function buildBeastRow(pts, size, count) {
   return merged;
 }
 
-/** 瓦当滴水：檐口一排小圆瓦当 */
-function buildWadang(Wx, Wz, eaveY, type, xh) {
-  const parts = [];
-  const r = 0.09;
-  const mk = (x, z, ry) => {
-    const g = new THREE.CylinderGeometry(r, r, 0.07, 8);
-    g.rotateX(Math.PI / 2);
-    if (ry) g.rotateY(ry);
-    g.translate(x, eaveY - 0.14, z);
-    parts.push(g);
-  };
-  const step = 0.34;
-  const n = Math.max(6, Math.floor((Wx * 2) / step));
-  for (let i = 0; i <= n; i++) {
-    const x = -Wx + (i * Wx * 2) / n;
-    mk(x, Wz - 0.04, 0);
-    mk(x, -(Wz - 0.04), 0);
-  }
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  return merged;
-}
+
 
 /** 硬山/悬山山墙的起坡点：屋面与山墙的交线 z */
 function zBreakGable(Wz, eaveY, rise) {
@@ -498,6 +515,145 @@ function zBreakGable(Wz, eaveY, rise) {
 }
 
 /** 正脊/垂脊：一串截面沿折线扫掠 */
+/* ================================================================
+ * 瓦作：把屋面做成真正的构件，而不是"贴了瓦片贴图的曲面"
+ *
+ * 组成：
+ *   板瓦   铺在椽上的平瓦带（底面）
+ *   筒瓦   每垄一道半圆筒瓦，沿坡向逐段铺（真的是半圆管）
+ *   瓦当   檐口一排圆形瓦当
+ *   滴水   瓦当之间的三角形滴水
+ *   椽头   檐下露出的椽头一排
+ *   飞椽   椽头上方斜出的飞椽一排
+ *   脊筒   正脊/垂脊由小筒瓦逐个垒起
+ * ================================================================ */
+
+const TILE = {
+  gang: 0.42,      // 垄距（筒瓦中心到中心）
+  tongR: 0.115,    // 筒瓦半径
+  banW: 0.3,       // 板瓦宽
+  rafterGap: 0.42, // 椽间距
+  rafterR: 0.055,  // 椽半径
+};
+
+/**
+ * 在给定坡面上铺一垄筒瓦。
+ * @param {(t:number)=>{x:number,y:number,z:number}} sampler t∈[0,1] 沿坡向取点
+ */
+function buildTongWa(sampler, t0, t1) {
+  // 整垄生成**一个**几何体（早前每段一个，40 万个对象直接把加载拖到十几秒）
+  const steps = 10;
+  const ring = 6;
+  const R = TILE.tongR;
+  const verts = [];
+  const uvs = [];
+  const idx = [];
+
+  let prevSide = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = t0 + ((t1 - t0) * i) / steps;
+    const p = sampler(t);
+    const pt = sampler(Math.min(t1, t + 0.001));
+    let side = new THREE.Vector3(-(pt.z - p.z), 0, pt.x - p.x);
+    if (side.lengthSq() < 1e-8) side = prevSide ? prevSide.clone() : new THREE.Vector3(1, 0, 0);
+    side.normalize();
+    prevSide = side;
+    const up = new THREE.Vector3(0, 1, 0);
+    // 半圆断面：沿垄向排 7 个点
+    for (let k = 0; k <= ring; k++) {
+      const a = (k / ring) * Math.PI;
+      const ox = Math.cos(a) * R;
+      const oy = Math.sin(a) * R;
+      verts.push(
+        p.x + side.x * ox + up.x * oy,
+        p.y + side.y * ox + up.y * oy,
+        p.z + side.z * ox + up.z * oy
+      );
+      uvs.push(k / ring, (i / steps) * 6);
+    }
+  }
+  const stride = ring + 1;
+  for (let i = 0; i < steps; i++) {
+    for (let k = 0; k < ring; k++) {
+      const a = i * stride + k;
+      idx.push(a, a + 1, a + stride, a + stride, a + 1, a + stride + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return [g];
+}
+
+/** 檐口一排：瓦当（圆盘）+ 滴水（三角） */
+function buildWadang(Wx, Wz, eaveY, count, sign = 1) {
+  const parts = [];
+  const r = 0.115;
+  for (let i = 0; i <= count; i++) {
+    const x = -Wx + (i * Wx * 2) / count;
+    // 瓦当：圆盘朝外
+    const d = new THREE.CylinderGeometry(r, r, 0.07, 10);
+    d.rotateX(Math.PI / 2);
+    d.translate(x, eaveY - 0.12, sign * (Wz - 0.02));
+    parts.push(d);
+    // 滴水：三角片
+    const t = new THREE.CylinderGeometry(r * 1.25, 0.02, 0.16, 3);
+    t.rotateX(sign > 0 ? Math.PI : 0);
+    t.rotateY(Math.PI / 2);
+    t.translate(x + Wx / count, eaveY - 0.2, sign * (Wz + 0.03));
+    parts.push(t);
+  }
+  return parts;
+}
+
+/** 椽头 + 飞椽（檐下两排） */
+function buildRafters(Wx, Wz, eaveY, count, sign = 1) {
+  const parts = [];
+  const r = TILE.rafterR;
+  for (let i = 0; i <= count; i++) {
+    const x = -Wx + (i * Wx * 2) / count;
+    // 椽头（方料，端头露出）
+    const g = new THREE.BoxGeometry(r * 1.8, r * 1.8, 0.42);
+    g.translate(x, eaveY - 0.3, sign * (Wz - 0.18));
+    parts.push(g);
+    // 飞椽（斜出）
+    const f = new THREE.BoxGeometry(r * 1.6, r * 1.5, 0.5);
+    f.rotateX(-sign * 0.42);
+    f.translate(x, eaveY - 0.18, sign * (Wz - 0.46));
+    parts.push(f);
+  }
+  return parts;
+}
+
+/** 脊：正脊/垂脊用小筒瓦逐个垒起 */
+function buildXiTong(points, width) {
+  const parts = [];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const len = curve.getLength();
+  const n = Math.max(4, Math.floor(len / 0.16));
+  const r = 0.085;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const p = curve.getPoint(t);
+    const tan = curve.getTangent(t);
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    const up = new THREE.Vector3(0, 1, 0);
+    // 一片脊筒：半圆瓦，横着躺
+    const g = new THREE.CylinderGeometry(r, r, width * 0.92, 6, 1, false, 0, Math.PI);
+    g.rotateZ(Math.PI / 2);
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      tan
+    );
+    g.applyQuaternion(q);
+    g.translate(p.x, p.y, p.z);
+    parts.push(g);
+  }
+  return parts;
+}
+
 function buildRidgeBar(points, width, height) {
   const shape = new THREE.Shape();
   const w = width / 2;
