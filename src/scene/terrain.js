@@ -2,12 +2,23 @@
  * 地形：把高程网格变成可渲染网格，并按高程/坡度做顶点着色
  */
 import * as THREE from 'three';
+import { makeGroundTexture } from './ground.js';
 
 export function buildTerrain(sceneData, opts = {}) {
   const t = sceneData.terrain;
   const { cols, rows, minX, minZ, sizeX, sizeZ, heights } = t;
 
-  const geo = new THREE.PlaneGeometry(sizeX, sizeZ, cols - 1, rows - 1);
+  // 向外扩一圈，避免地形在视野边缘断成一 floating 的方板
+  const MARGIN = 420;
+  const spanX = sizeX + MARGIN * 2;
+  const spanZ = sizeZ + MARGIN * 2;
+
+  const geo = new THREE.PlaneGeometry(
+    spanX,
+    spanZ,
+    cols - 1,
+    rows - 1
+  );
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
@@ -19,11 +30,14 @@ export function buildTerrain(sceneData, opts = {}) {
   const cSand = new THREE.Color('#a89d80');
   const tmp = new THREE.Color();
 
-  const heightAt = (x, z) => sampleHeight(heights, cols, rows, minX, minZ, sizeX, sizeZ, x, z);
+  const heightAt = (x, z) =>
+    sampleHeight(heights, cols, rows, minX, minZ, sizeX, sizeZ, x, z);
 
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
+    const x = pos.getX(i) + (minX + sizeX / 2);
+    const z = pos.getZ(i) + (minZ + sizeZ / 2);
+    pos.setX(i, x);
+    pos.setZ(i, z);
     const h = heightAt(x, z);
     pos.setY(i, h);
 
@@ -37,6 +51,14 @@ export function buildTerrain(sceneData, opts = {}) {
     tmp.copy(cGrass).lerp(cEarth, alt * 0.55);
     tmp.lerp(cRock, slope * 0.85);
     tmp.lerp(cSand, Math.max(0, 0.35 - alt) * 0.4);
+
+    // 低频大尺度色变：打散贴图的重复感
+    const low =
+      Math.sin(x * 0.0055 + 1.3) * 0.5 +
+      Math.sin(z * 0.0041 - 0.7) * 0.5 +
+      Math.sin((x + z) * 0.0026) * 0.6;
+    tmp.offsetHSL(low * 0.012, low * 0.05, low * 0.055);
+
     // 高频抖动：打散 8bit 量化造成的等高线色带（用哈希噪声，避免规律摩尔纹）
     const jit =
       (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
@@ -47,9 +69,16 @@ export function buildTerrain(sceneData, opts = {}) {
     colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // UV 按世界尺度铺开，一张贴图覆盖 35m
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * (spanX / 35), uv.getY(i) * (spanZ / 35));
+  }
+  uv.needsUpdate = true;
   geo.computeVertexNormals();
 
   const mat = new THREE.MeshStandardMaterial({
+    map: makeGroundTexture(),
     vertexColors: true,
     roughness: 0.98,
     metalness: 0,

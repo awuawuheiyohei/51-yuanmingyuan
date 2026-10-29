@@ -391,16 +391,95 @@ export function buildRoof(spec) {
       push('finial', buildFinial(r.apex, width));
     } else {
       push('ridge', buildRidgeBar(r.pts, r.kind === 'hip' ? 0.42 : 0.55, r.kind === 'hip' ? 0.42 : 0.62));
+      // 正脊两端的鸱吻 + 脊上小兽
+      if (r.kind === 'main') {
+        push('finial', buildChiwen(r.pts, 0.62));
+      }
+      // 垂脊/戗脊上的小兽（简化）
+      if (r.kind === 'hip') {
+        push('finial', buildBeastRow(r.pts, 0.26, 3));
+      }
     }
   }
 
   /* ---------------------------------------------------------- 檐口构件 */
   push('eave', buildEaveTrim(Wx, Wz, eaveY, type, xh, Wz, Wx));
+  push('finial', buildWadang(Wx, Wz, eaveY, type, xh));
 
   return {
     geoms,
     meta: { Wx, Wz, ridgeY, eaveY, xh, zBreak, yBreak, type },
   };
+}
+
+/** 鸱吻：正脊两端的兽头饰件 */
+function buildChiwen(pts, h) {
+  const parts = [];
+  for (const end of [pts[0], pts[pts.length - 1]]) {
+    const g = new THREE.Group();
+    // 主体
+    const body = new THREE.BoxGeometry(h * 0.34, h * 0.62, h * 0.5);
+    body.translate(0, h * 0.31, 0);
+    parts.push(body);
+    // 上卷的尾
+    const curl = new THREE.CylinderGeometry(h * 0.16, h * 0.2, h * 0.42, 6);
+    curl.rotateZ(end === pts[0] ? -0.5 : 0.5);
+    curl.translate(end === pts[0] ? -h * 0.14 : h * 0.14, h * 0.72, 0);
+    parts.push(curl);
+    // 吻兽的嘴
+    const snout = new THREE.BoxGeometry(h * 0.2, h * 0.16, h * 0.34);
+    snout.translate(end === pts[0] ? h * 0.1 : -h * 0.1, h * 0.12, 0);
+    parts.push(snout);
+    for (const p of parts.slice(-3)) {
+      p.translate(end.x, end.y, end.z);
+    }
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/** 脊上小兽：一串简化走兽 */
+function buildBeastRow(pts, size, count) {
+  const parts = [];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  for (let i = 0; i < count; i++) {
+    const t = 0.16 + (i / count) * 0.68;
+    const p = curve.getPoint(t);
+    const g = new THREE.BoxGeometry(size * 0.5, size * 0.85, size * 0.45);
+    g.rotateY(i * 0.7);
+    g.translate(p.x, p.y + size * 0.7, p.z);
+    parts.push(g);
+    const head = new THREE.SphereGeometry(size * 0.26, 6, 5);
+    head.translate(p.x, p.y + size * 1.18, p.z);
+    parts.push(head);
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/** 瓦当滴水：檐口一排小圆瓦当 */
+function buildWadang(Wx, Wz, eaveY, type, xh) {
+  const parts = [];
+  const r = 0.09;
+  const mk = (x, z, ry) => {
+    const g = new THREE.CylinderGeometry(r, r, 0.07, 8);
+    g.rotateX(Math.PI / 2);
+    if (ry) g.rotateY(ry);
+    g.translate(x, eaveY - 0.14, z);
+    parts.push(g);
+  };
+  const step = 0.34;
+  const n = Math.max(6, Math.floor((Wx * 2) / step));
+  for (let i = 0; i <= n; i++) {
+    const x = -Wx + (i * Wx * 2) / n;
+    mk(x, Wz - 0.04, 0);
+    mk(x, -(Wz - 0.04), 0);
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
 }
 
 /** 硬山/悬山山墙的起坡点：屋面与山墙的交线 z */

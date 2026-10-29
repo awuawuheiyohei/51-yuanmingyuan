@@ -8,7 +8,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrain, makeHeightSampler } from './scene/terrain.js';
 import { buildWater, animateWater } from './scene/water.js';
-import { buildRockery, buildTrees } from './scene/nature.js';
+import { buildRockery } from './scene/nature.js';
+import { buildTrees } from './scene/trees.js';
+import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
 import { initHud } from './ui/hud.js';
@@ -112,18 +114,24 @@ scene.add(sky);
 
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(4096, 4096);
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 900;
-const SHADOW_SPAN = 260;
+const SHADOW_SPAN = 200;
 sun.shadow.camera.left = -SHADOW_SPAN;
 sun.shadow.camera.right = SHADOW_SPAN;
 sun.shadow.camera.top = SHADOW_SPAN;
 sun.shadow.camera.bottom = -SHADOW_SPAN;
-sun.shadow.bias = -0.0009;
-sun.shadow.normalBias = 0.6;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.45;
+sun.shadow.radius = 2;
 scene.add(sun);
 scene.add(sun.target);
+
+// 反向补光：模拟地面与天空的反射，避免背光面死黑
+const fill = new THREE.DirectionalLight(0xbdd4e8, 0.35);
+fill.position.set(-400, 180, -300);
+scene.add(fill);
 
 const hemi = new THREE.HemisphereLight(0xbcd8f2, 0x6a6350, 0.85);
 scene.add(hemi);
@@ -131,6 +139,59 @@ const ambient = new THREE.AmbientLight(0xffffff, 0.25);
 scene.add(ambient);
 
 scene.fog = new THREE.Fog(0xcdd6dc, 900, 5200);
+
+/* ------------------------------------------------- 环境光照（天空 IBL） */
+
+/**
+ * 用当前天空配色烘一张环境贴图。
+ * 没有 IBL 时金属/光滑材质（尤其是水面）会显得像塑料。
+ */
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+let envRT = null;
+
+function buildEnvironment() {
+  const W = 256;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+
+  const top = skyUniforms.topColor.value;
+  const bottom = skyUniforms.bottomColor.value;
+  const horizon = skyUniforms.horizonColor.value;
+
+  const grd = g.createLinearGradient(0, 0, 0, H);
+  grd.addColorStop(0, `#${top.getHexString()}`);
+  grd.addColorStop(0.42, `#${top.clone().lerp(horizon, 0.6).getHexString()}`);
+  grd.addColorStop(0.5, `#${horizon.getHexString()}`);
+  grd.addColorStop(0.56, `#${horizon.clone().lerp(bottom, 0.7).getHexString()}`);
+  grd.addColorStop(1, `#${bottom.getHexString()}`);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, W, H);
+
+  // 太阳所在方位打一团亮斑，让高光方向与实际太阳一致
+  const dir = skyUniforms.sunDir.value;
+  const u = ((Math.atan2(dir.z, dir.x) / (Math.PI * 2) + 0.5) % 1) * W;
+  const v = (0.5 - Math.asin(Math.max(-1, Math.min(1, dir.y))) / Math.PI) * H;
+  const sg = g.createRadialGradient(u, v, 0, u, v, W * 0.16);
+  sg.addColorStop(0, 'rgba(255,248,225,0.95)');
+  sg.addColorStop(0.35, 'rgba(255,240,205,0.35)');
+  sg.addColorStop(1, 'rgba(255,240,205,0)');
+  g.fillStyle = sg;
+  g.fillRect(0, 0, W, H);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const rt = pmrem.fromEquirectangular(tex);
+  tex.dispose();
+  if (envRT) envRT.dispose();
+  envRT = rt;
+  scene.environment = rt.texture;
+  scene.environmentIntensity = 0.55;
+}
 
 /* ------------------------------------------------------------ 太阳位置 */
 
@@ -175,6 +236,13 @@ function updateSun(hour) {
 
   scene.fog.color.copy(horizon).lerp(bottom, 0.35);
   renderer.toneMappingExposure = 0.85 + day * 0.35;
+
+  // 天空变了，环境光要跟着重烘（限流，别每帧都做）
+  const now = performance.now();
+  if (now - (state.lastEnv || 0) > 400) {
+    state.lastEnv = now;
+    buildEnvironment();
+  }
 }
 
 /* ------------------------------------------------------------ 场景装载 */
@@ -199,6 +267,12 @@ async function loadScene() {
   const water = buildWater(sceneData);
   waterGroup.current = water;
   scene.add(water);
+
+  const revetment = buildRevetment(sceneData, heightAt);
+  scene.add(revetment);
+
+  const paths = buildPaths(sceneData, heightAt);
+  scene.add(paths);
 
   const layout = buildLayout(sceneData, heightAt);
   scene.add(layout.group);
@@ -244,8 +318,16 @@ async function loadScene() {
     const s = byName('正大光明');
     if (s) {
       // 从南面看正殿正面（隔扇门所在面）
-      camera.position.set(s.x - 26, heightAt(s.x, s.z) + 26, s.z + 78);
-      controls.target.set(s.x, heightAt(s.x, s.z) + 9, s.z);
+      camera.position.set(s.x - 44, heightAt(s.x, s.z) + 34, s.z + 112);
+      controls.target.set(s.x, heightAt(s.x, s.z) + 12, s.z);
+      controls.update();
+    }
+  } else if (view === 'garden') {
+    // 园中景：站在福海西岸看整片水面与对岸建筑
+    const s = byName('福海');
+    if (s) {
+      camera.position.set(s.x - 150, heightAt(s.x, s.z) + 42, s.z + 130);
+      controls.target.set(s.x + 30, heightAt(s.x, s.z) + 8, s.z - 20);
       controls.update();
     }
   }

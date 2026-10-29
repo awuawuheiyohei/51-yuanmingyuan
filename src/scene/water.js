@@ -5,9 +5,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeHeightSampler } from './terrain.js';
 
-/** 程序化水波法线贴图 */
+/** 程序化水波法线贴图：两个频率叠加，避免出现规则的鱼鳞纹 */
 function rippleNormalTexture() {
-  const S = 128;
+  const S = 256;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
@@ -17,9 +17,13 @@ function rippleNormalTexture() {
       const u = (x / S) * Math.PI * 2;
       const v = (y / S) * Math.PI * 2;
       const dx =
-        Math.cos(u * 3 + v * 1.2) * 0.6 + Math.cos(u * 7 - v * 4) * 0.25;
+        Math.cos(u * 2 + v * 0.9) * 0.35 +
+        Math.cos(u * 5.3 - v * 3.7 + 1.2) * 0.16 +
+        Math.cos(u * 9.1 + v * 7.4) * 0.07;
       const dy =
-        Math.sin(v * 3 - u * 0.8) * 0.6 + Math.sin(v * 6 + u * 3.3) * 0.25;
+        Math.sin(v * 2 - u * 0.7) * 0.35 +
+        Math.sin(v * 4.7 + u * 3.1 + 0.7) * 0.16 +
+        Math.sin(v * 8.3 - u * 6.9) * 0.07;
       const len = Math.hypot(dx, dy, 1);
       const i = (y * S + x) * 4;
       img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
@@ -39,17 +43,21 @@ export function buildWater(sceneData) {
   group.name = 'water';
 
   const normalMap = rippleNormalTexture();
-  normalMap.repeat.set(24, 24);
+  // 水面几何的 UV 是米制坐标，一张波纹贴图覆盖约 9m
+  normalMap.repeat.set(1 / 9, 1 / 9);
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x2f7f86,
-    roughness: 0.08,
-    metalness: 0.25,
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: 0x1d5c68,
+    roughness: 0.09,
+    metalness: 0.0,
     transparent: true,
-    opacity: 0.96,
+    opacity: 0.965,
     normalMap,
-    normalScale: new THREE.Vector2(0.35, 0.35),
+    normalScale: new THREE.Vector2(0.3, 0.3),
     side: THREE.DoubleSide,
+    envMapIntensity: 1.05,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.1,
   });
 
   // 所有水面合并成一个 Mesh：各自的水位烘进顶点位置

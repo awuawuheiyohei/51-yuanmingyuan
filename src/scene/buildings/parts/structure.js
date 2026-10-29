@@ -20,6 +20,8 @@ const KEY = {
   lattice: 'lattice',
   ceiling: 'ceiling',
   gold: 'gold',
+  finial: 'finial',
+  plaque: 'plaque',
 };
 
 function bucket(map, key) {
@@ -226,6 +228,19 @@ export function buildStructure(spec) {
       const side = new THREE.BoxGeometry(wallThick, wallH, depth - colDia);
       side.translate(sx * (width / 2 - wallThick / 2), floorY + wallH / 2, 0);
       bucket(geoms, KEY.wall).push(side);
+
+      // 两侧山墙开槛窗：每间一扇棂心窗
+      for (let j = 0; j < jin; j++) {
+        const cz = (colZs[j] + colZs[j + 1]) / 2;
+        const lat = new THREE.PlaneGeometry(bayD * 0.46, wallH * 0.44);
+        lat.rotateY((sx * Math.PI) / 2);
+        lat.translate(
+          sx * (width / 2 - wallThick / 2 + 0.06),
+          floorY + wallH * 0.56,
+          cz
+        );
+        bucket(geoms, KEY.lattice).push(lat);
+      }
     }
 
     // 正面（南，+Z）：门所在开间做成隔扇，其余实墙
@@ -255,6 +270,18 @@ export function buildStructure(spec) {
         const lintel = new THREE.BoxGeometry(bayW - colDia * 0.6, 0.22, wallThick * 1.1);
         lintel.translate(cx, floorY + wallH - 0.11, frontZ + wallThick * 0.1);
         bucket(geoms, KEY.wood).push(lintel);
+
+        // 匾额：门楣之上的黑漆金字横匾（金边框 + 漆底）
+        if (i === Math.floor(mian / 2)) {
+          const pw = Math.min(bayW * 0.62, 3.2);
+          const ph = Math.min(wallH * 0.2, 0.95);
+          const frame = new THREE.BoxGeometry(pw, ph, 0.1);
+          frame.translate(cx, floorY + wallH - 0.2 + ph * 0.6, frontZ + wallThick * 0.55);
+          bucket(geoms, KEY.finial).push(frame);
+          const board = new THREE.BoxGeometry(pw * 0.92, ph * 0.8, 0.13);
+          board.translate(cx, floorY + wallH - 0.2 + ph * 0.6, frontZ + wallThick * 0.58);
+          bucket(geoms, KEY.plaque).push(board);
+        }
       } else {
         const panel = new THREE.BoxGeometry(bayW - colDia, wallH, wallThick);
         panel.translate(cx, floorY + wallH / 2, frontZ);

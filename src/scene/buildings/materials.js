@@ -73,7 +73,7 @@ export function caihuaMaterial(style = 'xuanzi') {
 
 export function dougongMaterial() {
   return make('dougong', () =>
-    new THREE.MeshStandardMaterial({ color: 0x2f6d78, roughness: 0.55, metalness: 0.06 })
+    new THREE.MeshStandardMaterial({ color: 0x1f4a55, roughness: 0.7, metalness: 0.04 })
   );
 }
 
@@ -129,6 +129,13 @@ export function shanhuaMaterial() {
   );
 }
 
+/** 匾额漆底（黑漆） */
+export function plaqueMaterial() {
+  return make('plaque', () =>
+    new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.42, metalness: 0.05 })
+  );
+}
+
 /** 材质键 → 材质实例 的映射 */
 export function materialFor(key, spec = {}) {
   switch (key) {
@@ -158,6 +165,8 @@ export function materialFor(key, spec = {}) {
       return ceilingMaterial();
     case 'shanhua':
       return shanhuaMaterial();
+    case 'plaque':
+      return plaqueMaterial();
     default:
       return new THREE.MeshStandardMaterial({ color: 0x999999 });
   }

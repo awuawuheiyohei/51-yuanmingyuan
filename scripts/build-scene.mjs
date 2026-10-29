@@ -660,6 +660,52 @@ async function main() {
   }
   console.log(`  ✓ 树木 ${trees.length} 棵（其中逐景林相 ${groveCount} 棵）`);
 
+  /* ---- 福海中的仙山（岛）----
+   * 蓬岛瑶台、同天深处是福海里的仙山楼阁。
+   * 必须在开凿之后堆：先挖出湖盆，再从湖底把岛堆起来，
+   * 否则挖湖会把刚堆的岛又挖平。高度取相对抬升，并保证高出水面。 */
+  const islandSpecs = [];
+  for (const s2 of sceneOut) {
+    if (s2.waterKind !== 'lake' || !s2.rock || s2.rock < 0.4) continue;
+    let near = null;
+    let nd = Infinity;
+    for (const w of waterKeep) {
+      const d = Math.hypot(w.cx - s2.x, w.cz - s2.z);
+      if (d < nd) {
+        nd = d;
+        near = w;
+      }
+    }
+    if (!near) continue;
+    islandSpecs.push({
+      x: s2.x,
+      z: s2.z,
+      r: 52 + s2.rock * 70,
+      h: 7 + s2.rock * 9,
+      level: near.level,
+    });
+  }
+  if (islandSpecs.length) {
+    for (let r = 0; r < ROWS; r++) {
+      const z = minZ + (sizeZ * r) / (ROWS - 1);
+      for (let c = 0; c < COLS; c++) {
+        const x = minX + (sizeX * c) / (COLS - 1);
+        for (const isl of islandSpecs) {
+          const d = Math.hypot(x - isl.x, z - isl.z);
+          if (d > isl.r) continue;
+          const t = 1 - d / isl.r;
+          const idx = r * COLS + c;
+          const target = Math.max(
+            isl.level + 1.6,
+            heights[idx] + isl.h * Math.pow(t, 0.75)
+          );
+          if (target > heights[idx]) heights[idx] = target;
+        }
+      }
+    }
+    console.log(`  ✓ 福海仙山 ${islandSpecs.length} 处（开凿后堆岛）`);
+  }
+
   /* ---- 西洋楼锚点 ----
    * 官方导览图上「西洋楼遗址」位于三园东北部（长春园一带），
    * 大水法在中轴核心。锚点取大水法。                              */
@@ -688,7 +734,12 @@ async function main() {
       note: '建筑数量为规则化初版基线，非逐一考证结果',
     },
     terrain: { cols: COLS, rows: ROWS, minX, minZ, sizeX, sizeZ, heights: Array.from(heights) },
-    water: waterKeep.map((w) => ({ ring: w.ring, level: w.level })),
+    water: waterKeep.map((w) => ({
+      ring: w.ring,
+      level: w.level,
+      cx: w.cx,
+      cz: w.cz,
+    })),
     park: parkRing,
     garden,
     buildings: buildings.map((b) => ({

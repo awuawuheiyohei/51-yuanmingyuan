@@ -35,7 +35,9 @@ src/
   scene/
     terrain.js    高程网格 + 顶点着色
     water.js      水面（福海、诸池、逐景补池）
-    nature.js     假山叠山 + 树木（实例化）
+    nature.js     假山叠山（层叠石块 + 太湖石瘦峰）
+    trees.js      树木：递归枝干 + alpha 贴图树冠，按树种×变体实例化
+    ground.js     草土地面贴图 + OSM 步道 + 水岸驳岸
     layout.js     装配：现状建筑 + 四十景聚落 + 西洋楼
     western.js    西洋楼欧式建筑与大水法喷泉群
     scenes-program.js  ★ 逐景考证配置表

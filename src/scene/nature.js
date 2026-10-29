@@ -20,46 +20,106 @@ function mulberry32(seed) {
 }
 
 /**
- * 生成单座假山：由若干瘦削岩体堆叠而成
- * 参照太湖石"瘦、皱、漏、透"的形态，避免规则锥体感
+ * 假山（叠山）
+ *
+ * 清式叠山是"石"不是"锥"：由大小不一的石块层叠咬合而成，
+ * 走向有主次，缝隙透光。这里用被噪声削过的多面体做石块，
+ * 按层堆叠并逐层旋转、收分；另配少量瘦长的太湖石峰。
+ */
+
+/** 一块石头：低面数多面体 + 噪声位移 + 明显压扁成片状 */
+function makeRock(size, rnd) {
+  const g = new THREE.IcosahedronGeometry(size, 1);
+  const pos = g.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    // 噪声要"皱"不要"炸"：幅度收住，主频低一些
+    const n =
+      Math.sin(v.x * 1.15 + rnd() * 0.3) * 0.09 +
+      Math.cos(v.y * 0.95 + v.z * 0.7) * 0.08 +
+      Math.sin(v.z * 1.4 + v.x * 0.8) * 0.05;
+    v.multiplyScalar(1 + n);
+    v.y *= 0.42 + rnd() * 0.2; // 压成片状
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  g.rotateX(rnd() * 0.5);
+  g.rotateY(rnd() * Math.PI * 2);
+  g.rotateZ(rnd() * 0.4);
+  return g;
+}
+
+/**
+ * 一座叠山：自下而上逐层收分，每层若干块石咬合
  */
 function buildRockeryCluster(radius, height, seed) {
   const rnd = mulberry32(seed);
   const parts = [];
-  const n = 7 + Math.floor(rnd() * 6);
-  for (let i = 0; i < n; i++) {
-    const g = new THREE.ConeGeometry(
-      radius * (0.22 + rnd() * 0.34),
-      height * (0.3 + rnd() * 0.5),
-      5 + Math.floor(rnd() * 3),
-      3
+  const layers = 4 + Math.floor(rnd() * 4);
+
+  for (let l = 0; l < layers; l++) {
+    const t = l / layers;
+    const y = height * t * 0.82;
+    const r = radius * (1 - t * 0.62);
+    const blocks = 3 + Math.floor(rnd() * 3);
+    for (let b = 0; b < blocks; b++) {
+      const a = rnd() * Math.PI * 2;
+      const d = rnd() * r * 0.85;
+      const size = radius * (0.3 + rnd() * 0.42) * (1 - t * 0.4);
+      const g = makeRock(size, rnd);
+      g.translate(
+        Math.cos(a) * d,
+        y + size * 0.35 + rnd() * size * 0.3,
+        Math.sin(a) * d
+      );
+      parts.push(g);
+    }
+  }
+
+  // 收顶：一两块较大的石压顶
+  const cap = makeRock(radius * 0.42, rnd);
+  cap.translate(0, height * 0.84, 0);
+  parts.push(cap);
+
+  // 太湖石：旁立一两根瘦峰
+  if (rnd() < 0.55) {
+    const h = height * (0.7 + rnd() * 0.5);
+    const g = new THREE.CylinderGeometry(
+      radius * 0.1,
+      radius * 0.26,
+      h,
+      7,
+      4
     );
-    // 噪声位移：制造皱褶
     const pos = g.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      const x = pos.getX(v);
-      const y = pos.getY(v);
-      const z = pos.getZ(v);
-      const nse =
-        Math.sin(x * 1.7 + seed * 0.01) * 0.16 +
-        Math.cos(y * 1.1 + z * 0.9) * 0.14 +
-        Math.sin(z * 2.3) * 0.1;
-      pos.setXYZ(v, x * (1 + nse), y * (1 + nse * 0.5), z * (1 + nse));
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const n = Math.sin(v.y * 2.6 + seed * 0.01) * 0.16 + Math.cos(v.x * 3.1) * 0.12;
+      pos.setXYZ(v, v.x * (1 + n), v.y, v.z * (1 + n));
     }
     g.computeVertexNormals();
-    const a = rnd() * Math.PI * 2;
-    const d = rnd() * radius * 0.85;
-    g.translate(Math.cos(a) * d, height * (0.12 + rnd() * 0.42), Math.sin(a) * d);
-    g.rotateY(rnd() * Math.PI * 2);
-    g.rotateZ((rnd() - 0.5) * 0.3);
+    g.rotateZ((rnd() - 0.5) * 0.28);
+    g.translate(
+      (rnd() - 0.5) * radius * 1.1,
+      h * 0.45,
+      (rnd() - 0.5) * radius * 1.1
+    );
     parts.push(g);
   }
-  // 底部护坡
-  const base = new THREE.ConeGeometry(radius * 1.25, height * 0.34, 9, 1);
-  base.translate(0, height * 0.17, 0);
+
+  // 底部铺地：埋进地里，不能露成一个白盘子
+  const base = new THREE.ConeGeometry(radius * 1.2, height * 0.2, 9, 1);
+  base.translate(0, height * 0.02, 0);
   parts.push(base);
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
+
+  // 注意：IcosahedronGeometry 是非索引的，Cylinder/Cone 是索引的，
+  // mergeGeometries 不接受混合 —— 统一转成非索引再合
+  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  const merged = mergeGeometries(flat, false);
+  for (const g of flat) g.dispose();
+  for (const g of parts) if (!g.index) g.dispose();
   return merged;
 }
 
@@ -67,10 +127,11 @@ export function buildRockery(sceneData, heightAt) {
   const group = new THREE.Group();
   group.name = 'rockery';
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x8b8a84,
-    roughness: 0.96,
+    color: 0x676155,
+    roughness: 0.99,
     metalness: 0,
     flatShading: true,
+    envMapIntensity: 0.45,
   });
 
   const items = sceneData.rockery || [];
@@ -78,140 +139,22 @@ export function buildRockery(sceneData, heightAt) {
   const all = [];
   for (const r of items) {
     const geo = buildRockeryCluster(r.r, r.h, r.seed);
+    if (!geo) continue;
     const m = new THREE.Matrix4()
       .makeRotationY(((r.seed % 1000) / 1000) * Math.PI * 2)
-      .setPosition(r.x, (heightAt?.(r.x, r.z) ?? 0) - 0.8, r.z);
+      .setPosition(r.x, (heightAt?.(r.x, r.z) ?? 0) - 0.9, r.z);
     geo.applyMatrix4(m);
     all.push(geo);
   }
   if (all.length) {
     const merged = mergeGeometries(all, false);
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
     for (const g of all) g.dispose();
-  }
-  return group;
-}
-
-/* ------------------------------------------------------------------ 树 */
-
-const TREE_STYLE = {
-  // 松：层叠的伞状针叶
-  pine: { trunk: 0x5a4632, leaf: 0x33523a, leaf2: 0x41654a, shape: 'conifer', hMul: 1.15 },
-  // 柳：下垂枝条
-  willow: { trunk: 0x6b563c, leaf: 0x688049, leaf2: 0x7d9557, shape: 'weeping', hMul: 0.95 },
-  // 桃花/海棠：粉花
-  blossom: { trunk: 0x5f4a36, leaf: 0xc9909f, leaf2: 0xd8a9b4, shape: 'round', hMul: 0.85 },
-  // 杨：高大挺直
-  poplar: { trunk: 0x6e5a42, leaf: 0x5a7346, leaf2: 0x6b8350, shape: 'column', hMul: 1.45 },
-  // 枫/黄栌：秋色
-  maple: { trunk: 0x5b4634, leaf: 0xa5714f, leaf2: 0xbb8a5c, shape: 'round', hMul: 0.95 },
-};
-
-/** 树冠几何（低模），按类型分 */
-function foliageGeometry(kind, r, seed) {
-  const rnd = mulberry32(seed);
-  const parts = [];
-  if (kind === 'conifer') {
-    for (let i = 0; i < 4; i++) {
-      const t = i / 4;
-      const g = new THREE.ConeGeometry(r * (1 - t * 0.55), r * 1.1, 7);
-      g.translate(0, r * 0.55 + i * r * 0.72, 0);
-      parts.push(g);
-    }
-  } else if (kind === 'weeping') {
-    const g = new THREE.SphereGeometry(r, 8, 6);
-    g.scale(1.15, 0.8, 1.15);
-    g.translate(0, r * 0.9, 0);
-    parts.push(g);
-    // 下垂枝
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + rnd();
-      const d = r * 0.75;
-      const b = new THREE.SphereGeometry(r * 0.34, 6, 5);
-      b.scale(1, 2.6, 1);
-      b.translate(Math.cos(a) * d, r * 0.62, Math.sin(a) * d);
-      parts.push(b);
-    }
-  } else if (kind === 'column') {
-    const g = new THREE.SphereGeometry(r, 7, 8);
-    g.scale(0.62, 2.3, 0.62);
-    g.translate(0, r * 1.5, 0);
-    parts.push(g);
-  } else {
-    // 圆冠：多个球叠成蓬松团
-    for (let i = 0; i < 4; i++) {
-      const a = rnd() * Math.PI * 2;
-      const d = rnd() * r * 0.5;
-      const g = new THREE.SphereGeometry(r * (0.6 + rnd() * 0.4), 7, 6);
-      g.translate(Math.cos(a) * d, r * 0.85 + (rnd() - 0.5) * r * 0.5, Math.sin(a) * d);
-      parts.push(g);
-    }
-  }
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  return merged;
-}
-
-export function buildTrees(sceneData, heightAt) {
-  const group = new THREE.Group();
-  group.name = 'trees';
-  const trees = sceneData.trees || [];
-
-  // 按类型分组，每类用 InstancedMesh
-  const byType = new Map();
-  for (const t of trees) {
-    if (!byType.has(t.type)) byType.set(t.type, []);
-    byType.get(t.type).push(t);
-  }
-
-  for (const [type, list] of byType) {
-    const style = TREE_STYLE[type] || TREE_STYLE.maple;
-    const trunkGeo = new THREE.CylinderGeometry(0.11, 0.2, 1, 5);
-    trunkGeo.translate(0, 0.5, 0);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: style.trunk, roughness: 0.95 });
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, list.length);
-    trunks.castShadow = true;
-
-    const foliageMat = new THREE.MeshStandardMaterial({
-      color: style.leaf,
-      roughness: 0.9,
-      flatShading: true,
-    });
-    const folGeo = foliageGeometry(style.shape, 1, 12345);
-    const foliage = new THREE.InstancedMesh(folGeo, foliageMat, list.length);
-    foliage.castShadow = true;
-    foliage.receiveShadow = true;
-
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const pos = new THREE.Vector3();
-    const scl = new THREE.Vector3();
-
-    list.forEach((t, i) => {
-      const rnd = mulberry32(t.seed);
-      const y = heightAt?.(t.x, t.z) ?? 0;
-      const trunkH = t.h * 0.42;
-      const crownR = t.h * 0.36 * (0.8 + rnd() * 0.5);
-      const scale = 0.85 + rnd() * 0.4;
-
-      pos.set(t.x, y - 0.2, t.z);
-      scl.set(scale, trunkH * scale, scale);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * Math.PI * 2);
-      m.compose(pos, q, scl);
-      trunks.setMatrixAt(i, m);
-
-      pos.set(t.x, y + trunkH * scale * 0.92, t.z);
-      scl.set(crownR * scale, crownR * scale * style.hMul, crownR * scale);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * Math.PI * 2);
-      m.compose(pos, q, scl);
-      foliage.setMatrixAt(i, m);
-    });
-    trunks.instanceMatrix.needsUpdate = true;
-    foliage.instanceMatrix.needsUpdate = true;
-    group.add(trunks, foliage);
   }
   return group;
 }
