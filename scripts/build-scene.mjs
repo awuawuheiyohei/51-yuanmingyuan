@@ -742,12 +742,53 @@ async function main() {
     return waterMask[r * COLS + c] === 1;
   };
 
+  // 西洋楼景区：喷泉院落里不能长树。
+  // 大水法一带正好落在一片密林里，树冠会把海棠形水池、石龛、喷水塔全盖死。
+  // 这里在**构建期**把院落范围排除掉——不要在运行期去改实例矩阵。
+  const westCourts = [];
+  {
+    // WEST_BUILDINGS 是模块级常量，这里自己换算成局部坐标
+    const wOf = (n) => {
+      const b = WEST_BUILDINGS.find((b2) => b2.name === n);
+      return b ? { ...b, x: toX(b.lon), z: toZ(b.lat) } : null;
+    };
+    const dw = wOf('大水法');
+    const he = wOf('谐奇趣');
+    const hy = wOf('海晏堂');
+    // 景区中轴方向（谐奇趣 → 线法山）与"南"向法向
+    const ax = (he && dw
+      ? Math.atan2(dw.z - he.z, dw.x - he.x)
+      : 0);
+    const perpX = Math.cos(ax + Math.PI / 2);
+    const perpZ = Math.sin(ax + Math.PI / 2);
+    const GSF = 26.5; // 观水法相对大水法的偏移（推定，与 western.js 一致）
+    if (dw) {
+      westCourts.push({ x: dw.x, z: dw.z, rx: 34, rz: 30 }); // 大水法海棠池
+      westCourts.push({
+        x: dw.x + perpX * GSF,
+        z: dw.z + perpZ * GSF,
+        rx: 17,
+        rz: 14,
+      }); // 观水法台
+    }
+    if (he) westCourts.push({ x: he.x, z: he.z, rx: 22, rz: 22 }); // 谐奇趣海棠池
+    if (hy) westCourts.push({ x: hy.x, z: hy.z, rx: 26, rz: 23 }); // 海晏堂生肖院
+  }
+  const inWestCourt = (x, z) =>
+    westCourts.some((c) => {
+      const dx = (x - c.x) / c.rx;
+      const dz = (z - c.z) / c.rz;
+      return dx * dx + dz * dz <= 1;
+    });
+
   for (let i = 0; i < 62000; i++) {
     const x = minX + rnd() * sizeX;
     const z = minZ + rnd() * sizeZ;
     if (!inPark(x, z)) continue;
     // 避开水面
     if (isWaterCell(x, z)) continue;
+    // 避开西洋楼喷泉院落
+    if (inWestCourt(x, z)) continue;
     // 避开建筑
     let inBuilding = false;
     for (const b of buildings) {
