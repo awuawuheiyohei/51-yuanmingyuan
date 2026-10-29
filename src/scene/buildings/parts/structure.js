@@ -112,7 +112,12 @@ export function buildStructure(spec) {
   const colZs = [];
   for (let j = 0; j <= jin; j++) colZs.push(-depth / 2 + j * bayD);
 
-  const colH = eaveY - floorY;
+  // 构造次序：檐柱 → 额枋 → 斗栱 → 屋面
+  // eaveY 是屋面起坡高度，斗栱与额枋都要在它下面
+  const beamH = 0.62;
+  const beamD = colDia * 1.05;
+  const dgHeight = hasDougong ? 1.25 * (spec.dougongScale ?? 1) : 0;
+  const colH = eaveY - floorY - beamH - dgHeight;
   const isPerimeter = (i, j) => i === 0 || i === mian || j === 0 || j === jin;
 
   const addColumn = (x, z, h) => {
@@ -141,9 +146,7 @@ export function buildStructure(spec) {
   }
 
   /* ------------------------------------------------------- 额枋 + 彩画 */
-  const beamH = 0.62;
-  const beamD = colDia * 1.05;
-  const beamY = eaveY - beamH / 2 - 0.02;
+  const beamY = floorY + colH + beamH / 2;
 
   const addBeam = (len, x, z, alongX) => {
     const g = alongX
@@ -196,7 +199,7 @@ export function buildStructure(spec) {
       const out = colDia * 0.55;
       const m = new THREE.Matrix4()
         .makeRotationY(rot)
-        .setPosition(x + dir.x * out, eaveY - 0.02, z + dir.z * out);
+        .setPosition(x + dir.x * out, floorY + colH + beamH, z + dir.z * out);
       g.applyMatrix4(m);
       bucket(geoms, KEY.dougong).push(g);
     }
@@ -204,7 +207,7 @@ export function buildStructure(spec) {
   }
 
   /* ----------------------------------------------------------- 墙体 */
-  const wallTop = eaveY - beamH - 0.1;
+  const wallTop = floorY + colH + beamH - 0.06;
   const wallH = wallTop - floorY;
   if (wallH > 0.2) {
     // 后墙（北，-Z）/ 两侧山墙：实墙（收进柱径，露出角柱）

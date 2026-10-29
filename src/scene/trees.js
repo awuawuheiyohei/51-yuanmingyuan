@@ -244,9 +244,16 @@ function growBranches(opts) {
   out.push(seg);
 
   if (depth >= maxDepth) {
-    // 末端挂一簇树冠
+    // 末端挂一簇树冠：两片交叉 + 一片侧向，避免看出是"一块贴图"
     const card = makeCard(end, leafSize, rnd, species);
     foliageOut.push(card);
+    const card2 = makeCard(
+      end.clone().add(new THREE.Vector3((rnd() - 0.5) * leafSize, rnd() * leafSize * 0.5, (rnd() - 0.5) * leafSize)),
+      leafSize * 0.66,
+      rnd,
+      species
+    );
+    foliageOut.push(card2);
     return;
   }
 
@@ -271,13 +278,13 @@ function growBranches(opts) {
   }
 }
 
-/** 一片树冠卡片（交叉双面片） */
+/** 一片树冠卡片：三片交叉面片 */
 function makeCard(pos, size, rnd, species) {
   const parts = [];
-  for (let k = 0; k < 2; k++) {
+  for (let k = 0; k < 3; k++) {
     const p = new THREE.PlaneGeometry(size * 2, size * 2);
     p.rotateZ(rnd() * Math.PI);
-    if (k === 1) p.rotateY(Math.PI / 2);
+    p.rotateY(k * (Math.PI / 3) + rnd() * 0.4);
     p.translate(pos.x, pos.y, pos.z);
     parts.push(p);
   }

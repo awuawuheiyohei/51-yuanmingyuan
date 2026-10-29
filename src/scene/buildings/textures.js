@@ -16,6 +16,27 @@ import * as THREE from 'three';
 
 const cache = new Map();
 
+/**
+ * AI 生成材质覆盖表。
+ * scripts/gen-textures.py 用本机 MPS 跑扩散模型生成写实材质后，
+ * 通过 setTextureOverrides() 注入；未生成时回落到程序化贴图。
+ */
+const OVERRIDE = {};
+
+export function setTextureOverrides(map) {
+  for (const [k, tex] of Object.entries(map)) {
+    if (!tex) continue;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 8;
+    OVERRIDE[k] = tex;
+  }
+}
+
+export function getTextureOverrides() {
+  return { ...OVERRIDE };
+}
+
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w;
@@ -51,6 +72,7 @@ function mulberry32(seed) {
  * canvas 的 U 方向 = 沿坡向（从脊到檐），V 方向 = 沿垄方向。
  */
 export function roofTiles() {
+  if (OVERRIDE.tile) return { map: OVERRIDE.tile };
   if (cache.has('roofTiles')) return cache.get('roofTiles');
   const W = 256;
   const H = 256;
@@ -495,6 +517,7 @@ export function columnPaint(color = '#a8302a') {
 
 /** 灰砖墙 */
 export function brickWall(tint = '#8d8a84') {
+  if (OVERRIDE.brick) return OVERRIDE.brick;
   const key = `brick-${tint}`;
   if (cache.has(key)) return cache.get(key);
   const W = 256;
@@ -530,6 +553,7 @@ export function brickWall(tint = '#8d8a84') {
 
 /** 汉白玉 / 青石台基 */
 export function stone() {
+  if (OVERRIDE.stone) return OVERRIDE.stone;
   if (cache.has('stone')) return cache.get('stone');
   const W = 256;
   const H = 256;
@@ -562,6 +586,7 @@ export function stone() {
 
 /** 素木色（隔扇门、窗棂底色） */
 export function wood() {
+  if (OVERRIDE.wood) return OVERRIDE.wood;
   if (cache.has('wood')) return cache.get('wood');
   const W = 128;
   const H = 128;

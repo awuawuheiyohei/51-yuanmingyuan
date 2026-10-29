@@ -6,3 +6,6 @@ public/scene/scene.json
 public/scene/plan.ppm
 public/scene/plan.png
 *.log
+.venv-ai/
+data/hf-cache/
+data/hf-local/

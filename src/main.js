@@ -13,6 +13,7 @@ import { buildTrees } from './scene/trees.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
+import { setTextureOverrides } from './scene/buildings/textures.js';
 import { initHud } from './ui/hud.js';
 
 const state = {
@@ -252,6 +253,43 @@ let tour = null;
 let sceneData = null;
 const waterGroup = { current: null };
 
+/**
+ * 载入本机用扩散模型生成的写实材质（若已生成）。
+ * 没有生成过就静默跳过，全部回落到程序化贴图。
+ */
+async function loadAITextures() {
+  const loader = new THREE.TextureLoader();
+  try {
+    const res = await fetch('textures/manifest.json');
+    if (!res.ok) return null;
+    const manifest = await res.json();
+    const map = {};
+    const names = Object.keys(manifest);
+    await Promise.all(
+      names.map(
+        (n) =>
+          new Promise((resolve) => {
+            loader.load(
+              `textures/${manifest[n].file}`,
+              (t) => {
+                map[n] = t;
+                resolve();
+              },
+              undefined,
+              () => resolve()
+            );
+          })
+      )
+    );
+    if (!Object.keys(map).length) return null;
+    setTextureOverrides(map);
+    console.log(`  ✓ 载入 AI 生成材质 ${Object.keys(map).length} 种：${names.join('、')}`);
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 async function loadScene() {
   const res = await fetch('scene/scene.json');
   if (!res.ok) throw new Error(`scene.json 加载失败: HTTP ${res.status}`);
@@ -260,6 +298,8 @@ async function loadScene() {
 
   const byName = (n) => (sceneData.scenes || []).find((s) => s.name === n);
   const t0 = performance.now();
+
+  await loadAITextures();
 
   const terrain = buildTerrain(sceneData);
   scene.add(terrain);

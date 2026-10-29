@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { getTextureOverrides } from './buildings/textures.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -22,6 +23,8 @@ function mulberry32(seed) {
 /* ------------------------------------------------------------ 地面贴图 */
 
 export function makeGroundTexture() {
+  const ov = getTextureOverrides();
+  if (ov.grass) return ov.grass;
   const S = 512;
   const c = document.createElement('canvas');
   c.width = c.height = S;

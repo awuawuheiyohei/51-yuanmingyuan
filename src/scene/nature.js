@@ -62,11 +62,11 @@ function buildRockeryCluster(radius, height, seed) {
     const t = l / layers;
     const y = height * t * 0.82;
     const r = radius * (1 - t * 0.62);
-    const blocks = 3 + Math.floor(rnd() * 3);
+    const blocks = 4 + Math.floor(rnd() * 4);
     for (let b = 0; b < blocks; b++) {
       const a = rnd() * Math.PI * 2;
       const d = rnd() * r * 0.85;
-      const size = radius * (0.3 + rnd() * 0.42) * (1 - t * 0.4);
+      const size = radius * (0.22 + rnd() * 0.4) * (1 - t * 0.4);
       const g = makeRock(size, rnd);
       g.translate(
         Math.cos(a) * d,
@@ -74,6 +74,16 @@ function buildRockeryCluster(radius, height, seed) {
         Math.sin(a) * d
       );
       parts.push(g);
+    }
+    // 层间垫石，让咬合更实
+    if (l < layers - 1) {
+      const filler = makeRock(radius * (0.3 + rnd() * 0.25) * (1 - t * 0.4), rnd);
+      filler.translate(
+        (rnd() - 0.5) * r,
+        y + height * 0.06,
+        (rnd() - 0.5) * r
+      );
+      parts.push(filler);
     }
   }
 
