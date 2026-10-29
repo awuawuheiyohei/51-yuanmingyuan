@@ -60,10 +60,13 @@ export function buildTerrain(sceneData, opts = {}) {
       Math.sin((x + z) * 0.0026) * 0.6;
     tmp.offsetHSL(low * 0.012, low * 0.05, low * 0.055);
 
-    // 高频抖动：打散 8bit 量化造成的等高线色带（用哈希噪声，避免规律摩尔纹）
-    const jit =
-      (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
-    const n = jit * 0.022;
+    // 高频抖动：打散 8bit 量化造成的等高线色带。
+    // 用**整数哈希**，不要用 sin 大数伪随机——sin(x*12.9898) 在 x 上千之后
+    // 精度掉光，输出变成沿网格的规则条纹，全园俯视就是一片斜向灯芯绒。
+    const hsh = (Math.imul(Math.round(x * 4), 374761393) +
+      Math.imul(Math.round(z * 4), 668265263)) | 0;
+    const j = Math.imul(hsh ^ (hsh >>> 13), 1274126177);
+    const n = (((j ^ (j >>> 16)) >>> 0) / 4294967296 - 0.5) * 0.044;
     tmp.offsetHSL(0, n * 0.5, n);
     colors[i * 3] = tmp.r;
     colors[i * 3 + 1] = tmp.g;

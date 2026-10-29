@@ -45,6 +45,7 @@ HF_HUB_DISABLE_XET=1 .venv-ai/bin/python scripts/gen-textures.py
 | `?view=close&name=<景名>` | 该景近景（查构件细节） |
 | `?view=plan&name=<景名>` | 该景正俯视（查平面形制，如卍字/田字） |
 | `?view=garden` | 福海西岸望对岸 |
+| `?view=west` / `west2` / `west3` / `west4` | 西洋楼：大水法全景 / 海晏堂生肖 / 远瀛观 / 整片西洋楼 |
 
 俯视诊断图：`python3 scripts/plan-view.py && ffmpeg -i public/scene/plan.ppm public/scene/plan.png`。
 
@@ -73,7 +74,9 @@ src/
     trees.js      树木：递归枝干 + alpha 贴图树冠，按树种×变体实例化
     ground.js     草土地面贴图 + OSM 步道 + 水岸驳岸
     layout.js     装配：现状建筑 + 四十景聚落 + 西洋楼
-    western.js    西洋楼欧式建筑与大水法喷泉群
+    western.js    西洋楼总装（按考据重做的巴洛克石构建筑群）
+    western-parts/ 西洋楼构件库：materials 材质表 / kit 通用构件 /
+                   fountain 池与喷泉 / hall 殿宇框架 + 每处建筑一文件
     scenes-program.js  ★ 逐景考证配置表（含瓦色制度与特殊平面）
     buildings/merge.js  按材质整景合并几何（控制 draw call）
     camera-tour.js 一镜到底巡游样条

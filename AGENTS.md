@@ -50,6 +50,7 @@ X → 东     Z → 南     Y → 上
 | 某个景的建筑形制 / 解说词 | `src/scene/scenes-program.js` |
 | **某景的开间/屋顶/瓦色从哪来** | `data/research/architecture-notes.md`（考据摘录，逐条对应） |
 | 屋顶形式、举折、翼角、重檐、卷棚歇山 | `src/scene/buildings/parts/roof.js` |
+| 西洋楼各处的构件 | `src/scene/western-parts/`（materials / kit / fountain / hall + 每处一文件） |
 | 瓦色制度（黄/绿/孔雀绿/蓝/红琉璃…） | `src/scene/scenes-program.js` 的 `TILE_COLORS` |
 | 台基柱网额枋斗栱墙体 | `src/scene/buildings/parts/structure.js` |
 | 贴图（瓦垄/彩画/棂心/砖石） | `src/scene/buildings/textures.js` |
@@ -69,8 +70,11 @@ X → 东     Z → 南     Y → 上
 - 步道：全部合并成**一个** Mesh。
 - 院墙：分段贴地但**整院合并**成 2 个 Mesh（墙身 + 压顶）。
 - 改动后跑一次 `npm run dev`，看控制台里的 `draw calls` 与三角面数，
-  **当前基线：约 11.0M 三角面 / 486 draw calls；场景构建约 15~20s；
-  建筑 287 座（41 景 × 5~9 座，含考据实记的有名附属建筑）。**
+  **当前基线：全园 11.3M 三角面 / 572 draw calls（西洋楼在视野内时的实测值）；
+  场景构建约 4~8s；建筑 287 座（41 景 × 5~9 座，含考据实记的有名附属建筑）
+  + 西洋楼 8 处。**
+  ⚠ 控制台的三角面/draw call 只统计**当前视野内**渲染的对象，
+  换个视角数字就变——比性能要拿同一视角比。
   数量级突变要查清楚原因（合并丢失是最常见的原因）。
 
 ## 4.1 视觉保真度是硬要求
