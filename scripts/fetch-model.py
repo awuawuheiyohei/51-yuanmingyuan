@@ -11,38 +11,48 @@ import subprocess
 import concurrent.futures as cf
 from pathlib import Path
 
-MIRROR = "https://hf-mirror.com"
-REPO = sys.argv[1] if len(sys.argv) > 1 else "stable-diffusion-v1-5/stable-diffusion-v1-5"
+# 源：modelscope.cn 国内实测 22MB/s；hf-mirror.com 只有 ~500KB/s
+MIRROR = os.environ.get("MODEL_MIRROR", "https://modelscope.cn/models")
+REPO = sys.argv[1] if len(sys.argv) > 1 else "AI-ModelScope/stable-diffusion-v1-5"
 DEST = Path(sys.argv[2] if len(sys.argv) > 2 else "data/hf-local/sd15")
 CHUNKS = 8
 
 DEFAULT_FILES = [
-    ("unet/diffusion_pytorch_model.fp16.safetensors", "unet/diffusion_pytorch_model.safetensors"),
-    ("text_encoder/model.fp16.safetensors", "text_encoder/model.safetensors"),
-    ("vae/diffusion_pytorch_model.fp16.safetensors", "vae/diffusion_pytorch_model.safetensors"),
+    ("unet/diffusion_pytorch_model.bin", "unet/diffusion_pytorch_model.safetensors"),
+    ("unet/config.json", "unet/config.json"),
+    ("text_encoder/pytorch_model.bin", "text_encoder/model.safetensors"),
+    ("text_encoder/config.json", "text_encoder/config.json"),
+    ("vae/diffusion_pytorch_model.bin", "vae/diffusion_pytorch_model.safetensors"),
+    ("vae/config.json", "vae/config.json"),
     ("model_index.json", "model_index.json"),
+    ("configuration.json", "configuration.json"),
     ("scheduler/scheduler_config.json", "scheduler/scheduler_config.json"),
     ("tokenizer/merges.txt", "tokenizer/merges.txt"),
     ("tokenizer/vocab.json", "tokenizer/vocab.json"),
     ("tokenizer/tokenizer_config.json", "tokenizer/tokenizer_config.json"),
+    ("tokenizer/special_tokens_map.json", "tokenizer/special_tokens_map.json"),
 ]
 
 
 def size_of(url):
+    """注意：镜像会 302 到 xet-bridge，响应里有多个 content-length，
+    必须取最后一个（真实文件大小），第一个是重定向体的大小。"""
     out = subprocess.run(
         ["curl", "-sIL", "-H", "User-Agent: Mozilla/5.0", url],
         capture_output=True,
         text=True,
     ).stdout
-    for line in out.splitlines():
-        if line.lower().startswith("content-length:"):
-            return int(line.split(":", 1)[1].strip())
-    return None
+    sizes = [
+        int(line.split(":", 1)[1].strip())
+        for line in out.splitlines()
+        if line.lower().startswith("content-length:")
+    ]
+    return max(sizes) if sizes else None
 
 
 def fetch_part(url, path, start, end):
     cmd = [
-        "curl", "-sL", "--retry", "5", "--retry-delay", "2",
+        "curl", "-sL", "--fail", "--retry", "5", "--retry-delay", "2",
         "-H", "User-Agent: Mozilla/5.0",
         "-r", f"{start}-{end}", "-o", str(path), url,
     ]
@@ -84,6 +94,9 @@ def download(repo, remote, local):
                         break
                     out.write(b)
             p.unlink()
+    got = tmp.stat().st_size
+    if total and got != total:
+        raise RuntimeError(f"{local} 大小不符 {got} != {total}")
     tmp.rename(dest)
     print(f"    ✓ {local}")
 

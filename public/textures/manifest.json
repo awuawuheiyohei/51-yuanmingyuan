@@ -1,0 +1,26 @@
+{
+  "wood": {
+    "file": "wood.png",
+    "size": 525931
+  },
+  "stone": {
+    "file": "stone.png",
+    "size": 520786
+  },
+  "moss": {
+    "file": "moss.png",
+    "size": 437804
+  },
+  "grass": {
+    "file": "grass.png",
+    "size": 648874
+  },
+  "brick": {
+    "file": "brick.png",
+    "size": 540843
+  },
+  "tile": {
+    "file": "tile.png",
+    "size": 441083
+  }
+}

@@ -8,10 +8,30 @@
 
 ```bash
 npm install       # 安装依赖（three / vite）
-npm run fetch     # 拉取 OSM 要素 + DEM 高程瓦片（只需跑一次，之后可离线）
+npm run fetch     # 拉取 OSM 要素 + DEM 高程瓦片 + 官方导览图（只需跑一次，之后可离线）
 npm run scene     # 合成 scene.json
 npm run dev       # 打开 http://127.0.0.1:5180
 ```
+
+### 本机 GPU 材质生成（可选）
+
+用 Apple MPS 跑 Stable Diffusion 1.5 生成写实材质，替换程序化贴图：
+
+```bash
+python3 -m venv .venv-ai
+.venv-ai/bin/pip install torch diffusers transformers accelerate safetensors pillow \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple
+python scripts/fetch-model.py AI-ModelScope/stable-diffusion-v1-5 data/hf-local/sd15
+HF_HUB_DISABLE_XET=1 .venv-ai/bin/python scripts/gen-textures.py
+```
+
+生成结果落在 `public/textures/`，应用启动时自动载入；
+没生成过就静默回落到程序化贴图。
+
+> **模型源**：ModelScope（国内实测 22MB/s）比 hf-mirror（500KB/s）快 45 倍。
+> `huggingface.co` 本机不可达；`hf-mirror.com` 的 xet 后端会 401，
+> 必须 `HF_HUB_DISABLE_XET=1`。
+> ModelScope 上的 `.bin` 是 torch zip 格式，**不能改名成 `.safetensors`**。
 
 首次拉取后，`data/raw/` 已缓存全部原始数据，之后 `npm run scene && npm run dev` 即可离线重建。
 
@@ -26,6 +46,8 @@ scripts/          构建期（Node ESM，无框架）
   fetch-osm.mjs   Overpass 分片拉取：建筑/水系/园界/步道/景点
   fetch-dem.mjs   AWS Terrain Tiles (Terrarium) 高程瓦片
   fetch-guide.mjs 圆明园管理处官方《圆明园导览图》原图
+  fetch-model.py  并行分片下载 SD 权重（ModelScope，8 线程）
+  gen-textures.py 本机 MPS 跑扩散模型生成写实材质（青砖/筒瓦/木/石/苔/草）
   build-scene.mjs OSM + DEM → public/scene/scene.json
   plan-view.py    俯视诊断图（核对布局用）
 data/

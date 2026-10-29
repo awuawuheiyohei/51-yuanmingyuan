@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { getTextureOverrides } from './buildings/textures.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -136,8 +137,10 @@ function buildRockeryCluster(radius, height, seed) {
 export function buildRockery(sceneData, heightAt) {
   const group = new THREE.Group();
   group.name = 'rockery';
+  const ov = getTextureOverrides();
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x676155,
+    map: ov.moss || null,
+    color: ov.moss ? 0xa8a49a : 0x676155,
     roughness: 0.99,
     metalness: 0,
     flatShading: true,

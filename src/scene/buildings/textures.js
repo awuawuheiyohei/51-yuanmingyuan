@@ -23,12 +23,24 @@ const cache = new Map();
  */
 const OVERRIDE = {};
 
+/** 各材质的平铺密度：按真实米制定，一块砖 ~12cm 高 */
+const OVERRIDE_REPEAT = {
+  brick: [2.6, 2.6],
+  tile: [1, 1],
+  wood: [1, 1],
+  stone: [2.2, 2.2],
+  moss: [2.4, 2.4],
+  grass: [1, 1],
+};
+
 export function setTextureOverrides(map) {
   for (const [k, tex] of Object.entries(map)) {
     if (!tex) continue;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 8;
+    const r = OVERRIDE_REPEAT[k];
+    if (r) tex.repeat.set(r[0], r[1]);
     OVERRIDE[k] = tex;
   }
 }

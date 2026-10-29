@@ -25,7 +25,14 @@ RAW.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
-MODEL_ID = os.environ.get("SD_MODEL", "stable-diffusion-v1-5/stable-diffusion-v1-5")
+# 优先用 scripts/fetch-model.py 下到本地的模型（hf-mirror 直连单线程太慢，
+# 本地分片下载快 10 倍）；没有再用仓库 id。
+LOCAL_MODEL = ROOT / "data" / "hf-local" / "sd15"
+MODEL_ID = os.environ.get(
+    "SD_MODEL",
+    str(LOCAL_MODEL) if (LOCAL_MODEL / "model_index.json").exists()
+    else "segmind/tiny-sd",
+)
 
 # ---------------------------------------------------------------- 材质规格
 # prompt 用英文：SD 1.5 对英文 prompt 的响应远好于中文
@@ -93,23 +100,84 @@ MATERIALS = {
 }
 
 
+def trim_white_border(arr, tol=0.90):
+    """SD 生成的图常带一圈白边（像装裱好的照片）。不裁掉的话，
+    平移混合时这道白边会在中心交叉成十字。先把边框裁干净。"""
+    import numpy as np
+
+    white = arr.min(axis=2) > tol
+
+    def edge(mask, axis):
+        n = 0
+        while n < mask.shape[0] and mask[n].mean() > 0.4:
+            n += 1
+        return n
+
+    top = edge(white, 0)
+    bottom = edge(white[::-1], 0)
+    left = edge(white.T, 1)
+    right = edge(white.T[::-1], 1)
+    h, w = arr.shape[:2]
+    t, b = min(top, h // 4), min(bottom, h // 4)
+    l, r = min(left, w // 4), min(right, w // 4)
+    if t + b >= h - 8 or l + r >= w - 8:
+        return arr
+    return arr[t : h - b, l : w - r]
+
+
+def has_internal_seam(arr, ratio=1.8):
+    """检测原图内部是否有"十字分格缝"（SD 常把 texture 提示画成 2×2 分格）。"""
+    import numpy as np
+
+    h, w, _ = arr.shape
+    base = np.abs(arr[:, :-1] - arr[:, 1:]).mean()
+    if base < 1e-6:
+        return False
+    dcol = np.abs(arr[:, w // 2 - 1] - arr[:, w // 2]).mean()
+    drow = np.abs(arr[h // 2 - 1] - arr[h // 2]).mean()
+    return max(dcol, drow) > ratio * base
+
+
+def crop_quadrant(arr):
+    """裁掉一半，避开内部十字缝。"""
+    h, w, _ = arr.shape
+    return arr[: h // 2, : w // 2]
+
+
 def make_seamless(img):
-    """偏移混合法把生成图变成可无缝平铺的贴图。img: HxWx3 float [0,1]"""
+    """把生成图变成可无缝平铺的贴图。
+
+    关键：混合掩膜必须**同时在 x 和 y 上周期**。
+    早前用对角线性渐变，掩膜不周期，结果在象限交界处留下一道十字硬缝。
+    这里改用正弦掩膜 m = 0.5 + 0.5·sin(2π(x/w + y/h))，
+    它在两个方向都满足 m(0,y)=m(w,y)、m(x,0)=m(x,h)，
+    再配合 roll 半幅，就能保证四边完全对接。
+    """
     import numpy as np
 
     h, w = img.shape[:2]
     rolled = np.roll(img, (h // 2, w // 2), axis=(0, 1))
 
-    # 对角渐变权重：左上为 0，右下为 1
+    # 掩膜方向：原图 A 在**边界**有缝、滚动图 B 在**中心**有缝。
+    # 所以中心用 A、边界用 B：
+    #   m = sin²(πx/w)·sin²(πy/h)  —— 中心 m=1（取 A），四边 m=0（取 B）
+    # 这样 A 的接缝处权重为 0、B 的接缝处权重为 1，两者的缝都被消掉。
+    # 掩膜要带**平台区**：中心一大片完全取 A，中央以外完全取 B，
+    # 只在过渡带里混。否则 B 的"中心十字缝"会被混进画面中央成十字。
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    t = (xx / (w - 1) + yy / (h - 1)) / 2.0
-    # 用平滑的钟形曲线，让中缝处的混合权重快速过渡，避免整体发虚
-    t = 0.5 - 0.5 * np.cos(np.clip(t, 0, 1) * math.pi)
-    t = t[..., None]
+    fx = xx / w
+    fy = yy / h
+    tx = np.minimum(fx, 1 - fx) / 0.5   # 0=贴边, 1=正中
+    ty = np.minimum(fy, 1 - fy) / 0.5
+    sx = np.clip((tx - 0.10) / 0.35, 0, 1)
+    sy = np.clip((ty - 0.10) / 0.35, 0, 1)
+    sx = sx * sx * (3 - 2 * sx)
+    sy = sy * sy * (3 - 2 * sy)
+    t = (sx * sy)[..., None]
 
     out = rolled * (1 - t) + img * t
-    # 边缘做一次轻微对比恢复
-    out = np.clip((out - 0.5) * 1.04 + 0.5, 0, 1)
+    # 轻微对比恢复（混合会压一点动态）
+    out = np.clip((out - 0.5) * 1.06 + 0.5, 0, 1)
     return out
 
 
@@ -131,6 +199,7 @@ def main():
         safety_checker=None,
         requires_safety_checker=False,
         cache_dir=str(ROOT / "data" / "hf-cache"),
+        local_files_only=Path(MODEL_ID).exists(),
     )
     pipe = pipe.to(device)
     pipe.set_progress_bar_config(disable=True)
@@ -168,7 +237,14 @@ def main():
         # 读入并做无缝化
         try:
             from PIL import Image
-            arr = np.asarray(Image.open(raw_path).convert("RGB"), dtype=np.float32) / 255.0
+            im = Image.open(raw_path).convert("RGB")
+            a0 = np.asarray(im, dtype=np.float32) / 255.0
+            a0 = trim_white_border(a0)
+            if has_internal_seam(a0):
+                a0 = crop_quadrant(a0)
+            if a0.shape[0] != 512 or a0.shape[1] != 512:
+                im = Image.fromarray((a0 * 255).astype("uint8")).resize((512, 512), Image.LANCZOS)
+            arr = np.asarray(im, dtype=np.float32) / 255.0
         except Exception:
             import zlib, struct
 
@@ -247,7 +323,16 @@ def main():
         manifest[name] = {"file": f"{name}.png", "size": out_path.stat().st_size}
         print(f"  ✓ {name} → public/textures/{name}.png ({out_path.stat().st_size // 1024} KB)")
 
-    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    # 合并 manifest（分批生成时不覆盖已有的）
+    mf = OUT / "manifest.json"
+    allm = {}
+    if mf.exists():
+        try:
+            allm = json.loads(mf.read_text(encoding="utf-8"))
+        except Exception:
+            allm = {}
+    allm.update(manifest)
+    mf.write_text(json.dumps(allm, indent=2, ensure_ascii=False), encoding="utf-8")
     print("\n✓ 完成")
 
 

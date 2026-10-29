@@ -557,6 +557,48 @@ async function main() {
   }
   console.log(`  ✓ 步道/林地 ${paths.length} 条`);
 
+  /* ---- 游廊选线 ----
+   * 圆明园的长廊沿水岸与景点之间连接。选"园内较长、且靠近景点"的
+   * 游路来起廊，让廊出现在该出现的地方，而不是满园乱铺。 */
+  const sceneAnchors = SCENES.map((s2) => [toX(s2.lon), toZ(s2.lat)]);
+  const corridorCandidates = [];
+  for (const p of paths) {
+    if (p.kind !== 'footway' && p.kind !== 'path' && p.kind !== 'pedestrian') continue;
+    const line = p.line;
+    if (line.length < 4) continue;
+    let len = 0;
+    for (let i = 0; i < line.length - 1; i++)
+      len += Math.hypot(line[i + 1][0] - line[i][0], line[i + 1][1] - line[i][1]);
+    if (len < 55) continue;
+    const mx = line[Math.floor(line.length / 2)][0];
+    const mz = line[Math.floor(line.length / 2)][1];
+    if (garden && !inGarden(mx, mz)) continue;
+    // 靠近某个景才起廊
+    let near = false;
+    for (const [ax, az] of sceneAnchors) {
+      if (Math.hypot(ax - mx, az - mz) < 190) {
+        near = true;
+        break;
+      }
+    }
+    if (!near) continue;
+    corridorCandidates.push({ line, len });
+  }
+  corridorCandidates.sort((a, b) => b.len - a.len);
+  const corridors = corridorCandidates.slice(0, 14).map((c) => c.line);
+  console.log(
+    `  ✓ 游廊选线 ${corridors.length} 条（总长 ${corridors
+      .reduce((s2, l) => {
+        let t = 0;
+        for (let i = 0; i < l.length - 1; i++)
+          t += Math.hypot(l[i + 1][0] - l[i][0], l[i + 1][1] - l[i][1]);
+        return s2 + t;
+      }, 0)
+      .toFixed(0)} m）`
+  );
+
+
+
   /* ---- 假山群 ---- */
   console.log('· 生成假山群 …');
   const rockery = [];
@@ -750,6 +792,7 @@ async function main() {
       tags: b.tags,
     })),
     paths,
+    corridors,
     scenes: sceneOut,
     westAnchor,
     westBuildings,

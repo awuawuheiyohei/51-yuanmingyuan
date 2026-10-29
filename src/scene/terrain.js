@@ -3,6 +3,7 @@
  */
 import * as THREE from 'three';
 import { makeGroundTexture } from './ground.js';
+import { getTextureOverrides } from './buildings/textures.js';
 
 export function buildTerrain(sceneData, opts = {}) {
   const t = sceneData.terrain;
@@ -69,10 +70,11 @@ export function buildTerrain(sceneData, opts = {}) {
     colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  // UV 按世界尺度铺开，一张贴图覆盖 35m
+  // UV 按世界尺度铺开：程序化贴图 35m 一张，AI 照片贴图要密一些（14m）
+  const tile = getTextureOverrides().grass ? 14 : 35;
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) {
-    uv.setXY(i, uv.getX(i) * (spanX / 35), uv.getY(i) * (spanZ / 35));
+    uv.setXY(i, uv.getX(i) * (spanX / tile), uv.getY(i) * (spanZ / tile));
   }
   uv.needsUpdate = true;
   geo.computeVertexNormals();
