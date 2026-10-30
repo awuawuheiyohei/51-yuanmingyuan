@@ -85,6 +85,7 @@ export function buildBuilding(spec) {
     eaveY: form.eaveY + lowerRise,
     lowerEaveY: form.doubleEave ? form.eaveY : null,
     dougongScale: dgScale,
+    couplet: form.couplet || null,
   });
   const roof = buildRoof({
     width: form.width,

@@ -189,10 +189,10 @@ export function shanhuaMaterial() {
  * 匾额：黑漆金字。
  * @param {string} [text] 匾文（空则纯漆地）
  */
-export function plaqueMaterial(text = '') {
-  return make(`plaque-${text}`, () =>
+export function plaqueMaterial(text = '', vertical = false) {
+  return make(`plaque-${text}-${vertical ? 'v' : 'h'}`, () =>
     new THREE.MeshStandardMaterial({
-      map: text ? plaqueBoard(text) : null,
+      map: text ? plaqueBoard(text, vertical) : null,
       color: text ? 0xffffff : 0x1a1410,
       roughness: 0.42,
       metalness: 0.05,
@@ -248,7 +248,11 @@ export function materialFor(key, spec = {}) {
     case 'dark':
       return darkMaterial();
     case 'plaque':
-      return plaqueMaterial(spec.plaqueText || '');
+      return plaqueMaterial(spec.plaqueText || '', false);
+    case 'couplet':
+      return plaqueMaterial((spec.couplet || [])[0] || '', true);
+    case 'couplet2':
+      return plaqueMaterial((spec.couplet || [])[1] || '', true);
     default:
       return new THREE.MeshStandardMaterial({ color: 0x999999 });
   }

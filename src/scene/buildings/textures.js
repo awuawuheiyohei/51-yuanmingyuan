@@ -578,11 +578,11 @@ export function ornateStone() {
  * @param {string} text 匾文
  * @returns {THREE.CanvasTexture}
  */
-export function plaqueBoard(text) {
-  const key = `plaque-${text}`;
+export function plaqueBoard(text, vertical = false) {
+  const key = `plaque-${text}-${vertical ? 'v' : 'h'}`;
   if (cache.has(key)) return cache.get(key);
-  const W = 512;
-  const H = 160;
+  const W = vertical ? 96 : 512;
+  const H = vertical ? 512 : 160;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const rnd = mulberry32(text.length * 977 + text.charCodeAt(0));
@@ -607,23 +607,33 @@ export function plaqueBoard(text) {
   g.lineWidth = 1.6;
   g.strokeRect(19, 19, W - 38, H - 38);
 
-  // 金字（从右往左排，符合传统匾额右起读法）
-  const chars = [...text].slice(0, 5);
+  // 金字。横匾从右往左排（传统右起读法）；楹联竖排，上联在右。
+  const chars = [...text].slice(0, vertical ? 9 : 5);
   if (chars.length) {
-    const size = Math.min(92, (W - 90) / chars.length);
+    const size = vertical
+      ? Math.min(50, (H - 80) / chars.length)
+      : Math.min(92, (W - 90) / chars.length);
     g.font = `bold ${size}px "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = 'rgba(0,0,0,0.55)';
-    const step = (W - 90) / chars.length;
-    for (let i = 0; i < chars.length; i++) {
-      const cx = W - 45 - step * (i + 0.5);
-      g.fillText(chars[i], cx + 2, H / 2 + 2);
-    }
-    g.fillStyle = gold;
-    for (let i = 0; i < chars.length; i++) {
-      const cx = W - 45 - step * (i + 0.5);
-      g.fillText(chars[i], cx, H / 2);
+    if (vertical) {
+      const step = (H - 60) / chars.length;
+      for (let i = 0; i < chars.length; i++) {
+        const cy = 34 + step * (i + 0.5);
+        g.fillStyle = 'rgba(0,0,0,0.55)';
+        g.fillText(chars[i], W / 2 + 2, cy + 2);
+        g.fillStyle = gold;
+        g.fillText(chars[i], W / 2, cy);
+      }
+    } else {
+      const step = (W - 90) / chars.length;
+      for (let i = 0; i < chars.length; i++) {
+        const cx = W - 45 - step * (i + 0.5);
+        g.fillStyle = 'rgba(0,0,0,0.55)';
+        g.fillText(chars[i], cx + 2, H / 2 + 2);
+        g.fillStyle = gold;
+        g.fillText(chars[i], cx, H / 2);
+      }
     }
   }
 

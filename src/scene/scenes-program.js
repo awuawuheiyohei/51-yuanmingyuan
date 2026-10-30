@@ -54,6 +54,11 @@ export const SCENE_PROGRAM = {
     rank: 'hall',
     // 考据：面阔七间、进深五间，前后有出廊，灰瓦，卷棚歇山顶
     main: { mian: 7, jin: 5, roof: 'juanpengxieshan', caihua: 'hexi', platform: 'xumizuo', eave: 10.5, tile: 'hui' },
+    // 匾额题字（考据实记）
+    plaque: '正大光明',
+    // 御书楹联（雍正帝手书）
+    couplet: ['心天之心而宵衣旰食', '乐民之乐以和性怡情'],
+
     aux: [
       { rank: 'gate', x: 0, z: 46, name: '出入贤良门', mian: 5 },
       { rank: 'side', x: -32, z: -18, name: '茶膳房' },
@@ -71,6 +76,9 @@ export const SCENE_PROGRAM = {
     note: '清代帝后的寝宫核心区。三进南向大殿：圆明园殿—奉三无私殿—九州清晏殿',
     rank: 'grand',
     main: { mian: 7, jin: 5, roof: 'xieshan', caihua: 'hexi', platform: 'xumizuo', eave: 11, tile: 'huang' },
+    // 匾额题字（考据实记）
+    plaque: '九洲清晏',
+
     aux: [
       // 考据：三进大殿，最前圆明园殿五楹 → 奉三无私殿七楹 → 九州清晏殿七楹
       { rank: 'hall', x: 0, z: 46, name: '圆明园殿', mian: 5, jin: 3, eave: 8.5 },
@@ -92,6 +100,9 @@ export const SCENE_PROGRAM = {
     rank: 'hall',
     // 考据：殿为五楹
     main: { mian: 5, jin: 3, roof: 'xieshan', caihua: 'hexi', platform: 'xumizuo', eave: 9, tile: 'hui' },
+    // 匾额题字（考据实记）
+    plaque: '勤政殿',
+
     aux: [
       { rank: 'xuan', x: -28, z: 4, name: '飞云轩' },
       { rank: 'tower', x: -28, z: -18, name: '静鉴阁' },
@@ -113,6 +124,9 @@ export const SCENE_PROGRAM = {
     rank: 'hall',
     // 考据：殿以楠木为材，上覆金碧二色琉璃瓦
     main: { mian: 7, jin: 5, roof: 'xieshan', caihua: 'hexi', platform: 'xumizuo', eave: 9.5, tile: 'jinbi' },
+    // 匾额题字（考据实记）
+    plaque: '纪恩堂',
+
     aux: [
       { rank: 'xuan', x: -26, z: 18, name: '御兰芬' },
       { rank: 'pavilion', x: 26, z: 20, name: '牡丹台' },
@@ -128,6 +142,9 @@ export const SCENE_PROGRAM = {
     rank: 'hall',
     // 考据：主体建筑为一方楼
     main: { mian: 7, jin: 3, roof: 'xieshan', caihua: 'xuanzi', platform: 'xumizuo', eave: 9, tile: 'lv' },
+    // 匾额题字（考据实记）
+    plaque: '一方楼',
+
     aux: [
       { rank: 'tower', x: 0, z: -26, name: '朗吟阁' },
       { rank: 'side', x: -26, z: -18, name: '竹萿楼' },
@@ -179,6 +196,9 @@ export const SCENE_PROGRAM = {
     rank: 'house',
     // 考据：临湖楼房，上下三楹，左右有亭，楼后为平安院
     main: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'su', platform: 'simple', eave: 6.4, tile: 'hui' },
+    // 匾额题字（考据实记）
+    plaque: '上下天光楼',
+
     aux: [
       { rank: 'pavilion', x: -22, z: 6, name: '亭' },
       { rank: 'pavilion', x: 22, z: 6, name: '亭' },
@@ -211,6 +231,9 @@ export const SCENE_PROGRAM = {
     rank: 'xuan',
     // 考据：三楹，前为素心堂，后为光风霁月，东北为知鱼亭
     main: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'su', platform: 'simple', eave: 5.6, tile: 'hui' },
+    // 匾额题字（考据实记）
+    plaque: '素心堂',
+
     aux: [
       { rank: 'xuan', x: 0, z: 20, name: '素心堂' },
       { rank: 'xuan', x: 0, z: -20, name: '光风霁月' },
@@ -309,6 +332,9 @@ export const SCENE_PROGRAM = {
     rank: 'grand',
     // 考据：园内规格最高，黄色琉璃瓦重檐歇山顶，九楹
     main: { mian: 9, jin: 5, roof: 'xieshan', caihua: 'hexi', platform: 'xumizuo', eave: 12.5, tile: 'huang', doubleEave: true },
+    // 匾额题字（考据实记）
+    plaque: '安佑宫',
+
     aux: [
       { rank: 'gate', x: 0, z: 44, name: '琉璃牌坊', mian: 3 },
       { rank: 'side', x: -36, z: -22, name: '配殿' },
@@ -472,6 +498,9 @@ export const SCENE_PROGRAM = {
     rank: 'hall',
     // 考据：西面隔河为小匡庐，东为含韵轩、一堂和气、自得轩、岚镜舫
     main: { mian: 7, jin: 3, roof: 'xieshan', caihua: 'xuanzi', platform: 'xumizuo', eave: 9, tile: 'lv' },
+    // 匾额题字（考据实记）
+    plaque: '西峰秀色',
+
     aux: [
       { rank: 'xuan', x: 26, z: 8, name: '含韵轩' },
       { rank: 'xuan', x: 26, z: 26, name: '一堂和气' },
@@ -618,6 +647,9 @@ export const SCENE_PROGRAM = {
     rank: 'xuan',
     // 考据：正殿澄虚榭，三楹；南为含清晖，北为含妙识
     main: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'xuanzi', platform: 'simple', eave: 5.6, tile: 'lv' },
+    // 匾额题字（考据实记）
+    plaque: '澄虚榭',
+
     aux: [
       { rank: 'xuan', x: 0, z: 20, name: '含清晖' },
       { rank: 'xuan', x: 0, z: -20, name: '含妙识' },
@@ -684,6 +716,9 @@ export const SCENE_PROGRAM = {
     rank: 'xuan',
     // 考据：正殿称雷峰夕照；北为惠如春、寻云榭、会心不远
     main: { mian: 5, jin: 3, roof: 'xieshan', caihua: 'su', platform: 'simple', eave: 6, tile: 'hui' },
+    // 匾额题字（考据实记）
+    plaque: '雷峰夕照',
+
     aux: [
       { rank: 'xuan', x: -20, z: -18, name: '惠如春' },
       { rank: 'xuan', x: 0, z: -22, name: '寻云榭' },
@@ -701,6 +736,9 @@ export const SCENE_PROGRAM = {
     rank: 'tower',
     // 考据：三层重檐大亭 + 二层楼宇（哕鸾殿、琼华楼），彩色琉璃瓦
     main: { mian: 5, jin: 5, roof: 'xieshan', caihua: 'xuanzi', platform: 'xumizuo', eave: 11, tile: 'wuse', doubleEave: true },
+    // 匾额题字（考据实记）
+    plaque: '哕鸾殿',
+
     aux: [
       { rank: 'pavilion', x: 0, z: 34, name: '重檐大亭', mian: 3, eave: 7 },
       { rank: 'pavilion', x: -24, z: 30, name: '重檐大亭', mian: 3, eave: 7 },

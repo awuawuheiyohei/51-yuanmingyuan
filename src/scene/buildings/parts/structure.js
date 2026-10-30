@@ -66,6 +66,7 @@ export function buildStructure(spec) {
     doors = [],
     caojing = false,
     wallThick = 0.5,
+    couplet = null,
   } = spec;
 
   const geoms = new Map();
@@ -287,6 +288,20 @@ export function buildStructure(spec) {
         const lintel = new THREE.BoxGeometry(bayW - colDia * 0.6, 0.22, wallThick * 1.1);
         lintel.translate(cx, floorY + wallH - 0.11, frontZ + wallThick * 0.1);
         bucket(geoms, KEY.wood).push(lintel);
+
+        // 楹联：正门两侧柱上的黑漆金字竖联（上联在右、下联在左）
+        if (couplet && i === Math.floor(mian / 2) && couplet.length >= 2) {
+          const cw = 0.42;
+          const ch = 2.24;
+          const cxDoor = cx;
+          const flank = bayW / 2 + colDia * 0.55;
+          const up = new THREE.BoxGeometry(cw, ch, 0.08);
+          up.translate(cxDoor + flank, floorY + wallH * 0.56, frontZ + wallThick * 0.45);
+          bucket(geoms, KEY.couplet).push(up);
+          const down = new THREE.BoxGeometry(cw, ch, 0.08);
+          down.translate(cxDoor - flank, floorY + wallH * 0.56, frontZ + wallThick * 0.45);
+          bucket(geoms, KEY.couplet2).push(down);
+        }
 
         // 匾额：门楣之上的黑漆金字横匾（金边框 + 漆底）
         if (i === Math.floor(mian / 2)) {

@@ -497,9 +497,10 @@ function buildRoofCore(spec, geomsIn) {
       if (r.kind === 'main') {
         push('finial', buildChiwen(r.pts, 0.62));
       }
-      // 垂脊/戗脊上的小兽（简化）
+      // 垂脊上的走兽：数量按清式制度（庑殿九兽 / 歇山五兽 / 悬山三兽）
       if (r.kind === 'hip') {
-        push('finial', buildBeastRow(r.pts, 0.26, 3));
+        const n = BEAST_COUNT[type] ?? 5;
+        if (n > 0) push('finial', buildBeastRow(r.pts, 0.3, n));
       }
     }
   }
@@ -620,6 +621,54 @@ function buildLowerEave(Wx, Wz, eaveY, rise, inset) {
  * @param {[number,number]} p0 起点 [x,z]
  * @param {[number,number]} p1 终点 [x,z]
  */
+/**
+ * 一枚带纹样的瓦当。
+ *
+ * 清代瓦当正面有纹样：最常见的是「团寿」「万寿无疆」四字与团龙。
+ * 这里用几何浮雕近似——外圈凸环 + 内盘 + 中心凸起（团寿的骨架），
+ * 近看能认出"是一枚有字头的瓦当"，不是一个光板圆片。
+ */
+function buildWadangPiece(r) {
+  const parts = [];
+  // 盘身（略呈喇叭口）
+  const disc = new THREE.CylinderGeometry(r * 0.96, r, 0.06, 12);
+  disc.rotateX(Math.PI / 2);
+  parts.push(disc);
+  // 外圈凸环
+  const rim = new THREE.TorusGeometry(r * 0.78, r * 0.1, 5, 12);
+  parts.push(rim);
+  // 中心"团寿"骨架：横竖两笔 + 中心小凸
+  const bar = new THREE.BoxGeometry(r * 0.95, r * 0.2, 0.035);
+  bar.translate(0, 0, 0.035);
+  parts.push(bar);
+  const bar2 = new THREE.BoxGeometry(r * 0.2, r * 0.95, 0.035);
+  bar2.translate(0, 0, 0.035);
+  parts.push(bar2);
+  const boss = new THREE.SphereGeometry(r * 0.16, 6, 5);
+  boss.scale(1, 1, 0.6);
+  boss.translate(0, 0, 0.05);
+  parts.push(boss);
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/**
+ * 滴水（勾头）：清式为倒三角形的如意头，与瓦当相间。
+ */
+function buildDishiPiece(r) {
+  const parts = [];
+  const plate = new THREE.CylinderGeometry(r * 1.25, r * 1.05, 0.05, 3);
+  parts.push(plate);
+  // 如意头的卷云凸起
+  const curl = new THREE.TorusGeometry(r * 0.5, r * 0.11, 5, 10, Math.PI * 1.4);
+  curl.translate(0, r * 0.3, 0.03);
+  parts.push(curl);
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
 function buildWadangEdge(p0, p1, eaveY, count) {
   const parts = [];
   const r = 0.115;
@@ -642,13 +691,11 @@ function buildWadangEdge(p0, p1, eaveY, count) {
     const t = i / count;
     const x = p0[0] + dx * t;
     const z = p0[1] + dz * t;
-    const disc = new THREE.CylinderGeometry(r, r, 0.07, 10);
-    disc.rotateX(Math.PI / 2);
+    const disc = buildWadangPiece(r);
     disc.rotateY(yaw);
     disc.translate(x + nx * 0.03, eaveY - 0.13, z + nz * 0.03);
     parts.push(disc);
-    const drip = new THREE.CylinderGeometry(r * 1.2, 0.02, 0.15, 3);
-    drip.rotateX(Math.PI / 2);
+    const drip = buildDishiPiece(r);
     drip.rotateY(yaw);
     drip.translate(x + nx * 0.11, eaveY - 0.27, z + nz * 0.11);
     parts.push(drip);
@@ -683,21 +730,109 @@ function buildChiwen(pts, h) {
   return merged;
 }
 
-/** 脊上小兽：一串简化走兽 */
+/**
+ * 清式垂脊小兽的制度（清工部《工程做法》）：
+ *
+ *   庑殿  九兽：仙人骑凤 → 龙 → 凤 → 狮子 → 天马 → 海马 → 狻猊 → 狎鱼 → 獬豸 →（行什）
+ *   歇山  五兽
+ *   悬山  三兽
+ *   硬山 / 卷棚  无垂脊，也就无垂兽
+ *
+ * 排列顺序：**仙人骑凤在最高处**（垂脊与正脊的交点），行什在最下端。
+ * 位置错乱（数量不对、顺序反了）在近景一眼就露馅——这是最容易考据的一项。
+ */
+const BEAST_COUNT = { wudian: 9, xieshan: 5, juanpengxieshan: 5, xuanshan: 3 };
+
+/** 单只走兽：座 + 身 + 头 + 尾 */
+function buildOneBeast(size, kind) {
+  const parts = [];
+  const body = new THREE.BoxGeometry(size * 0.52, size * 0.8, size * 0.46);
+  body.translate(0, size * 0.55, 0);
+  parts.push(body);
+  // 头
+  const head = new THREE.SphereGeometry(size * 0.28, 6, 5);
+  head.scale(1, 0.85, 1.15);
+  head.translate(0, size * 1.02, size * 0.1);
+  parts.push(head);
+  // 耳/角
+  const ear = new THREE.ConeGeometry(size * 0.1, size * 0.26, 4);
+  ear.rotateZ(0.4);
+  ear.translate(-size * 0.12, size * 1.2, size * 0.02);
+  parts.push(ear);
+  const ear2 = ear.clone();
+  ear2.translate(size * 0.24, 0, 0);
+  parts.push(ear2);
+  // 尾
+  const tail = new THREE.ConeGeometry(size * 0.12, size * 0.5, 4);
+  tail.rotateX(-0.9);
+  tail.translate(0, size * 0.72, -size * 0.34);
+  parts.push(tail);
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/** 仙人骑凤：仙人跨坐在凤背上 */
+function buildRidingImmortal(size) {
+  const parts = [];
+  // 凤身
+  const bird = new THREE.BoxGeometry(size * 0.5, size * 0.4, size * 0.9);
+  bird.translate(0, size * 0.28, 0);
+  parts.push(bird);
+  const neck = new THREE.CylinderGeometry(size * 0.1, size * 0.14, size * 0.45, 5);
+  neck.rotateX(-0.5);
+  neck.translate(0, size * 0.62, size * 0.34);
+  parts.push(neck);
+  const birdHead = new THREE.SphereGeometry(size * 0.15, 5, 4);
+  birdHead.translate(0, size * 0.82, size * 0.48);
+  parts.push(birdHead);
+  const tail = new THREE.ConeGeometry(size * 0.16, size * 0.6, 4);
+  tail.rotateX(1.1);
+  tail.translate(0, size * 0.46, -size * 0.56);
+  parts.push(tail);
+  // 仙人
+  const body = new THREE.BoxGeometry(size * 0.34, size * 0.5, size * 0.3);
+  body.translate(0, size * 0.72, -size * 0.02);
+  parts.push(body);
+  const head = new THREE.SphereGeometry(size * 0.16, 5, 4);
+  head.translate(0, size * 1.04, -size * 0.02);
+  parts.push(head);
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+/**
+ * 垂脊上的一列小兽。
+ * @param {THREE.Vector3[]} pts 垂脊线（t=0 在正脊交点，t=1 在檐角）
+ * @param {number} size 小兽尺寸
+ * @param {number} count 兽数（庑殿 9 / 歇山 5 / 悬山 3）
+ */
 function buildBeastRow(pts, size, count) {
   const parts = [];
   const curve = new THREE.CatmullRomCurve3(pts);
-  for (let i = 0; i < count; i++) {
-    const t = 0.16 + (i / count) * 0.68;
+  const place = (t, geo) => {
     const p = curve.getPoint(t);
-    const g = new THREE.BoxGeometry(size * 0.5, size * 0.85, size * 0.45);
-    g.rotateY(i * 0.7);
-    g.translate(p.x, p.y + size * 0.7, p.z);
-    parts.push(g);
-    const head = new THREE.SphereGeometry(size * 0.26, 6, 5);
-    head.translate(p.x, p.y + size * 1.18, p.z);
-    parts.push(head);
+    const tan = curve.getTangent(t);
+    geo.rotateY(Math.atan2(tan.x, tan.z));
+    geo.translate(p.x, p.y + size * 0.12, p.z);
+    parts.push(geo);
+  };
+  if (count <= 0) {
+    const merged0 = mergeGeometries(parts, false);
+    return merged0;
   }
+  // 仙人骑凤在最高处（正脊交点）
+  place(0.07, buildRidingImmortal(size * 1.15));
+  // 走兽依次向下
+  const beasts = count - 1;
+  for (let i = 0; i < beasts; i++) {
+    const t = 0.2 + (i / beasts) * 0.66;
+    place(t, buildOneBeast(size, i));
+  }
+  // 行什：最下端的一对小兽
+  place(0.93, buildOneBeast(size * 0.62, 0));
+  place(0.99, buildOneBeast(size * 0.62, 0));
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
   return merged;
@@ -808,16 +943,16 @@ function buildWadang(Wx, Wz, eaveY, count, sign = 1) {
   const r = 0.115;
   for (let i = 0; i <= count; i++) {
     const x = -Wx + (i * Wx * 2) / count;
-    // 瓦当：圆盘朝外
-    const d = new THREE.CylinderGeometry(r, r, 0.07, 10);
-    d.rotateX(Math.PI / 2);
+    // 瓦当：带纹样的圆盘（团寿骨架 + 外圈凸环），朝外
+    const d = buildWadangPiece(r);
+    if (sign < 0) d.rotateY(Math.PI);
     d.translate(x, eaveY - 0.12, sign * (Wz - 0.02));
     parts.push(d);
-    // 滴水：三角片
-    const t = new THREE.CylinderGeometry(r * 1.25, 0.02, 0.16, 3);
-    t.rotateX(sign > 0 ? Math.PI : 0);
+    // 滴水：如意头三角片，与瓦当相间
+    const t = buildDishiPiece(r);
+    if (sign < 0) t.rotateY(Math.PI);
     t.rotateY(Math.PI / 2);
-    t.translate(x + Wx / count, eaveY - 0.2, sign * (Wz + 0.03));
+    t.translate(x + Wx / count, eaveY - 0.22, sign * (Wz + 0.03));
     parts.push(t);
   }
   return parts;

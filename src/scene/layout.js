@@ -123,8 +123,11 @@ function buildSceneCluster(scene, heightAt, rnd) {
     tile: m.tile,
     doubleEave: !!m.doubleEave,
     circular: !!m.circular,
-    // 匾额写景名（正大光明殿的"正大光明"是雍正御笔，匾上没有字一眼就假）
-    plaqueText: scene.name,
+    // 匾额题字：优先用考据实记的匾名（勤政殿、纪恩堂、哕鸾殿…），
+    // 没有实记的才退回景名。匾上没有字一眼就假。
+    plaqueText: program.plaque || scene.name,
+    // 御书楹联（目前只有正大光明殿有实记）
+    couplet: program.couplet || null,
     doors: centerDoors(m.mian),
     caojing: m.mian >= 5,
     rise: Math.max(2.0, bayW * 0.26),
