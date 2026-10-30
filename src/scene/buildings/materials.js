@@ -38,10 +38,13 @@ export function roofMaterial(glazed = false, color = '#2f7a4a') {
       return new THREE.MeshStandardMaterial({
         color: new THREE.Color(color),
         normalMap,
-        normalScale: new THREE.Vector2(0.45, 0.45),
-        roughness: 0.3,
+        // 琉璃瓦面是**光滑釉面**，不该有瓦垄的凹凸。
+        // 法线强度给高了，屋面会变成一张"花砖"——西洋楼海晏堂的孔雀绿琉璃顶
+        // 远看整片都是方格纹。
+        normalScale: new THREE.Vector2(0.1, 0.1),
+        roughness: 0.26,
         metalness: 0.06,
-        envMapIntensity: 1.25,
+        envMapIntensity: 1.2,
       });
     }
     return new THREE.MeshStandardMaterial({
@@ -187,7 +190,14 @@ export function ceilingMaterial() {
   return make('ceiling', () => {
     const map = caoJing();
     map.repeat.set(2, 2);
-    return new THREE.MeshStandardMaterial({ map, roughness: 0.7, side: THREE.DoubleSide });
+    // 藻井是**朝下的**天花，只该从室内看得见。
+    // 之前用 DoubleSide，屋面一旦有缺口，从高处俯视就露出一整片花纹天花，
+    // 像在地上铺了一张地毯。
+    return new THREE.MeshStandardMaterial({
+      map,
+      roughness: 0.7,
+      side: THREE.FrontSide,
+    });
   });
 }
 
