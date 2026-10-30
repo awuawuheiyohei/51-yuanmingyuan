@@ -178,6 +178,42 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
   });
 }
 
+/**
+ * 墁砖地：官式院落里铺的方砖（比墙砖大、色偏灰）。
+ * 带法线贴图，砖缝真的有起伏。
+ */
+export function brickMaterial(variant = 0) {
+  return make(`brick-pave-v${variant}`, () => {
+    const map = (variantTexture('brick', variant) || brickWall()).clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(10, 10);
+    const nrm = variantNormal('brick', variant);
+    if (nrm) nrm.repeat.set(10, 10);
+    return new THREE.MeshStandardMaterial({
+      map,
+      normalMap: nrm || null,
+      normalScale: new THREE.Vector2(0.7, 0.7),
+      color: 0xa9a49a,
+      roughness: 0.97,
+    });
+  });
+}
+
+/**
+ * 望板：屋面之下的铺板，要**双面**——
+ * 从廊下往上看，它就是头顶那片"天"。
+ */
+export function boardMaterial() {
+  return make('board', () =>
+    new THREE.MeshStandardMaterial({
+      color: 0x6a5340,
+      roughness: 0.92,
+      side: THREE.DoubleSide,
+    })
+  );
+}
+
 export function woodMaterial(variant = 0) {
   return make(`wood-v${variant}`, () => {
     const map = (variantTexture('wood', variant) || wood()).clone();
@@ -291,6 +327,8 @@ export function materialFor(key, spec = {}) {
       return wallMaterial(spec.wallType, spec.wallColor, spec.variant ?? 0);
     case 'wood':
       return woodMaterial(spec.variant ?? 0);
+    case 'board':
+      return boardMaterial();
     case 'lattice':
       return latticeMaterial(spec.windowKind);
     case 'ceiling':

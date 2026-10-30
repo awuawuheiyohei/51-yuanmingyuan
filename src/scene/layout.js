@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
 import { mergeGroupByMaterial } from './buildings/merge.js';
-import { stoneMaterial, roofMaterial } from './buildings/materials.js';
+import { stoneMaterial, roofMaterial, brickMaterial } from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM, TILE_COLORS } from './scenes-program.js';
@@ -276,6 +276,58 @@ function buildSceneCluster(scene, heightAt, rnd) {
     )
   );
   group.add(buildCourtyardWall(half, half * 0.78, heightAt, scene.x, scene.z));
+
+  /* ---- 院内地面：墁砖地 + 十字甬路 ----
+   * 官式院落里地面不是草地，而是**方砖墁地**，中间压一道十字甬路（石板）。
+   * 一片空草地在近景里既不真实，也让建筑"浮"在地面上。 */
+  {
+    const y0 = heightAt(scene.x, scene.z);
+    const halfY = Math.max(14, half * 0.92);
+    // 墁砖地：一张略带起伏的砖面（起伏交给顶点，边缘下沉埋进土里）
+    const pave = new THREE.PlaneGeometry(halfY * 2, halfY * 1.72, 6, 5);
+    pave.rotateX(-Math.PI / 2);
+    const pos = pave.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const px = pos.getX(i);
+      const pz = pos.getZ(i);
+      const edge = Math.max(Math.abs(px) / halfY, Math.abs(pz) / (halfY * 0.86));
+      const bump = Math.sin(px * 1.7) * Math.cos(pz * 1.9) * 0.012;
+      pos.setY(i, 0.06 + bump - edge * edge * 0.10);
+    }
+    pave.computeVertexNormals();
+    pave.translate(scene.x, y0, scene.z);
+    const paveMesh = new THREE.Mesh(pave, brickMaterial());
+    paveMesh.name = 'paving';
+    paveMesh.receiveShadow = true;
+    group.add(paveMesh);
+
+    // 十字甬路：南北 + 东西两道石板，略高于墁砖
+    const slabMat = stoneMaterial();
+    const roadW = 3.2;
+    for (const [dx, dz, lx, lz] of [
+      [0, 0, roadW, halfY * 1.7],
+      [0, 0, halfY * 1.9, roadW],
+    ]) {
+      const n = Math.max(3, Math.round((lx > lz ? lx : lz) / 1.15));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n - 0.5;
+        const sx = lx > lz ? t * lx : 0;
+        const sz = lx > lz ? 0 : t * lz;
+        const slab = new THREE.BoxGeometry(
+          lx > lz ? lx / n - 0.04 : roadW,
+          0.13,
+          lx > lz ? roadW : lz / n - 0.04
+        );
+        slab.translate(scene.x + sx, y0 + 0.12, scene.z + sz);
+        const m = new THREE.Mesh(slab, slabMat);
+        m.name = 'paving';
+        m.receiveShadow = true;
+        m.castShadow = true;
+        group.add(m);
+      }
+    }
+  }
+
 
   // 整景按材质再合并一次：一景 5~9 座建筑，逐座出 Mesh 会让 draw calls 爆掉
   mergeGroupByMaterial(group);

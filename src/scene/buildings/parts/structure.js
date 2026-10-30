@@ -95,13 +95,16 @@ function buildRoofFrame(opts) {
       pushWood(pad);
     }
 
-    // 角背：檐柱上斜撑到金檩
+    // 角背：檐柱上斜撑到金檩。
+    // 旋转角要用 atan2(dy, |dz|) 再取负——直接用 atan2(dy, dz)
+    // 会因为 dz 为负而翻到第三象限，斜杆就甩到屋面外面去了。
     for (const zs of [1, -1]) {
-      const dy = yGold - y0 - beamH * 0.5;
-      const dz = zEave - zGold;
+      const dy = yGold - (y0 + beamH * 0.5);
+      const dz = Math.abs(zEave - zGold);
       const len = Math.hypot(dy, dz);
+      if (len < 0.2) continue;
       const br = new THREE.BoxGeometry(beamW * 0.7, len, beamW * 0.7);
-      br.rotateX(zs * Math.atan2(dy, dz));
+      br.rotateX(-Math.atan2(dy, dz));
       br.translate(x, (y0 + beamH * 0.5 + yGold) / 2, (zs * (zEave + zGold)) / 2);
       pushWood(br);
     }

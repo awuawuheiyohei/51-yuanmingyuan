@@ -327,7 +327,7 @@ function buildRoofCore(spec, geomsIn) {
   {
     const board = roofGeo.clone();
     board.translate(0, -0.075, 0);
-    push('wood', board);
+    push('board', board);
   }
   // 小屋顶（亭、轩）不做真瓦：远看无差别，却占掉大半构建时间
   const detailTiles = Wx > 3.0;
