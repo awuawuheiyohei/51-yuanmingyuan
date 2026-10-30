@@ -80,13 +80,9 @@ export function buildBuilding(spec) {
   // 重檐：下檐（腰檐）在外，上檐抬高；柱网上达上檐，下檐处再挑一层斗栱
   const lowerRise = form.doubleEave ? Math.max(0.9, rise * 0.3) : 0;
 
-  const structure = buildStructure({
-    ...form,
-    eaveY: form.eaveY + lowerRise,
-    lowerEaveY: form.doubleEave ? form.eaveY : null,
-    dougongScale: dgScale,
-    couplet: form.couplet || null,
-  });
+  // 先建屋顶、后建结构：
+  // 屋架（骨架）必须贴着**真实屋面**走，而屋面高度场由 buildRoof 提供。
+  // 顺序反了的话屋架只能自己猜高度公式，歇山这种两段式屋面就会被穿模。
   const roof = buildRoof({
     width: form.width,
     depth: form.depth,
@@ -102,6 +98,18 @@ export function buildBuilding(spec) {
     segments: form.segments ?? 30,
     doubleEave: !!form.doubleEave,
     lowerRise,
+  });
+
+  const structure = buildStructure({
+    ...form,
+    eaveY: form.eaveY + lowerRise,
+    lowerEaveY: form.doubleEave ? form.eaveY : null,
+    dougongScale: dgScale,
+    couplet: form.couplet || null,
+    // 屋面高度场：屋架据此定位檩条
+    roofSurfAt: roof.surfAt,
+    roofSurfAtXY: roof.surfAtXY,
+    roofRidgeHalfWidth: roof.ridgeHalfWidth,
   });
 
   // 合并前统一几何格式：ExtrudeGeometry 是非索引的、有些构件没有 uv，

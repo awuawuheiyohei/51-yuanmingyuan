@@ -74,7 +74,14 @@ export function buildRoof(spec) {
       geoms.get(k).push(...list);
     }
   }
-  return { geoms, meta: { ...upper.meta, doubleEave: true, lowerEaveY: rest.eaveY } };
+  return {
+    geoms,
+    meta: { ...upper.meta, doubleEave: true, lowerEaveY: rest.eaveY },
+    // 重檐：屋架对应的是**上檐**，所以用 upper 的高度场
+    surfAt: upper.surfAt,
+    surfAtXY: upper.surfAtXY,
+    ridgeHalfWidth: upper.ridgeHalfWidth,
+  };
 }
 
 /**
@@ -523,6 +530,38 @@ function buildRoofCore(spec, geomsIn) {
   return {
     geoms,
     meta: { Wx, Wz, ridgeY, eaveY, xh, zBreak, yBreak, type },
+    /**
+     * 屋面表面高度（沿中轴 x=0 取），供屋架定位檩条。
+     *
+     * 屋架必须与屋面**共用同一个高度场**——否则歇山这种两段式屋面
+     * 会把檩条定在屋面之上，脊檩直接戳出屋脊。
+     * 这里取 x=0（屋脊轴线）的高度：正脊檩就在这条线上。
+     */
+    surfAt: (z) => {
+      const y = heightAt(0, z);
+      return y === null ? (yBreak ?? eaveY) : y;
+    },
+    /**
+     * 完整二维高度场 `(x, z) => y`。
+     *
+     * 屋架的檩条要**分段**定位：歇山/庑殿的屋面在角部（戗脊一侧）
+     * 明显低于中轴，通长檩在角部会顶出屋面。分段后每段按自己
+     * 位置的屋面高度落位，角部那一段自然下沉。
+     */
+    surfAtXY: (x, z) => {
+      // 山花区域 heightAt 返回 null（那里是竖直面，不是坡面）。
+      // 屋架要定位檩条，需要一个数值——山花的**顶角就在脊线上**，
+      // 所以回退到脊高，而不是山花底边高度。
+      const y = heightAt(x, z);
+      return y === null ? ridgeY : y;
+    },
+    /**
+     * 屋脊实际存在的半宽（米）。
+     * 歇山/卷棚歇山的屋脊只到山花边（xh）为止，两端是山花竖面；
+     * 庑殿的屋脊可到出檐边。屋架据此决定脊檩铺多长——
+     * 铺长了就会在山花处穿出来，或在屋脊两端凭空多出一截。
+     */
+    ridgeHalfWidth: xh,
   };
 }
 
@@ -903,12 +942,19 @@ function buildTongWa(sampler, t0, t1) {
   const uvs = [];
   const idx = [];
 
-  // UV 约定（与贴图布局严格对应，否则屋面会被采样成一片黑）：
-  // 贴图横向一个循环含 6 垄瓦（见 textures.js 的 cols），纵向一个循环含 6 层瓦当。
-  // 一根筒瓦 = 一垄，所以 u 只取其中一垄的窗口 [0.02, 0.17]；
-  // v 沿坡向铺 6 个循环 → 36 层瓦当，与真实瓦作搭接密度一致。
+  // UV 约定：
+  // 贴图横向一个循环含 6 垄瓦（程序化贴图 textures.js 的 cols），纵向一个循环含 6 层瓦当。
+  // 一根筒瓦 = 一垄，所以 u 只取其中一垄的窗口。
+  //
+  // ⚠ 但 **AI 生成的 tile.png 并没有"6 垄"结构**（U 方向是均匀的灰面），
+  // 窄条采样会命中贴图里的高光斑——一垄筒瓦整根发白，远看屋面像铺了白铁皮。
+  // 所以这里取**每垄各自的一小段**（按垄序错开），既避开窄条里的固定亮斑，
+  // 又让相邻筒瓦的色差来自贴图的不同位置，而不是纯色块。
+  // 瓦的**形体**由几何提供，贴图只负责连续表面的苔痕与旧化。
   const U0 = 0.02;
   const U1 = 0.17;
+  // 每垄沿 U 方向错开一点（覆盖贴图 1/3 宽度），避免所有垄采到同一条亮斑
+  const uShift = (t0 - 0) * 0.31;
 
   let prevSide = null;
   for (let i = 0; i <= steps; i++) {
@@ -930,7 +976,7 @@ function buildTongWa(sampler, t0, t1) {
         p.y + side.y * ox + up.y * oy,
         p.z + side.z * ox + up.z * oy
       );
-      uvs.push(U0 + (k / ring) * (U1 - U0), (i / steps) * 6);
+      uvs.push(U0 + uShift + (k / ring) * (U1 - U0), (i / steps) * 6);
     }
   }
   const stride = ring + 1;

@@ -225,17 +225,44 @@ function makeFoliageTexture(species, seed) {
 function applyEdgeFalloff(c) {
   const S = c.width;
   const g = c.getContext('2d');
-  const grd = g.createRadialGradient(
-    S * 0.5, S * 0.5, S * 0.16,
-    S * 0.5, S * 0.5, S * 0.52
-  );
-  grd.addColorStop(0, 'rgba(0,0,0,1)');
-  grd.addColorStop(0.68, 'rgba(0,0,0,0.9)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = grd;
-  g.fillRect(0, 0, S, S);
-  g.globalCompositeOperation = 'source-over';
+  // 直接重写 **alpha 通道**，RGB 一律不动。
+  //
+  // 两个坑（都踩过）：
+  // ① 用 `destination-in` + 黑色渐变做衰减：黑色会参与运算，
+  //    把叶子的颜色也乘黑，越靠边越脏。必须只动 alpha。
+  // ② 衰减曲线中间留一段 alpha=1 的实心区：叶片画得满时，
+  //    中心区成了一块**不透明方片**，alphaTest 裁不掉——
+  //    远看是一块白卡片糊在屋面前，边缘还带一圈锯齿状绿噪点。
+  //
+  // 现在：alpha 全程平滑衰减（中心 0.92 → 边 0），四周自然透明，
+  // 不会切出硬边。
+  const img = g.getImageData(0, 0, S, S);
+  const d = img.data;
+  const cx = S / 2;
+  const cy = S / 2;
+  const maxR = S * 0.5;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      if (d[i + 3] === 0) continue;
+      const dx = (x - cx) / maxR;
+      const dy = (y - cy) / maxR;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      // 半径 0.04→0.5 的平滑衰减。
+      // 中心保持较高 alpha（0.95），让叶丛实体感足；
+      // 衰减只作用在**外圈**（r>0.22），中间的叶丛基本不透明，
+      // 但仍不是"一整块实心矩形"——四角与边缘是透明的。
+      let f;
+      if (r <= 0.22) f = 0.95;
+      else if (r >= 0.5) f = 0;
+      else {
+        const t = (r - 0.22) / (0.5 - 0.22);
+        f = 0.95 * (1 - t) * (1 - t) * (1 + 2 * t); // smoothstep 反向
+      }
+      d[i + 3] = Math.round(d[i + 3] * f);
+    }
+  }
+  g.putImageData(img, 0, 0);
 }
 
 function finishTex(c) {
@@ -547,7 +574,12 @@ export function buildTrees(sceneData, heightAt) {
       const tex = makeFoliageTexture(species, 1000 + v * 97 + species.length * 13);
       const leafMat = new THREE.MeshStandardMaterial({
         map: tex,
-        alphaTest: 0.35,
+        // alphaTest 不能太高：贴图的 alpha 是**平滑衰减**的，
+        // 阈值 0.35 会把外圈的半透明叶片切成锯齿状碎点——
+        // 远看就是屋檐下的一圈绿色噪点。
+        // 阈值压到 0.12 + alphaToCoverage（MSAA 抗锯齿），
+        // 边缘既平滑又不会碎。
+        alphaTest: 0.12,
         transparent: false,
         // 用 MSAA 做 alpha 裁剪：边缘平滑，又不需要透明排序
         alphaToCoverage: true,

@@ -647,6 +647,118 @@ async function loadScene() {
   });
 
   state.ready = true;
+
+  // DEBUG（临时）：?pick=<x>,<y> 射线拾取屏幕某像素，把命中对象信息写进 DOM。
+  // 排查"某个面不对"的快招：改材质颜色看是否变，比逐层读代码快。
+  {
+    const pk = new URLSearchParams(location.search).get('pick');
+    if (pk) {
+      const [px, py] = pk.split(',').map(Number);
+      const rc = new THREE.Raycaster();
+      rc.setFromCamera(
+        new THREE.Vector2((px / window.innerWidth) * 2 - 1, -(py / window.innerHeight) * 2 + 1),
+        camera
+      );
+      const hits = rc.intersectObjects(scene.children, true);
+      const div = document.createElement('pre');
+      div.id = 'pick-result';
+      div.style.cssText =
+        'position:fixed;left:8px;bottom:8px;z-index:9999;background:#000;color:#0f0;' +
+        'font:11px monospace;padding:6px;max-width:60vw;white-space:pre-wrap;';
+      const lines = hits.slice(0, 6).map((h) => {
+        const o = h.object;
+        const m = o.material;
+        const vc = o.geometry?.attributes?.color;
+        let vcs = 'none';
+        if (vc) {
+          const i = Math.min(vc.count - 1, Math.floor((h.faceIndex ?? 0) / 3) * 3);
+          vcs = `rgb(${vc.getX(i).toFixed(2)},${vc.getY(i).toFixed(2)},${vc.getZ(i).toFixed(2)})`;
+        }
+        return (
+          `d=${h.distance.toFixed(1)} obj="${o.name || o.type}" parent="${o.parent?.name || '-'}" ` +
+          `mat=${m?.type} color=#${m?.color?.getHexString?.() ?? '?'} ` +
+          `map=${m?.map ? 'yes' : 'no'} vc=${m?.vertexColors ? vcs : 'off'} ` +
+          `pt=(${h.point.x.toFixed(1)},${h.point.y.toFixed(1)},${h.point.z.toFixed(1)})`
+        );
+      });
+      div.textContent = lines.join('\n') || '(未命中)';
+      document.body.appendChild(div);
+    }
+  }
+
+  // DEBUG（临时）：?dump=1 列出场景里所有 Mesh 的材质与包围盒，写进 DOM。
+  // 找"这块白的是谁"最快的办法。
+  {
+    if (new URLSearchParams(location.search).get('dump')) {
+      const rows = [];
+      const seen = new Map();
+      scene.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return;
+        o.geometry.computeBoundingBox();
+        const bb = o.geometry.boundingBox;
+        const m = o.material;
+        const key = `${o.name || o.type}|${m?.type}|${m?.color?.getHexString?.() ?? ''}|map=${m?.map ? 'Y' : 'N'}|vc=${m?.vertexColors ? 'Y' : 'N'}`;
+        if (!seen.has(key)) seen.set(key, { n: 0, parent: o.parent?.name || '-', bb: null });
+        const rec = seen.get(key);
+        rec.n++;
+        if (!rec.bb) {
+          rec.bb = {
+            min: [bb.min.x, bb.min.y, bb.min.z].map((v) => v.toFixed(1)),
+            max: [bb.max.x, bb.max.y, bb.max.z].map((v) => v.toFixed(1)),
+          };
+        }
+      });
+      for (const [k, v] of seen) {
+        rows.push(
+          `${String(v.n).padStart(4)}x  parent=${v.parent.padEnd(12)} ${k.padEnd(46)} bb=${v.bb.min}..${v.bb.max}`
+        );
+      }
+      const div = document.createElement('pre');
+      div.id = 'dump-result';
+      div.style.cssText =
+        'position:fixed;left:0;top:0;z-index:9999;background:#000;color:#0f0;' +
+        'font:10px monospace;padding:6px;white-space:pre;max-height:100vh;overflow:auto;';
+      div.textContent = rows.sort().join('\n');
+      document.body.appendChild(div);
+    }
+  }
+
+  // DEBUG（临时）：?leaf=1 把树冠贴图的 alpha 直方图写进 DOM。
+  // 查"树冠变成白卡片/绿色噪点"的根因：alpha 是否真的做了衰减。
+  {
+    if (new URLSearchParams(location.search).get('leaf')) {
+      const rows = [];
+      scene.traverse((o) => {
+        if (!o.isInstancedMesh || !o.material?.map?.image) return;
+        const img = o.material.map.image;
+        if (!img?.getContext) return;
+        const g = img.getContext('2d');
+        const d = g.getImageData(0, 0, img.width, img.height).data;
+        const hist = new Array(5).fill(0);
+        let sum = 0;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4 * 37) {
+          const a = d[i];
+          hist[Math.min(4, Math.floor((a / 256) * 5))]++;
+          sum += a;
+          n++;
+        }
+        rows.push(
+          `${o.parent?.name || '-'}/${o.name || 'inst'} ${img.width}x${img.height} ` +
+            `alpha均值=${(sum / n).toFixed(1)} ` +
+            `直方图[0-51:${hist[0]} 52-102:${hist[1]} 103-153:${hist[2]} 154-204:${hist[3]} 205-255:${hist[4]}]`
+        );
+      });
+      const div = document.createElement('pre');
+      div.id = 'leaf-result';
+      div.style.cssText =
+        'position:fixed;left:0;bottom:0;z-index:9999;background:#000;color:#0f0;' +
+        'font:11px monospace;padding:6px;white-space:pre;max-height:40vh;overflow:auto;';
+      div.textContent = rows.join('\n');
+      document.body.appendChild(div);
+    }
+  }
+
   initHud({
     state,
     sceneData,

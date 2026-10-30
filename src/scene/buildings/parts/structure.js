@@ -30,41 +30,107 @@ function buildRoofFrame(opts) {
     bucket,
     KEY,
     fold,
+    /**
+     * 屋面表面高度函数 `(z) => y`。
+     *
+     * **必须由 buildRoof 提供**（与屋面网格共用同一套高度场）。
+     * 之前屋架自己算 `ridgeY - rise*fold(|z|/Wz)`，但：
+     *   ① Wz 取 halfD+1.2，屋面实际是 depth/2+overhang → 举折对不上；
+     *   ② 歇山是两段式（山面 + 庑殿段），单段公式在折线处差一大截。
+     * 结果：檩条被定在屋面之上，脊檩直接**戳出屋脊** 2m 多——
+     * 远看就是屋脊上悬着一根横杠。
+     */
+    surfAt,
+    /** 完整二维高度场 `(x, z) => y`——分段定位檩条时用 */
+    surfAtXY = null,
+    /** 屋脊实际存在的半宽（米）——脊檩只铺这一段 */
+    ridgeHalfWidth = null,
   } = opts;
   const pushWood = (g) => bucket(geoms, KEY.wood).push(g);
 
   const halfD = depth / 2;
-  const Wz = halfD + 1.2; // 屋面半进深（含出檐）
   const ridgeY = eaveY + rise;
   const purlinR = 0.11;
 
-  // 屋面在某个进深处的高度（与 roof.js 的举折一致）
-  const surfAt = (z) => {
-    const t = Math.min(1, Math.abs(z) / Wz);
-    return ridgeY - rise * fold(t);
-  };
-
   const zEave = halfD - 0.25;
   const zGold = halfD * 0.5;
-  const yEave = eaveY - 0.12;
   const yGold = surfAt(zGold) - purlinR * 1.6;
-  const yRidge = ridgeY - purlinR * 1.8;
+  const yRidge = Math.min(ridgeY - purlinR * 1.8, surfAt(0) - purlinR * 2.2);
 
   const beamH = 0.5; // 五架梁高
   const beamW = 0.26;
 
   // ---- 檩（沿 X 通长）----
+  //
+  // **檩必须逐柱位分段**，不能通长一根：
+  // 歇山/庑殿的屋面在**角部**明显低于中轴（戗脊把屋面收下去），
+  // 通长檩在角部就会顶出屋面。所以每段檩按**该段中点的屋面高度**定位，
+  // 角部那一段自然下沉，贴着戗脊走。
   const purlin = (y, z, r = purlinR) => {
     const g = new THREE.CylinderGeometry(r, r, width + 0.3, 7);
     g.rotateZ(Math.PI / 2);
     g.translate(0, y, z);
     pushWood(g);
   };
+
+  /**
+   * 沿 X 分段打一根檩。每段单独按屋面高度定位。
+   * @param {number} z      檩所在的 Z（进深方向）
+   * @param {number} drop   檩顶距屋面的余量（檩径 + 望板 + 瓦厚）
+   * @param {number} r      檩半径
+   * @param {number} [fallbackY] 没有屋面高度场时的退路
+   */
+  const segmentedPurlin = (z, drop, r = purlinR, fallbackY = null) => {
+    // 分段点：每根柱线一个节点
+    const xs = [-width / 2, ...colXs, width / 2].sort((a, b) => a - b);
+    // 先算出每个节点的落位高度
+    const nodeY = xs.map((x) => {
+      if (surfAtXY) return surfAtXY(x, z) - drop;
+      return fallbackY !== null ? fallbackY : surfAt(z) - drop;
+    });
+    for (let i = 0; i < xs.length - 1; i++) {
+      const x0 = xs[i];
+      const x1 = xs[i + 1];
+      if (x1 - x0 < 0.05) continue;
+      const y0 = nodeY[i];
+      const y1 = nodeY[i + 1];
+      const midX = (x0 + x1) / 2;
+      const midY = (y0 + y1) / 2;
+      const len = x1 - x0 + 0.02;
+      const g = new THREE.CylinderGeometry(r, r, len, 7);
+      g.rotateZ(Math.PI / 2);
+      // 两端高度不同时，沿 X 略微倾斜，贴合屋面的走势（真实檩是直的，
+      // 但屋面本身有转折；这里用微倾避免出现台阶状断裂）
+      const dy = y1 - y0;
+      if (Math.abs(dy) > 0.001) {
+        g.rotateY(-Math.atan2(dy, x1 - x0));
+      }
+      g.translate(midX, midY, z);
+      pushWood(g);
+    }
+  };
+
+  // 檐檩：支在檐柱上，位置固定在檐檩线
+  const yEave = eaveY - 0.12;
   purlin(yEave, zEave);
   purlin(yEave, -zEave);
-  purlin(yGold, zGold);
-  purlin(yGold, -zGold);
-  purlin(yRidge, 0, purlinR * 1.25);
+  // 金檩：按各段屋面高度下沉，角部不穿出
+  const dropGold = purlinR * 1.6;
+  segmentedPurlin(zGold, dropGold, purlinR, surfAt(zGold) - dropGold);
+  segmentedPurlin(-zGold, dropGold, purlinR, surfAt(-zGold) - dropGold);
+  // 脊檩：在屋脊轴线上。**只铺屋脊真正存在的那一段**——
+  // 歇山/卷棚歇山的屋脊到山花边（|x| = xh）为止，两端是山花竖面，
+  // 没有脊檩。若通长铺（或按山花处的低屋面下沉），
+  // 檩就会从山花里穿出来，或者在屋脊两端凭空多出一截——
+  // 远看就是屋脊上悬着一根横杠。
+  const dropRidge = purlinR * 2.2;
+  const ridgeSpan = ridgeHalfWidth !== null ? ridgeHalfWidth : width / 2;
+  if (ridgeSpan > 0.2) {
+    const g = new THREE.CylinderGeometry(purlinR * 1.25, purlinR * 1.25, ridgeSpan * 2 + 0.1, 7);
+    g.rotateZ(Math.PI / 2);
+    g.translate(0, surfAt(0) - dropRidge, 0);
+    pushWood(g);
+  }
 
   // ---- 梁（沿 Z 通长）与瓜柱 ----
   const beamAlongZ = (x, y0, y1, w = beamW) => {
@@ -81,8 +147,14 @@ function buildRoofFrame(opts) {
     g.translate(x, y0 + beamH / 2, 0);
     pushWood(g);
 
+    // 该柱位处的金檩高度：分段檩在角部下沉，瓜柱必须跟着落位，
+    // 否则瓜柱会从下沉的金檩旁边穿出去。
+    const goldY = surfAtXY
+      ? surfAtXY(x, zGold) - purlinR * 1.6
+      : yGold;
+
     // 瓜柱：五架梁背 → 金檩
-    const zh = yGold - (y0 + beamH);
+    const zh = goldY - (y0 + beamH);
     if (zh > 0.12) {
       for (const zs of [1, -1]) {
         const p = new THREE.BoxGeometry(beamW * 0.8, zh, beamW * 0.8);
@@ -96,16 +168,27 @@ function buildRoofFrame(opts) {
     }
 
     // 角背：檐柱上斜撑到金檩。
-    // 旋转角要用 atan2(dy, |dz|) 再取负——直接用 atan2(dy, dz)
-    // 会因为 dz 为负而翻到第三象限，斜杆就甩到屋面外面去了。
+    //
+    // **旋转角必须用 atan2(|Δz|, Δy)**——斜杆的长轴是 BoxGeometry 的本地 Y 轴，
+    // 绕 X 轴旋转 θ 后指向 (0, cosθ, sinθ)，所以 θ 是"偏离竖直的角度"，
+    // 即 tanθ = |Δz| / Δy。
+    //
+    // 之前写成 atan2(dy, dz)：那是"偏离水平的角度"，两者互为余角，
+    // 斜杆被立得比实际更陡，顶端戳出屋面 1m 多（远看屋面里插着一根刺）。
+    // 而且两侧的斜杆方向相反，必须按 zs 取相反的旋转符号，否则北坡那根会甩出去。
     for (const zs of [1, -1]) {
-      const dy = yGold - (y0 + beamH * 0.5);
+      const yA = y0 + beamH * 0.5; // 起点：五架梁端头（檐柱上方）
+      const yB = goldY; // 终点：金檩底
+      const dy = yB - yA;
       const dz = Math.abs(zEave - zGold);
+      if (dy <= 0.05 || dz <= 0.05) continue;
       const len = Math.hypot(dy, dz);
-      if (len < 0.2) continue;
       const br = new THREE.BoxGeometry(beamW * 0.7, len, beamW * 0.7);
-      br.rotateX(-Math.atan2(dy, dz));
-      br.translate(x, (y0 + beamH * 0.5 + yGold) / 2, (zs * (zEave + zGold)) / 2);
+      // θ = atan2(|Δz|, Δy)：斜杆相对竖直的倾角
+      const theta = Math.atan2(dz, dy);
+      // zs=+1（南坡）：杆向 -Z 倾斜 → sinθ<0 → θ 取负
+      br.rotateX(zs > 0 ? -theta : theta);
+      br.translate(x, (yA + yB) / 2, (zs * (zEave + zGold)) / 2);
       pushWood(br);
     }
   }
@@ -113,11 +196,16 @@ function buildRoofFrame(opts) {
   // ---- 三架梁 + 脊瓜柱（只在中柱线上）----
   const midXs = colXs.filter((x) => Math.abs(x) < width * 0.26);
   for (const x of midXs.length ? midXs : [0]) {
-    const y0 = yGold;
+    // 三架梁架在金檩上：金檩在哪，这根梁就在哪
+    const y0 = surfAtXY ? surfAtXY(x, zGold) - purlinR * 1.6 : yGold;
     const g = new THREE.BoxGeometry(beamW * 0.9, beamH * 0.8, zGold * 2);
     g.translate(x, y0 + beamH * 0.4, 0);
     pushWood(g);
-    const zh = yRidge - (y0 + beamH * 0.8);
+    // 脊瓜柱：托住脊檩。脊檩位置由屋面在屋脊轴线的高度决定
+    const ridgeY2 = surfAtXY
+      ? Math.min(ridgeY - purlinR * 1.8, surfAtXY(x, 0) - purlinR * 2.2)
+      : yRidge;
+    const zh = ridgeY2 - (y0 + beamH * 0.8);
     if (zh > 0.12) {
       const p = new THREE.BoxGeometry(beamW * 0.8, zh, beamW * 0.8);
       p.translate(x, y0 + beamH * 0.8 + zh / 2, 0);
@@ -195,6 +283,15 @@ export function buildStructure(spec) {
     caojing = false,
     wallThick = 0.5,
     couplet = null,
+    /**
+     * 屋面表面高度函数 `(z) => y`（由 buildRoof 提供）。
+     * 没有它就退回到单段举折公式——歇山会穿模，所以必须传。
+     */
+    roofSurfAt = null,
+    /** 屋面完整二维高度场 `(x, z) => y`（用于分段定位檩条） */
+    roofSurfAtXY = null,
+    /** 屋脊实际存在的半宽（米） */
+    roofRidgeHalfWidth = null,
   } = spec;
 
   const geoms = new Map();
@@ -360,17 +457,30 @@ export function buildStructure(spec) {
 
   /* --------------------------------------------------------- 屋架（骨架）*/
   // 屋面下的梁架：五架梁 / 瓜柱 / 金檩 / 三架梁 / 脊瓜柱 / 脊檩 / 角背
+  //
+  // 檩条的高度必须由**真实屋面高度场**反推（roofSurfAt），
+  // 不能自己套举折公式：屋面 Wz、歇山折线都只有 roof.js 知道。
+  // 之前屋架自算高度，脊檩会高出屋面 2m，屋脊上凭空悬一根横杠。
+  const frameRise = spec.rise ?? Math.max(1.8, width * 0.26);
+  const foldT = (t) => Math.pow(Math.min(1, Math.max(0, t)), 0.62);
+  const fallbackSurf = (z) => {
+    const Wz = depth / 2 + 1.3;
+    return eaveY + frameRise - frameRise * foldT(Math.abs(z) / Wz);
+  };
   buildRoofFrame({
     width,
     depth,
     colXs,
     eaveY,
-    rise: spec.rise ?? Math.max(1.8, width * 0.26),
+    rise: frameRise,
     colTop: floorY + colH,
     geoms,
     bucket,
     KEY,
-    fold: (t) => Math.pow(Math.min(1, Math.max(0, t)), 0.62),
+    fold: foldT,
+    surfAt: roofSurfAt || fallbackSurf,
+    surfAtXY: roofSurfAtXY,
+    ridgeHalfWidth: roofRidgeHalfWidth,
   });
 
   /* ----------------------------------------------------------- 墙体 */

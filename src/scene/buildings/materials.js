@@ -38,7 +38,7 @@ function make(key, factory) {
  *   不再贴条纹图——条纹贴在半圆管上会变成"每垄 16 条竖线"，一眼假。
  */
 export function roofMaterial(glazed = false, color = '#2f7a4a') {
-  return make(`roof-${glazed}-${color}`, () => {
+  const mat = make(`roof-${glazed}-${color}`, () => {
     const normalMap = roofTilesNormal();
     if (glazed) {
       return new THREE.MeshStandardMaterial({
@@ -59,15 +59,44 @@ export function roofMaterial(glazed = false, color = '#2f7a4a') {
       normalScale: new THREE.Vector2(0.85, 0.85),
       roughness: 0.88,
       metalness: 0.02,
-      color: 0xb9bcc2,
+      // 青瓦的**固有色是深灰**（新瓦约 0.18~0.25 的反照率，
+      // 旧瓦更暗）。之前给 0xb9bcc2（≈0.73）——那是"浅灰白"，
+      // 乘上太阳光 2.6 + 半球光 0.85 后直接过曝到 228/255，
+      // 远看整片屋面像铺了白铁皮（这正是"白屋顶"的真正成因）。
+      color: 0x4a4e54,
     });
   });
+  // DEBUG（临时）：?roof=tile 把所有屋面染成品红，定位"白屋顶"到底是谁
+  const dbg = new URLSearchParams(location.search).get('roof');
+  if (dbg === 'tile' && !glazed) {
+    mat.color.setHex(0xff00ff);
+    if (mat.emissive) {
+      mat.emissive.setHex(0xff00ff);
+      mat.emissiveIntensity = 0.6;
+    }
+  }
+  return mat;
 }
 
 export function ridgeMaterial(color = '#6e7176') {
-  return make(`ridge-${color}`, () =>
-    new THREE.MeshStandardMaterial({ color, roughness: 0.9 })
-  );
+  return make(`ridge-${color}`, () => {
+    // 正脊/垂脊是**小筒瓦垒成**的，本身要有瓦的质感，不能是纯色亮面。
+    // 之前 map=no + 浅灰色（#858b91）在阳光下直接打到 255，
+    // 远看屋脊是一条**白带子**。
+    // 现在：给瓦贴图 + 深灰固有色，与屋面同族。
+    const map = roofTiles().map?.clone();
+    if (map) {
+      map.needsUpdate = true;
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      map.repeat.set(1, 8);
+    }
+    return new THREE.MeshStandardMaterial({
+      map: map || null,
+      color: new THREE.Color(color).multiplyScalar(0.62),
+      roughness: 0.92,
+      metalness: 0.02,
+    });
+  });
 }
 
 export function eaveMaterial() {
@@ -301,6 +330,42 @@ export function materialFor(key, spec = {}) {
   // 整个园子就像复制粘贴。材质按颜色缓存，合并又是按景做的，
   // 所以这样改**不增加 draw call**。
   const tileColor = spec.tileColor || (tileSpec ? tileSpec.color : spec.glazedColor || '#2f7a4a');
+  const mat = materialForBase(key, spec, glazed, tileColor, tileSpec);
+  // DEBUG（临时）：?mat=tile/wood/… 给某个材质桶染色，用来定位是哪一层几何
+  // 注意：材质按**颜色**缓存，同一键可能有多个实例（每景瓦色不同），
+  // 所以要把 cache 里该键的**所有实例**都染了，否则只染中一个。
+  const dbg = new URLSearchParams(location.search).get('mat');
+  if (dbg) {
+    const C = {
+      tile: 0xff00ff, wood: 0x00ffff, caihua: 0xffff00, column: 0xff8000,
+      stone: 0x0080ff, ridge: 0x00ff80, board: 0xff2020, eave: 0x2020ff,
+      dougong: 0xffa000, shanhua: 0xff00ff, ceiling: 0x00ff40,
+    };
+    if (dbg === key) {
+      const c = C[key] ?? 0x00ff00;
+      mat?.color?.setHex(c);
+      if (mat?.emissive) {
+        mat.emissive.setHex(c);
+        mat.emissiveIntensity = 0.6;
+      }
+    }
+    // 同时把所有缓存实例里 map 带该关键字的也染了
+    for (const [ck, m] of cache) {
+      if (!m?.color) continue;
+      if (ck.startsWith(dbg) || ck.includes(`-${dbg}-`)) {
+        const c = C[dbg] ?? 0x00ff00;
+        m.color.setHex(c);
+        if (m.emissive) {
+          m.emissive.setHex(c);
+          m.emissiveIntensity = 0.6;
+        }
+      }
+    }
+  }
+  return mat;
+}
+
+function materialForBase(key, spec, glazed, tileColor, tileSpec) {
   switch (key) {
     case 'tile':
       return roofMaterial(glazed, tileColor);
