@@ -24,8 +24,8 @@ function mulberry32(seed) {
 /* ------------------------------------------------------------ 地面贴图 */
 
 export function makeGroundTexture() {
-  const ov = getTextureOverrides();
-  if (ov.grass) return ov.grass;
+  // 刻意**不用** AI 草地照片贴图（它自带方向性笔触，平铺到全园是一片斜纹）。
+  // 程序化的随机色斑 + 随机草叶没有方向性，平铺看不出来。
   const S = 512;
   const c = document.createElement('canvas');
   c.width = c.height = S;

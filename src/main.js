@@ -11,6 +11,7 @@ import { buildWater, animateWater } from './scene/water.js';
 import { buildRockery } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
+import { buildAquatic } from './scene/aquatic.js';
 import { buildCorridors } from './scene/corridor.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
@@ -416,9 +417,11 @@ function updateSun(hour) {
 
   // 大气透视：远处要"退"进空气里。原来的雾从 900m 才开始，
   // 对一个 2.4km 的园区几乎没有作用——远处的山和建筑一样清楚，一眼就假。
-  scene.fog.color.copy(horizon).lerp(bottom, 0.35);
-  scene.fog.near = 260;
-  scene.fog.far = 3400;
+  // 雾色取"地平线暖色"与"天空底部冷色"的中间值：
+  // 全取地平线色会得到一条死白的带子，远山全糊掉。
+  scene.fog.color.copy(horizon).lerp(bottom, 0.55);
+  scene.fog.near = 300;
+  scene.fog.far = 5200;
   renderer.toneMappingExposure = 0.85 + day * 0.35;
 
   // 天空变了，环境光要跟着重烘（限流，别每帧都做）
@@ -497,6 +500,9 @@ async function loadScene() {
   const paths = buildPaths(sceneData, heightAt);
   scene.add(paths);
   scene.add(buildCorridors(sceneData, heightAt));
+
+  // 水生植物：荷叶（福海荷塘）、芦苇、菖蒲——岸线没有它们就是一条刀切的直边
+  scene.add(buildAquatic(sceneData, heightAt));
 
   // 游廊：圆明园最具辨识度的构件之一（沿水岸连接各景的长廊），
   // 此前写好了却从未被装进场景——7800m 长廊一直是缺席的。
@@ -710,8 +716,8 @@ function animate() {
   // 高空俯瞰时雾必须推远——否则整个园区被白雾吃掉，俯视图全白。
   const camGround = heightAt(camera.position.x, camera.position.z);
   const hFactor = THREE.MathUtils.clamp((camera.position.y - camGround) / 260, 0, 8);
-  scene.fog.near = 260 * hFactor;
-  scene.fog.far = 3400 * hFactor;
+  scene.fog.near = 300 * hFactor;
+  scene.fog.far = 5200 * hFactor;
 
   // 阴影相机跟随视点
   const focus = controls.target;

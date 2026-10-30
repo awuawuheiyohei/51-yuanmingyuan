@@ -80,9 +80,14 @@ export function buildTerrain(sceneData, opts = {}) {
     colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  // UV 按世界尺度铺开：程序化贴图 35m 一张，AI 照片贴图 19m 一张。
-  // 14m 时平铺周期太短，站在地面上一眼就看见"一模一样的方块在重复"。
-  const tile = getTextureOverrides().grass ? 38 : 35;
+  // UV 按世界尺度铺开。
+  //
+  // 这里**不用** AI 生成的草地照片贴图：那张图自带大面积的方向性笔触
+  // （SD 把它画成了"修剪过的草坪"），平铺到全园就是一片规则斜纹——
+  // 放大到 38m 一张虽然斜纹没了，近景却糊成一片绿。
+  // 程序化贴图是随机色斑 + 随机草叶，没有方向性，平铺看不出来，
+  // 而且 18m 一张（512px ≈ 3.5cm/px）近景也有细节。
+  const tile = 18;
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) {
     uv.setXY(i, uv.getX(i) * (spanX / tile), uv.getY(i) * (spanZ / tile));
@@ -112,8 +117,6 @@ export function buildTerrain(sceneData, opts = {}) {
     roughness: 0.98,
     metalness: 0,
   });
-  // AI 草地图偏"照片绿"，压一点饱和度更像乾隆年间的草坪
-  if (getTextureOverrides().grass) mat.color.setHex(0xd8dcc8);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
