@@ -85,8 +85,10 @@ export function stoneMaterial() {
     map.repeat.set(2, 2);
     return new THREE.MeshStandardMaterial({
       map,
-      color: 0xcac6ba,
-      roughness: 0.95,
+      // 条石：再压一档。AI 那张石材贴图带白色石脉，
+      // 铺在向阳的须弥座上会亮得像大理石/冰面。
+      color: 0x928d85,
+      roughness: 1,
     });
   });
 }

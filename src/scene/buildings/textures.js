@@ -669,9 +669,14 @@ export function redWall() {
 
   // 抹红灰：正片叠底压成砖红，颜色不匀
   g.globalCompositeOperation = 'multiply';
-  g.fillStyle = '#c98d80';
+  g.fillStyle = '#d7a396';
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'source-over';
+
+  // 再罩一层薄灰浆：把砖缝的硬对比化掉（抹灰墙的砖缝是"隐约"，不是黑线）
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = 'rgba(206,150,138,0.34)';
+  g.fillRect(0, 0, W, H);
 
   // 抹灰不匀：一块块的深浅
   for (let i = 0; i < 90; i++) {

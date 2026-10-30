@@ -140,34 +140,47 @@ export function buildYuanYingGuan(c, opts) {
   ring.translate(0, topY + 0.2, 0);
   c.add('metal', ring);
 
-  /* ------------------------------------------------------------ 正门石柱（番花下垂葡萄叶） */
+  /* ------------------------------------------------------------ 正门石柱（番花下垂葡萄叶）
+   * 考据：远瀛观「正门两旁汉白玉石柱刻西洋番花**下垂葡萄叶**，**深雕三寸余**」。
+   * 做法：柱身上部一圈番花（卷涡），葡萄叶自番花**向下垂挂**成三串，
+   *       叶脉用一条凸起的脊线表示（"深雕三寸"的量感靠实体厚度）。
+   * 形制简化：葡萄（果实）只做小球串，不做一颗颗圆珠。
+   */
   for (const sx of [-1, 1]) {
     const col = carvedColumn(8.2, 0.62, false);
     col.translate(sx * 3.6, PLAT, D / 2 + 1.9);
     c.add('stone', col);
-    // 柱身下垂葡萄叶
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      const lf = leaf(1.5, 0.42, 0.12);
-      lf.rotateZ(Math.PI);
-      lf.rotateY(a);
-      lf.translate(
-        sx * 3.6 + Math.sin(a) * 0.6,
-        PLAT + 5.2,
-        D / 2 + 1.9 + Math.cos(a) * 0.6
-      );
-      c.add('stone', lf);
-    }
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2;
-      const v = volute(0.55, 0.1, 1.5);
+    // 柱头上部一圈番花卷涡
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + 0.4;
+      const v = volute(0.6, 0.11, 1.5);
       v.rotateY(a);
       v.translate(
-        sx * 3.6 + Math.sin(a) * 0.58,
-        PLAT + 6.6,
-        D / 2 + 1.9 + Math.cos(a) * 0.58
+        sx * 3.6 + Math.sin(a) * 0.6,
+        PLAT + 6.75,
+        D / 2 + 1.9 + Math.cos(a) * 0.6
       );
       c.add('stone', v);
+    }
+    // 下垂葡萄叶：三串
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2 + 0.2;
+      const ox = sx * 3.6 + Math.sin(a) * 0.58;
+      const oz = D / 2 + 1.9 + Math.cos(a) * 0.58;
+      const len = 2.3 + (s % 2) * 0.5;
+      for (let k = 0; k < 3; k++) {
+        const lf = leaf(len * (0.62 - k * 0.1), 0.42, 0.1);
+        lf.rotateZ(Math.PI); // 叶尖朝下
+        lf.rotateY(a + (k - 1) * 0.5);
+        lf.translate(ox, PLAT + 5.9 - k * 0.75, oz);
+        c.add('stone', lf);
+      }
+      // 葡萄串
+      for (let k = 0; k < 3; k++) {
+        const gr = sph(0.13, 7, 6);
+        gr.translate(ox, PLAT + 3.0 - k * 0.3, oz);
+        c.add('stone', gr);
+      }
     }
   }
 

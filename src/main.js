@@ -524,6 +524,15 @@ async function loadScene() {
 
   tour = buildTour(sceneData, heightAt);
 
+  // ?tour=1 直接进巡游（便于出图与录屏）；?t=<秒> 指定起始时间
+  {
+    const qq = new URLSearchParams(location.search);
+    if (qq.get('tour')) {
+      state.mode = 'tour';
+      state.tourTime = Number(qq.get('t')) || 0;
+    }
+  }
+
   // 初始视角：全园东南角高处俯瞰
   const center = new THREE.Vector3(600, 0, 150);
   center.y = heightAt(center.x, center.z);
