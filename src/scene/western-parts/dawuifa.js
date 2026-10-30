@@ -30,12 +30,16 @@ import {
   stoneFish,
   seaPig,
   planter,
+  leaf,
+  volute,
   waterJet,
   jetBetween,
   spray,
+  pavementField,
 } from './kit.js';
 import {
   begoniaPool,
+  begoniaShape,
   conformPool,
   waterTable,
   waterChannel,
@@ -253,6 +257,69 @@ export function buildDaShuiFa(c, opts) {
       t.translate(px, 1.35 + k * 0.36, pz);
       c.add('green', t);
     }
+  }
+
+  /* ---------------------------------------------------------- 池岸精雕花纹
+   * 考据：大水法「池沿岸用**白玉石精雕花纹**，安放带座石花盆」。
+   * 做法：沿海棠池南岸的外立面按间距贴番花浮雕（几何，不是贴图）。
+   * 形制简化：只雕南岸可见的一段，间距约 3 m，一叶一涡。
+   */
+  {
+    const outline = begoniaShape(R).getPoints(96);
+    const motifs = [];
+    let acc = 0;
+    let prev = null;
+    for (const p of outline) {
+      if (!prev) {
+        prev = p;
+        continue;
+      }
+      const step = Math.hypot(p.x - prev.x, p.y - prev.y);
+      acc += step;
+      if (acc < 3.0) {
+        prev = p;
+        continue;
+      }
+      acc = 0;
+      // 只取南岸（shape 的 y > 0，即世界 +Z 侧）
+      if (p.y < R * 0.18) {
+        prev = p;
+        continue;
+      }
+      const px = p.x;
+      const pz = POOL_Z + p.y;
+      const yaw = Math.atan2(p.x, p.y - 0); // 轮廓法向朝外
+      const lf = leaf(0.9, 0.32, 0.07);
+      lf.rotateY(yaw + Math.PI / 2);
+      lf.translate(px, gy(px, pz) + 0.24, pz);
+      motifs.push(lf);
+      const v = volute(0.42, 0.06, 1.4);
+      v.rotateY(yaw + Math.PI / 2);
+      v.translate(px, gy(px, pz) + 0.06, pz);
+      motifs.push(v);
+      prev = p;
+    }
+    c.addAll('stone', motifs);
+  }
+
+  /* ---------------------------------------------------------- 广场地面铺砌
+   * 依据：brief「大水法 —— 广场地面用砖石琉璃铺砌」。
+   * ⚠ 考据 notes 里没有这一条，故只做"砖石铺地 + 琉璃方砖收边"，
+   *    **不编造纹样母题**（母题待考）。
+   * 位置：大水池之南、观水法之北的御前广场。
+   */
+  {
+    const pw = 48;
+    const pd = 7.2;
+    const pz0 = POOL_Z + R + 0.9 + pd / 2;
+    const pav = pavementField(pw, pd, 1.7, (lx, lz) => gy(lx, lz + pz0));
+    pav.a.translate(0, 0, pz0);
+    pav.b.translate(0, 0, pz0);
+    pav.edge.translate(0, 0, pz0);
+    c.add('stone', pav.a);
+    c.add('stone', pav.b);
+    // 最外一圈用蓝琉璃收边（不新增材质桶：tile-lan 已在方外观屋面用过）
+    c.add('tile-lan', pav.edge);
   }
 
   c.clearTransform();

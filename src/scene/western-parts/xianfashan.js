@@ -24,6 +24,7 @@ import {
   balustrade,
   octagonalPavilion,
   baroqueGate,
+  archVoussoirs,
   volute,
   leaf,
   planter,
@@ -75,20 +76,28 @@ function fourArchPavilion(radius = 4.6, postH = 3.4) {
     p.rotateY(-a);
     parts.push(p);
   }
-  // 四面券（南北东西四面各一个券洞）
+  // 四面券（南北东西四面各一个券洞）：用**真券石**（分缝 + 拱心石），
+  // 不用整圈光面半圆
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
-    const arch = torus(radius * 0.62, 0.28, 6, 14, Math.PI);
-    arch.translate(0, 0.75 + postH - radius * 0.62, 0);
+    const ar = radius * 0.62;
+    const springY = 0.75 + postH - ar;
+    const arch = archVoussoirs(ar, 0.28, 0.46, 7);
+    arch.translate(0, springY, 0);
     arch.rotateY(-a);
     arch.translate(Math.cos(a) * radius * 0.94, 0, Math.sin(a) * radius * 0.94);
     parts.push(arch);
     for (const s2 of [-1, 1]) {
-      const jamb = boxAt(0.42, postH - radius * 0.62, 0.42, 0, 0.75 + (postH - radius * 0.62) / 2, 0);
-      jamb.translate(s2 * radius * 0.62, 0, 0);
-      jamb.rotateY(-a);
-      jamb.translate(Math.cos(a) * radius * 0.94, 0, Math.sin(a) * radius * 0.94);
-      parts.push(jamb);
+      const jamb = boxAt(0.42, postH - ar, 0.42, 0, 0.75 + (postH - ar) / 2, 0);
+      jamb.translate(s2 * ar, 0, 0);
+      // 券脚
+      const imp = boxAt(0.56, 0.18, 0.56, 0, 0, 0);
+      imp.translate(s2 * ar, springY - 0.09, 0);
+      for (const g of [jamb, imp]) {
+        g.rotateY(-a);
+        g.translate(Math.cos(a) * radius * 0.94, 0, Math.sin(a) * radius * 0.94);
+        parts.push(g);
+      }
     }
   }
   // 檐口 + 八角攒尖顶

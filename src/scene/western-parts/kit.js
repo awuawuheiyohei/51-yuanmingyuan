@@ -205,6 +205,40 @@ export function pediment(w, h, depth = 0.5, relief = true) {
   return mergeAll(parts);
 }
 
+/**
+ * 巴洛克**卷涡山花**（S 形山花）：两端卷起来、中间下凹的三角檐饰。
+ *
+ * 考据：线法山正门「巴洛克式西洋牌楼」、山东「螺丝牌楼」。
+ * 形制简化：山花曲线用折线近似，卷涡用两只 `volute` 收头。
+ */
+export function scrolledPediment(w, h, depth = 0.45) {
+  const parts = [];
+  // 中间的浅三角底板
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2, 0);
+  s.lineTo(w / 2, 0);
+  s.lineTo(0, h * 0.78);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false });
+  g.computeVertexNormals();
+  worldUV(g);
+  parts.push(g);
+  // 两侧的卷涡（S 形）
+  for (const sx of [-1, 1]) {
+    const v = volute(h * 0.34, 0.11, 1.55);
+    v.rotateZ(sx > 0 ? -Math.PI * 0.15 : Math.PI * 1.15);
+    v.translate(sx * w * 0.42, h * 0.1, depth);
+    parts.push(v);
+    const lf = leaf(h * 0.36, h * 0.14, 0.07);
+    lf.rotateZ(sx * 0.6);
+    lf.translate(sx * w * 0.3, h * 0.16, depth);
+    parts.push(lf);
+  }
+  // 山花下沿的托檐
+  parts.push(boxAt(w * 1.06, 0.12, depth * 1.25, 0, -0.06, depth * 0.12));
+  return mergeAll(parts);
+}
+
 /** 线脚（檐部）：几道叠涩线脚，巴洛克立面的水平分界 */
 export function cornice(len, depth, h = 0.5, dirZ = 1) {
   const parts = [];
@@ -238,6 +272,79 @@ export function pilaster(h, w = 0.6, d = 0.34) {
 }
 
 /* ============================================================ 立面 */
+
+/**
+ * 券石环（voussoir arch）：巴洛克券洞最认得出的识别特征。
+ *
+ * 考据：西洋楼各处券洞 —— 远瀛观门窗、大水法石龛、线法山八角四券石亭、
+ *       海晏堂石券花窗口。
+ *
+ * 做法：每块券石是一个**扇环柱面**（radial joint，缝是放射状的，
+ *       不是砌砖那种水平缝），块与块之间留一点角度缝；
+ *       正上方一块**拱心石**（keystone）比两侧券石厚、并凸出。
+ *
+ * 形制简化：只做**一层**券石（真实巴洛克常做两三道叠涩券），
+ * 券面线脚（archivolt）另用一道薄环表示。
+ */
+export function archVoussoirs(radius, thickness, depth, count = 9, opts = {}) {
+  const { keystone = true, gap = 0.016, keystoneScale = 1.2 } = opts;
+  const parts = [];
+  const step = Math.PI / count;
+  for (let i = 0; i < count; i++) {
+    const a0 = Math.PI - i * step + gap;
+    const a1 = Math.PI - (i + 1) * step - gap;
+    const mid = (a0 + a1) / 2;
+    const isKey = keystone && Math.abs(mid - Math.PI / 2) < step * 0.55;
+    const th = thickness * (isKey ? keystoneScale : 1);
+    const s = new THREE.Shape();
+    const N = 4;
+    for (let k = 0; k <= N; k++) {
+      const a = a0 + ((a1 - a0) * k) / N;
+      const x = Math.cos(a) * (radius + th);
+      const y = Math.sin(a) * (radius + th);
+      if (k === 0) s.moveTo(x, y);
+      else s.lineTo(x, y);
+    }
+    for (let k = N; k >= 0; k--) {
+      const a = a0 + ((a1 - a0) * k) / N;
+      s.lineTo(Math.cos(a) * radius, Math.sin(a) * radius);
+    }
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 1 });
+    g.translate(0, 0, -depth / 2);
+    g.computeVertexNormals();
+    worldUV(g);
+    parts.push(g);
+  }
+  return mergeAll(parts);
+}
+
+/**
+ * 券洞的**券脚 + 券面线脚 + 拱心石**（套在洞口外面）。
+ *
+ * @param {number} r  券半径（洞口半宽）
+ * @param {number} y1 起券线标高（洞口底 → 起券线的距离即 y1）
+ * @param {number} d  墙厚方向进深
+ */
+export function archTrim(r, y1, d, opts = {}) {
+  const { t = 0.22, count = 9, archivolt = true } = opts;
+  const parts = [];
+  // 券石环
+  const ring = archVoussoirs(r, t, d, count);
+  ring.translate(0, y1, 0);
+  parts.push(ring);
+  // 券面线脚（贴在券石外一圈，凸出墙面）
+  if (archivolt) {
+    const band = archVoussoirs(r + t, t * 0.32, d * 0.28, count, { keystone: false });
+    band.translate(0, y1, d / 2 + d * 0.12);
+    parts.push(band);
+  }
+  // 券脚（起券线上的托块）
+  for (const sx of [-1, 1]) {
+    parts.push(boxAt(t * 1.45, 0.2, d * 1.22, sx * (r + t / 2), y1 - 0.1, 0));
+  }
+  return mergeAll(parts);
+}
 
 /**
  * 带券洞的墙板（巴洛克立面）。
@@ -280,28 +387,129 @@ export function frenchWindow(w, h, thick = 0.12) {
   return { glass: mergeAll(parts), frame: null };
 }
 
-/** 券花窗的框（石材）：外框 + 窗楣 + 键槽 */
-export function windowSurround(w, h, d = 0.22) {
+/**
+ * 券洞里的**玻璃面**（跟着券口形状走的平板，不是矩形）。
+ *
+ * 为什么要专门做：券洞是"矩形 + 半圆顶"，若玻璃仍用矩形方板，
+ * 四个上角会戳进券洞两侧的墙里（穿模），近看很假。
+ *
+ * 形制简化：单层平板，不做波纹玻璃。
+ */
+export function archedPane(w, h, inset = 0.11) {
+  const r = Math.max(0.04, Math.min(w / 2, h / 2) - inset);
+  const y1 = h - inset - r;
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2 + inset, inset);
+  s.lineTo(w / 2 - inset, inset);
+  s.lineTo(w / 2 - inset, y1);
+  s.absarc(0, y1, r, 0, Math.PI, false);
+  s.lineTo(-w / 2 + inset, inset);
+  s.closePath();
+  const g = new THREE.ShapeGeometry(s, 12);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * 券花窗的框（石材）：**券脚 + 券石分缝 + 拱心石 + 券面线脚 + 窗楣**，
+ * 券口另加一圈番花浮雕。
+ *
+ * 考据：谐奇趣「窗户券口有精美砖石雕刻」；海晏堂「石券花窗口」。
+ *
+ * 形制简化：券石只一层；番花只做拱心两侧两片叶 + 两只卷涡，
+ * 不做满铺缠枝（满铺在近看时反而糊成一片）。
+ */
+export function windowSurround(w, h, d = 0.22, opts = {}) {
+  const { relief = true } = opts;
   const parts = [];
   const t = 0.22;
-  const r = w / 2;
+  const r = Math.min(w / 2, h / 2);
   const y1 = h - r;
   // 两侧竖边
   parts.push(boxAt(t, y1, d, -r - t / 2, y1 / 2, 0));
   parts.push(boxAt(t, y1, d, r + t / 2, y1 / 2, 0));
-  // 拱券（用分段小方块垒出半圆）
-  const n = 7;
-  for (let i = 0; i <= n; i++) {
-    const a = Math.PI - (i / n) * Math.PI;
-    const cx = Math.cos(a) * (r + t / 2);
-    const cy = y1 + Math.sin(a) * (r + t / 2);
-    const b = box(t * 1.25, t * 1.5, d);
-    b.rotateZ(a - Math.PI / 2);
-    b.translate(cx, cy, 0);
-    parts.push(b);
-  }
+  // 券脚 + 券石 + 拱心石 + 券面线脚
+  parts.push(archTrim(r, y1, d, { t, count: 9 }));
   // 窗楣线脚
   parts.push(boxAt(w + t * 3, 0.16, d * 1.3, 0, h + 0.12, 0));
+  parts.push(boxAt(w + t * 2.2, 0.09, d * 1.5, 0, h + 0.245, 0));
+  // 券口番花（拱心两侧）
+  if (relief) {
+    for (const sx of [-1, 1]) {
+      const lf = leaf(t * 1.5, t * 0.5, 0.055);
+      lf.rotateZ(sx * 1.15);
+      lf.translate(sx * (r + t * 0.5), y1 + r * 0.62, d / 2);
+      parts.push(lf);
+      const v = volute(t * 0.85, 0.05, 1.35);
+      v.rotateZ(sx > 0 ? -Math.PI * 0.4 : Math.PI * 1.4);
+      v.translate(sx * (r + t * 0.1), y1 + r * 0.28, d / 2);
+      parts.push(v);
+    }
+  }
+  return mergeAll(parts);
+}
+
+/**
+ * 法式铜窗的**铜窗棂**（细棂条）：法式窗是"玻璃 + 一套细金属棂"，
+ * 不是一块玻璃加两条粗木条。
+ *
+ * 考据：海晏堂「窗为法式铜窗」。
+ *
+ * 形制简化：下半段是"竖棂 3 格 + 横档 4 道"的方格，上半段的半圆顶做**放射状
+ * 扇形棂**（真实法式窗上段就是扇形）。整副棂只做到券洞的内接矩形，
+ * 不会戳进券洞两侧的墙。
+ *
+ * 返回几何（调用方放进 `metal` 桶）。
+ */
+export function frenchMuntins(w, h, depth = 0.09, opts = {}) {
+  const { lights = 3, rows = 4, bar = 0.045 } = opts;
+  const r = Math.min(w / 2, h / 2);
+  const iw = Math.max(0.3, 2 * r - 0.22);
+  const ih = Math.max(0.3, h - r - 0.22);
+  const yb = ih / 2; // 原点在窗台（框底），不是框心
+  const parts = [];
+  // 外框
+  parts.push(boxAt(iw, bar * 1.7, depth, 0, yb + ih / 2, 0));
+  parts.push(boxAt(iw, bar * 1.7, depth, 0, yb - ih / 2, 0));
+  parts.push(boxAt(bar * 1.7, ih, depth, -iw / 2, yb, 0));
+  parts.push(boxAt(bar * 1.7, ih, depth, iw / 2, yb, 0));
+  // 竖棂
+  for (let i = 1; i < lights; i++) {
+    const x = -iw / 2 + (iw * i) / lights;
+    parts.push(boxAt(bar, ih, depth * 0.85, x, yb, 0));
+  }
+  // 横档
+  for (let i = 1; i < rows; i++) {
+    const y = yb - ih / 2 + (ih * i) / rows;
+    parts.push(boxAt(iw, bar, depth * 0.85, 0, y, 0));
+  }
+  // 半圆顶的放射扇形棂
+  const L = Math.max(0.12, r - 0.14);
+  for (let i = 0; i <= lights; i++) {
+    const a = Math.PI * (i / lights);
+    const rad = box(bar, L, depth * 0.8);
+    rad.rotateZ(a - Math.PI / 2);
+    rad.translate((L / 2) * Math.cos(a), yb + ih / 2 + (L / 2) * Math.sin(a), 0);
+    parts.push(rad);
+  }
+  // 扇形外圈
+  const hoop = torus(L + 0.03, bar * 0.9, 4, 12, Math.PI);
+  hoop.translate(0, yb + ih / 2, 0);
+  parts.push(hoop);
+  return mergeAll(parts);
+}
+
+/**
+ * 三角式巴洛克**假门楣**（窗间镜子上方的山花）。
+ *
+ * 考据：海晏堂「镜子上方为三角式巴洛克假门楣装饰」。
+ */
+export function falsePediment(w, h, depth = 0.24) {
+  const parts = [];
+  const p = pediment(w, h, depth, true);
+  parts.push(p);
+  // 山花下的托檐
+  parts.push(boxAt(w * 1.12, 0.1, depth * 1.2, 0, -0.05, 0));
   return mergeAll(parts);
 }
 
@@ -326,24 +534,87 @@ export function baluster(h = 0.8, r = 0.11) {
   return lathe(pts, 10);
 }
 
-/** 一段西洋石栏杆 */
-export function balustrade(len, h = 0.95, r = 0.11) {
+/**
+ * 瓶式柱头（栏杆望柱顶上的收头）：车削的花瓶/花篮式。
+ *
+ * 考据：大水法「池沿岸用白玉石精雕花纹」；观水法「栏上有石刻花盆四对」。
+ * 形制简化：只做瓶形，不做雕花的瓶身（浮雕留给栏板）。
+ */
+export function urnFinial(size = 0.2) {
+  const S = size;
+  const prof = [
+    [0.0, 0.5],
+    [0.12, 0.58],
+    [0.3, 0.86],
+    [0.5, 1.0],
+    [0.68, 0.8],
+    [0.8, 0.48],
+    [0.88, 0.66],
+    [1.0, 0.82],
+  ].map(([t, r]) => new THREE.Vector2(r * S, t * S * 1.6));
+  return lathe(prof, 8);
+}
+
+/**
+ * 一段西洋石栏杆：地座 + **实心栏板（带番花浮雕）** + 车削望柱 +
+ * 两端瓶式柱头 + 扶手。
+ *
+ * 考据：大水法「池沿岸用白玉石精雕花纹」——池岸栏板是**实心雕花板**，
+ *       不是通透的西洋栏杆；观水法「栏上有石刻花盆四对」用的是同一套栏。
+ *
+ * 形制简化：栏板浮雕只做"一叶一涡" repeating，不做满铺缠枝。
+ */
+export function balustrade(len, h = 0.95, r = 0.11, opts = {}) {
+  const { panel = true, relief = true } = opts;
   const parts = [];
+  // 地座
   parts.push(boxAt(len, 0.13, 0.34, 0, 0.065, 0));
+  const baseY = 0.13;
+  // 栏板（实心薄板 + 浮雕）
+  const ph = panel ? Math.min(0.34, h * 0.34) : 0;
+  if (panel) {
+    parts.push(boxAt(len, ph, 0.1, 0, baseY + ph / 2, 0));
+    if (relief) {
+      const n = Math.max(1, Math.round(len / 1.45));
+      const step = len / n;
+      for (let i = 0; i < n; i++) {
+        const cx = -len / 2 + step * (i + 0.5);
+        const lf = leaf(ph * 0.82, ph * 0.3, 0.05);
+        lf.translate(cx, baseY + ph * 0.48, 0.05);
+        parts.push(lf);
+        const v = volute(ph * 0.3, 0.045, 1.35);
+        v.rotateZ(Math.PI * 0.5);
+        v.translate(cx + step * 0.32, baseY + ph * 0.5, 0.05);
+        parts.push(v);
+      }
+    }
+  }
+  // 车削望柱
   const n = Math.max(2, Math.round(len / 1.35));
   const bh = h - 0.26;
   for (let i = 0; i <= n; i++) {
     const x = -len / 2 + (len * i) / n;
     const b = baluster(bh, r);
-    b.translate(x, 0.13, 0);
+    b.translate(x, baseY, 0);
     parts.push(b);
   }
+  // 两端望柱 + 瓶式柱头
+  for (const sx of [-1, 1]) {
+    const x = sx * (len / 2 - 0.1);
+    parts.push(boxAt(0.26, h - 0.22, 0.26, x, (h - 0.22) / 2 + 0.04, 0));
+    const urn = urnFinial(0.19);
+    urn.translate(x, h - 0.18, 0);
+    parts.push(urn);
+  }
+  // 扶手（两道线脚）
   parts.push(boxAt(len, 0.12, 0.4, 0, h - 0.06, 0));
+  parts.push(boxAt(len, 0.05, 0.46, 0, h - 0.145, 0));
   return mergeAll(parts);
 }
 
 /**
  * 台阶（无垂带，西洋式）：顶踏步贴着 z=0，向 +Z（南）逐级降到地面。
+ * 每级踏步前缘加一道**踏步线脚**（nosing），否则远看是一整块斜坡。
  */
 export function steps(w, h, d, n = 5) {
   const parts = [];
@@ -352,8 +623,64 @@ export function steps(w, h, d, n = 5) {
   for (let i = 0; i < n; i++) {
     const top = h - i * sh;
     parts.push(boxAt(w, top + 0.01, sd * 1.04, 0, (top + 0.01) / 2, sd * (i + 0.5)));
+    // 踏步线脚（踏面前缘凸出的薄板）
+    parts.push(boxAt(w + 0.1, 0.07, sd * 0.18, 0, top - 0.03, sd * (i + 0.09)));
   }
   return mergeAll(parts);
+}
+
+/**
+ * 广场地面**琉璃砖拼花**（几何分格，不是贴图）。
+ *
+ * 依据：brief「大水法 —— 广场地面用砖石琉璃铺砌」。
+ * ⚠ `data/research/architecture-notes.md` 第三节「大水法」条目下**没有**这一句，
+ *    所以这里只做"砖石铺地 + 琉璃方砖收边"的通俗做法，**不编造纹样母题**；
+ *    母题与配比属**待考**项。
+ *
+ * 做法：一格一格**实体砖**（不是一张带花纹的贴图）；
+ *      每格顶点贴地（按地面高程回调），不会浮在草皮上或穿帮。
+ *
+ * @param {number} w  铺装宽（X）
+ * @param {number} d  铺装深（Z）
+ * @param {number} cell 砖格边长
+ * @param {Function} groundAt 局部坐标 → 地面高
+ * @returns {{a:THREE.BufferGeometry, b:THREE.BufferGeometry, edge:THREE.BufferGeometry}}
+ *          a/b 为奇偶两色铺地，edge 为最外一圈的琉璃收边
+ */
+export function pavementField(w, d, cell, groundAt) {
+  const a = [];
+  const b = [];
+  const edge = [];
+  const nx = Math.max(1, Math.round(w / cell));
+  const nz = Math.max(1, Math.round(d / cell));
+  const sx = w / nx;
+  const sz = d / nz;
+  const lift = 0.07;
+  const tile = (cx, cz, tw, td) => {
+    const g = new THREE.PlaneGeometry(tw * 0.94, td * 0.94);
+    g.rotateX(-Math.PI / 2);
+    const pos = g.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      const gy = groundAt ? groundAt(pos.getX(k) + cx, pos.getZ(k) + cz) : 0;
+      pos.setY(k, gy + lift);
+    }
+    g.computeVertexNormals();
+    worldUV(g);
+    g.translate(cx, 0, cz);
+    return g;
+  };
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      const cx = -w / 2 + sx * (i + 0.5);
+      const cz = -d / 2 + sz * (j + 0.5);
+      const border = i === 0 || j === 0 || i === nx - 1 || j === nz - 1;
+      const g = tile(cx, cz, sx, sz);
+      if (border) edge.push(g);
+      else if ((i + j) % 2 === 0) a.push(g);
+      else b.push(g);
+    }
+  }
+  return { a: mergeAll(a), b: mergeAll(b), edge: mergeAll(edge) };
 }
 
 /** 弧形（半环）石阶：方外观的半环形石阶、远瀛观的弧形石梯 */
@@ -405,19 +732,33 @@ export function spiralRamp(r, y0, y1, turns = 1.6, width = 3.2, seg = 40) {
 /* ============================================================ 动物 */
 
 /**
- * 兽首（十二生肖 / 铜狮 / 铜鹿共用）：头 + 吻 + 鼻 + 眼 + 耳 + 角/冠 + 鬃。
+ * 兽首（十二生肖 / 铜狮 / 铜豹 / 铜鹿共用）：头 + 吻 + 鼻 + 眼 + 耳 + 角/冠 + 鬃。
  * 朝向 +Z。
+ *
+ * 考据：海晏堂「上为十二生肖兽首人身喷水像」，十二者形制各不相同，
+ *       远看必须能认出是哪一个生肖。
+ *
+ * 形制简化：眼是球体不做球面雕瞳；鬃用环 + 鬃毛球，不做逐根发丝。
  */
 export function beastHead(size = 1, opts = {}) {
   const {
     muzzle = 0.5,
-    snout = 'box', // box | disc | beak | long | flat
+    snout = 'box', // box | disc | beak | long | flat | wedge
     ear = 'round', // round | long | floppy | pointed | none
     horn = 'none', // none | cow | ram | dragon
     mane = false,
-    crest = false,
+    crest = false, // 鸡冠
+    wattle = false, // 鸡垂肉
+    crestTop = false, // 头顶鬃脊（马/龙）
     wide = 1,
     tusk = false,
+    brow = false, // 眉弓
+    whisker = false, // 须
+    scale = false, // 鳞
+    hood = false, // 蛇的颈囊
+    stripe = false, // 虎纹
+    jaw = false, // 张口（露下颌）
+    fangs = false,
   } = opts;
   const S = size;
   const parts = [];
@@ -436,6 +777,9 @@ export function beastHead(size = 1, opts = {}) {
     b.rotateX(Math.PI / 2);
     b.translate(0, -0.02 * S, mz + ml / 2);
     parts.push(b);
+    // 喙的上下喙合缝
+    const seam = boxAt(0.02 * S, 0.03 * S, ml * 0.8, 0, -0.02 * S, mz + ml / 2);
+    parts.push(seam);
   } else if (snout === 'disc') {
     const c = cyl(0.15 * S, 0.17 * S, 0.09 * S, 10);
     c.rotateX(Math.PI / 2);
@@ -455,6 +799,19 @@ export function beastHead(size = 1, opts = {}) {
   } else if (snout === 'flat') {
     const b = boxAt(0.3 * S, 0.17 * S, ml, 0, -0.02 * S, mz + ml / 2);
     parts.push(b);
+  } else if (snout === 'wedge') {
+    // 楔形吻（蛇）：上宽下窄的三角头
+    const s2 = new THREE.Shape();
+    s2.moveTo(-0.17 * S, 0.09 * S);
+    s2.lineTo(0.17 * S, 0.09 * S);
+    s2.lineTo(0, -0.13 * S);
+    s2.closePath();
+    const w = new THREE.ExtrudeGeometry(s2, { depth: ml, bevelEnabled: false });
+    w.rotateX(-Math.PI / 2);
+    w.translate(0, -0.02 * S, mz);
+    w.computeVertexNormals();
+    worldUV(w);
+    parts.push(w);
   } else {
     const b = boxAt(0.22 * S * wide, 0.19 * S, ml, 0, -0.02 * S, mz + ml / 2);
     parts.push(b);
@@ -465,12 +822,32 @@ export function beastHead(size = 1, opts = {}) {
   nose.translate(0, 0.01 * S, mz + ml * 0.96);
   parts.push(nose);
 
+  // 鼻孔（长吻动物要能看见）
+  if (snout === 'long' || snout === 'flat') {
+    for (const sx of [-1, 1]) {
+      const n = sph(0.026 * S, 6, 5);
+      n.scale(1, 1.4, 0.7);
+      n.translate(sx * 0.055 * S, -0.02 * S, mz + ml * 0.82);
+      parts.push(n);
+    }
+  }
+
   // 眼
   for (const sx of [-1, 1]) {
     const e = sph(0.05 * S, 8, 6);
     e.translate(sx * 0.15 * S * wide, 0.09 * S, 0.2 * S);
     parts.push(e);
     eyes.push([sx * 0.15 * S * wide, 0.09 * S, 0.2 * S]);
+  }
+
+  // 眉弓
+  if (brow) {
+    for (const sx of [-1, 1]) {
+      const b2 = boxAt(0.1 * S, 0.035 * S, 0.12 * S, 0, 0, 0);
+      b2.rotateZ(sx * 0.18);
+      b2.translate(sx * 0.15 * S * wide, 0.15 * S, 0.21 * S);
+      parts.push(b2);
+    }
   }
 
   // 耳
@@ -535,7 +912,7 @@ export function beastHead(size = 1, opts = {}) {
     }
   }
 
-  // 鬃
+  // 鬃（颈圈式）
   if (mane) {
     const ring = torus(0.4 * S, 0.075 * S, 7, 16);
     ring.rotateX(Math.PI / 2);
@@ -555,6 +932,17 @@ export function beastHead(size = 1, opts = {}) {
     }
   }
 
+  // 头顶鬃脊（马/龙）：沿颅顶一排三角鬃毛
+  if (crestTop) {
+    for (let i = 0; i < 6; i++) {
+      const t = i / 5;
+      const c = cone(0.045 * S, 0.16 * S, 5);
+      c.rotateX(-0.5);
+      c.translate(0, (0.3 - t * 0.05) * S, (0.22 - t * 0.5) * S);
+      parts.push(c);
+    }
+  }
+
   // 冠（鸡）
   if (crest) {
     for (let i = 0; i < 3; i++) {
@@ -563,6 +951,72 @@ export function beastHead(size = 1, opts = {}) {
       c.translate((i - 1) * 0.11 * S, 0.31 * S, 0.0);
       parts.push(c);
     }
+  }
+
+  // 垂肉（鸡）
+  if (wattle) {
+    for (const sx of [-1, 1]) {
+      const w = sph(0.05 * S, 6, 5);
+      w.scale(0.7, 1.8, 0.7);
+      w.translate(sx * 0.05 * S, -0.1 * S, mz + ml * 0.55);
+      parts.push(w);
+    }
+  }
+
+  // 鳞（蛇/龙）：颅顶一排小鳞片
+  if (scale) {
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      const sc = sph(0.045 * S, 6, 5);
+      sc.scale(1.2, 0.5, 1.2);
+      sc.translate(0, (0.26 - t * 0.02) * S, (0.2 - t * 0.42) * S);
+      parts.push(sc);
+    }
+  }
+
+  // 颈囊（蛇）：头后一片摊开的薄翼
+  if (hood) {
+    const h = sph(0.4 * S, 12, 8);
+    h.scale(1.25, 0.9, 0.18);
+    h.translate(0, 0.06 * S, -0.1 * S);
+    parts.push(h);
+  }
+
+  // 虎纹：颅上几道凸起的横带
+  if (stripe) {
+    for (let i = 0; i < 4; i++) {
+      const t = i / 3;
+      const st = boxAt(0.055 * S, 0.045 * S, 0.34 * S, 0, 0, 0);
+      st.rotateX(0.25);
+      st.translate((t - 0.5) * 0.34 * S * wide, (0.3 - t * 0.03) * S, 0.02 * S);
+      parts.push(st);
+    }
+  }
+
+  // 须（鼠/兔/龙）
+  if (whisker) {
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const w = cyl(0.008 * S, 0.011 * S, 0.36 * S, 4);
+        w.rotateZ(sx * (0.9 + k * 0.22));
+        w.rotateY(sx * 0.3);
+        w.translate(sx * 0.16 * S, -0.04 * S, mz + ml * 0.7);
+        parts.push(w);
+      }
+    }
+  }
+
+  // 张口：下颌（与上吻之间留出真的缝）
+  if (jaw) {
+    const jl = ml * 0.88;
+    const j = box(0.2 * S * wide, 0.1 * S, jl);
+    j.rotateX(0.16);
+    j.translate(0, -0.15 * S, mz + jl * 0.46);
+    parts.push(j);
+    // 下颌前端收窄
+    const tip = box(0.12 * S * wide, 0.07 * S, 0.1 * S);
+    tip.translate(0, -0.175 * S, mz + jl * 0.92);
+    parts.push(tip);
   }
 
   // 獠牙
@@ -576,52 +1030,148 @@ export function beastHead(size = 1, opts = {}) {
     }
   }
 
+  // 尖牙（虎/狗）
+  if (fangs) {
+    for (const sx of [-1, 1]) {
+      const f = cone(0.022 * S, 0.11 * S, 5);
+      f.rotateX(Math.PI);
+      f.translate(sx * 0.075 * S, -0.1 * S, mz + ml * 0.72);
+      parts.push(f);
+    }
+  }
+
   return mergeAll(parts);
 }
 
-/** 十二生肖兽首配置：每个生肖一套头型参数（考据要求"兽首人身"，各肖特征不同） */
+/**
+ * 十二生肖兽首配置：每个生肖一套头型参数。
+ *
+ * 考据：海晏堂「上为十二生肖兽首人身喷水像」，南侧鼠虎龙马猴狗、
+ *       北侧牛兔蛇羊鸡猪。十二者形制必须能分辨。
+ *
+ * 形制简化：见 `beastHead` 头部说明。
+ */
 export const ZODIAC = [
-  { key: 'shu', name: '鼠', head: { muzzle: 0.34, snout: 'long', ear: 'round', wide: 0.9 } },
-  { key: 'niu', name: '牛', head: { muzzle: 0.44, snout: 'flat', ear: 'pointed', horn: 'cow', wide: 1.15 } },
-  { key: 'hu', name: '虎', head: { muzzle: 0.42, snout: 'box', ear: 'round', wide: 1.1 } },
-  { key: 'tu', name: '兔', head: { muzzle: 0.34, snout: 'long', ear: 'long', wide: 0.85 } },
-  { key: 'long', name: '龙', head: { muzzle: 0.56, snout: 'long', ear: 'pointed', horn: 'dragon', wide: 1.0 } },
-  { key: 'she', name: '蛇', head: { muzzle: 0.52, snout: 'flat', ear: 'none', wide: 0.95 } },
-  { key: 'ma', name: '马', head: { muzzle: 0.62, snout: 'long', ear: 'pointed', wide: 0.95 } },
-  { key: 'yang', name: '羊', head: { muzzle: 0.4, snout: 'long', ear: 'floppy', horn: 'ram', wide: 0.9 } },
-  { key: 'hou', name: '猴', head: { muzzle: 0.36, snout: 'flat', ear: 'round', wide: 1.05 } },
-  { key: 'ji', name: '鸡', head: { muzzle: 0.3, snout: 'beak', ear: 'none', crest: true, wide: 0.85 } },
-  { key: 'gou', name: '狗', head: { muzzle: 0.46, snout: 'box', ear: 'floppy', wide: 1.0 } },
-  { key: 'zhu', name: '猪', head: { muzzle: 0.44, snout: 'disc', ear: 'pointed', wide: 1.1, tusk: true } },
+  // 鼠：圆耳 + 长尖吻 + 须
+  { key: 'shu', name: '鼠', head: { muzzle: 0.3, snout: 'long', ear: 'round', wide: 0.85, brow: true, whisker: true } },
+  // 牛：宽扁吻 + 牛角 + 尖耳
+  { key: 'niu', name: '牛', head: { muzzle: 0.44, snout: 'flat', ear: 'pointed', horn: 'cow', wide: 1.18, brow: true } },
+  // 虎：圆耳 + 虎纹 + 虎牙
+  { key: 'hu', name: '虎', head: { muzzle: 0.4, snout: 'box', ear: 'round', wide: 1.12, stripe: true, brow: true, fangs: true } },
+  // 兔：长耳 + 小吻 + 须
+  { key: 'tu', name: '兔', head: { muzzle: 0.32, snout: 'long', ear: 'long', wide: 0.82, whisker: true } },
+  // 龙：龙角 + 长吻 + 鬃 + 鳞 + 须
+  { key: 'long', name: '龙', head: { muzzle: 0.56, snout: 'long', ear: 'pointed', horn: 'dragon', wide: 1.0, mane: true, crestTop: true, scale: true, brow: true, whisker: true } },
+  // 蛇：无耳 + 楔形吻 + 颈囊 + 鳞
+  { key: 'she', name: '蛇', head: { muzzle: 0.5, snout: 'wedge', ear: 'none', wide: 0.95, hood: true, scale: true, brow: true } },
+  // 马：长吻 + 尖耳 + 头顶鬃脊
+  { key: 'ma', name: '马', head: { muzzle: 0.62, snout: 'long', ear: 'pointed', wide: 0.95, crestTop: true, brow: true } },
+  // 羊：卷角 + 垂耳 + 窄吻
+  { key: 'yang', name: '羊', head: { muzzle: 0.38, snout: 'long', ear: 'floppy', horn: 'ram', wide: 0.9, brow: true, whisker: true } },
+  // 猴：圆耳 + 扁脸 + 突吻
+  { key: 'hou', name: '猴', head: { muzzle: 0.3, snout: 'flat', ear: 'round', wide: 1.06, brow: true } },
+  // 鸡：喙 + 冠 + 垂肉
+  { key: 'ji', name: '鸡', head: { muzzle: 0.28, snout: 'beak', ear: 'none', crest: true, wattle: true, wide: 0.84, brow: true } },
+  // 狗：垂耳 + 长吻 + 獠牙
+  { key: 'gou', name: '狗', head: { muzzle: 0.46, snout: 'box', ear: 'floppy', wide: 1.0, brow: true, fangs: true, jaw: true } },
+  // 猪：圆盘吻 + 尖耳 + 獠牙
+  { key: 'zhu', name: '猪', head: { muzzle: 0.44, snout: 'disc', ear: 'pointed', wide: 1.12, tusk: true, brow: true } },
 ];
 
-/** 人身（兽首人身像的袍身 + 手臂） */
-export function robedBody(size = 1, height = 1.9) {
+/**
+ * 人身（兽首人身像的袍身）：袍身 + 交领 + 腰带 + 宽袖 + 下摆。
+ *
+ * 考据：海晏堂「上为十二生肖兽首人身喷水像」，「十二铜像」。
+ *
+ * 形制简化：袍纹不做团花，只做衣领、腰带、袖口三道线；
+ *           袍身按旋转体成型（真人比例的袍服是上下不匀的）。
+ */
+export function robedBody(size = 1, height = 1.9, opts = {}) {
+  const { collar = true, sash = true, sleeve = true } = opts;
   const parts = [];
+  // 袍身：下摆外张、腰部收束
   const prof = [
-    [0.0, 0.46],
-    [0.05, 0.42],
-    [0.4, 0.3],
-    [0.72, 0.22],
-    [0.9, 0.19],
-    [1.0, 0.13],
+    [0.0, 0.5],
+    [0.05, 0.47],
+    [0.22, 0.42],
+    [0.42, 0.33],
+    [0.55, 0.27],
+    [0.72, 0.29],
+    [0.88, 0.24],
+    [0.96, 0.18],
+    [1.0, 0.15],
   ];
   const pts = prof.map(([t, r]) => new THREE.Vector2(r * size, t * height));
   parts.push(lathe(pts, 12));
-  // 双臂
-  for (const sx of [-1, 1]) {
-    const arm = cyl(0.055 * size, 0.075 * size, height * 0.44, 8);
-    arm.rotateZ(sx * 0.28);
-    arm.translate(sx * 0.21 * size, height * 0.52, 0.02 * size);
-    parts.push(arm);
-    const hand = sph(0.06 * size, 7, 5);
-    hand.translate(sx * 0.3 * size, height * 0.3, 0.05 * size);
-    parts.push(hand);
+  // 交领（两片斜襟）
+  if (collar) {
+    for (const sx of [-1, 1]) {
+      const c = boxAt(0.13 * size, 0.42 * size, 0.09 * size, 0, 0, 0);
+      c.rotateZ(sx * 0.34);
+      c.translate(sx * 0.075 * size, height * 0.86, 0.17 * size);
+      parts.push(c);
+    }
+  }
+  // 腰带
+  if (sash) {
+    const b = torus(0.3 * size, 0.045 * size, 5, 12);
+    b.rotateX(Math.PI / 2);
+    b.scale(1, 1, 0.72);
+    b.translate(0, height * 0.56, 0);
+    parts.push(b);
+    // 垂下的绦带
+    const tassel = boxAt(0.07 * size, 0.42 * size, 0.06 * size, 0.16 * size, height * 0.34, 0.24 * size);
+    parts.push(tassel);
+  }
+  // 双臂（宽袖）
+  if (sleeve) {
+    for (const sx of [-1, 1]) {
+      const arm = cyl(0.07 * size, 0.1 * size, height * 0.42, 8);
+      arm.rotateZ(sx * 0.3);
+      arm.translate(sx * 0.24 * size, height * 0.52, 0.02 * size);
+      parts.push(arm);
+      // 袖口
+      const cuff = cyl(0.11 * size, 0.09 * size, 0.07 * size, 8);
+      cuff.rotateZ(sx * 0.3);
+      cuff.translate(sx * 0.3 * size, height * 0.33, 0.05 * size);
+      parts.push(cuff);
+      const hand = sph(0.06 * size, 7, 5);
+      hand.translate(sx * 0.33 * size, height * 0.28, 0.06 * size);
+      parts.push(hand);
+    }
   }
   return mergeAll(parts);
 }
 
-/** 铜鹿：体 + 颈 + 头 + 四腿 + 尾 + 八杈鹿角 */
+/**
+ * 兽首人身像的**承座**（石台）：方座 + 束腰 + 圆座 + 线脚。
+ *
+ * 考据：海晏堂「沿石跑梯八字展开，上为十二生肖兽首人身喷水像」——
+ *       像立在石台上，不是直接坐在地上。
+ */
+export function figurePedestal(size = 1, height = 0.95) {
+  const S = size;
+  const parts = [];
+  // 方座
+  parts.push(boxAt(1.5 * S, 0.16 * S, 1.5 * S, 0, 0.08 * S, 0));
+  parts.push(boxAt(1.36 * S, 0.1 * S, 1.36 * S, 0, 0.21 * S, 0));
+  // 束腰
+  parts.push(cyl(0.5 * S, 0.56 * S, height * 0.34, 12).translate(0, height * 0.43, 0));
+  // 圆座 + 线脚
+  parts.push(cyl(0.62 * S, 0.58 * S, 0.12 * S, 12).translate(0, height * 0.66, 0));
+  parts.push(cyl(0.66 * S, 0.66 * S, 0.08 * S, 12).translate(0, height * 0.76, 0));
+  // 顶板
+  parts.push(cyl(0.7 * S, 0.68 * S, 0.1 * S, 12).translate(0, height * 0.85, 0));
+  return mergeAll(parts);
+}
+
+/**
+ * 铜鹿：体 + 颈 + 头 + 四腿 + 尾 + **八杈鹿角**。
+ *
+ * 考据：大水法「池正中有一铜鹿，南向似跑，其角分为八杈，由各角尖上喷水八道」。
+ * 形制简化：角做成"主干 + 四根杈枝"，杈枝末端即喷水口；
+ *           鹿身不雕毛纹。
+ */
 export function bronzeDeer(size = 1) {
   const S = size;
   const parts = [];
@@ -629,6 +1179,11 @@ export function bronzeDeer(size = 1) {
   body.scale(0.78, 0.82, 1.5);
   body.translate(0, 1.05 * S, 0);
   parts.push(body);
+  // 胸
+  const chest = sph(0.36 * S, 10, 8);
+  chest.scale(0.9, 0.95, 0.8);
+  chest.translate(0, 1.08 * S, 0.5 * S);
+  parts.push(chest);
   // 颈
   const neck = cyl(0.14 * S, 0.2 * S, 0.6 * S, 9);
   neck.rotateX(-0.5);
@@ -643,14 +1198,20 @@ export function bronzeDeer(size = 1) {
   muzzle.rotateX(Math.PI / 2);
   muzzle.translate(0, 1.66 * S, 0.9 * S);
   parts.push(muzzle);
+  const nose = sph(0.055 * S, 7, 5);
+  nose.translate(0, 1.65 * S, 1.0 * S);
+  parts.push(nose);
   for (const sx of [-1, 1]) {
+    const eye = sph(0.038 * S, 7, 5);
+    eye.translate(sx * 0.12 * S, 1.76 * S, 0.82 * S);
+    parts.push(eye);
     const ear = sph(0.07 * S, 7, 5);
     ear.scale(0.4, 1.2, 0.8);
     ear.rotateZ(sx * 0.6);
     ear.translate(sx * 0.14 * S, 1.8 * S, 0.66 * S);
     parts.push(ear);
   }
-  // 八杈鹿角：主干 + 分枝
+  // 八杈鹿角：每侧主干 + 四杈（末端是喷水口）
   for (const sx of [-1, 1]) {
     const base = new THREE.Vector3(sx * 0.09 * S, 1.86 * S, 0.64 * S);
     const main = cyl(0.028 * S, 0.05 * S, 0.62 * S, 6);
@@ -658,24 +1219,32 @@ export function bronzeDeer(size = 1) {
     main.rotateX(-0.25);
     main.translate(base.x + sx * 0.08 * S, base.y + 0.3 * S, base.z);
     parts.push(main);
-    for (let i = 0; i < 3; i++) {
-      const t = i / 3;
-      const bx = base.x + sx * (0.08 + t * 0.16) * S;
-      const by = base.y + (0.18 + t * 0.42) * S;
-      const bz = base.z + (0.04 + t * 0.1) * S;
-      const br = cyl(0.02 * S, 0.032 * S, 0.34 * S, 5);
-      br.rotateZ(sx * (0.7 + t * 0.4));
+    for (let i = 0; i < 4; i++) {
+      const t = i / 4;
+      const bx = base.x + sx * (0.08 + t * 0.2) * S;
+      const by = base.y + (0.16 + t * 0.5) * S;
+      const bz = base.z + (0.03 + t * 0.12) * S;
+      const br = cyl(0.016 * S, 0.028 * S, 0.3 * S, 5);
+      br.rotateZ(sx * (0.75 + t * 0.35));
       br.rotateX(-0.35);
-      br.translate(bx + sx * 0.08 * S, by + 0.12 * S, bz);
+      br.translate(bx + sx * 0.075 * S, by + 0.1 * S, bz);
       parts.push(br);
     }
   }
-  // 四腿
+  // 四腿（南向似跑：前腿抬）
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const leg = cyl(0.045 * S, 0.07 * S, 1.05 * S, 6);
-      leg.translate(sx * 0.24 * S, 0.52 * S, sz * 0.42 * S);
+      if (sz > 0) {
+        leg.rotateX(0.35);
+        leg.translate(sx * 0.24 * S, 0.6 * S, sz * 0.42 * S);
+      } else {
+        leg.translate(sx * 0.24 * S, 0.52 * S, sz * 0.42 * S);
+      }
       parts.push(leg);
+      const hoof = cyl(0.06 * S, 0.055 * S, 0.12 * S, 6);
+      hoof.translate(sx * 0.24 * S, 0.06 * S, sz * 0.42 * S + (sz > 0 ? 0.16 * S : 0));
+      parts.push(hoof);
     }
   }
   // 尾
@@ -686,7 +1255,12 @@ export function bronzeDeer(size = 1) {
   return mergeAll(parts);
 }
 
-/** 铜猎犬：体 + 头 + 四腿 + 尾 */
+/**
+ * 铜猎犬：体 + 长吻 + 垂耳 + 四腿 + 卷尾。
+ *
+ * 考据：大水法「鹿东西各有铜猎犬五只，水由口喷出射向铜鹿」（十犬喷鹿）。
+ * 形制简化：不做短毛雕刻，靠轮廓（长吻 + 垂耳 + 细腰）辨形。
+ */
 export function hound(size = 1) {
   const S = size;
   const parts = [];
@@ -694,6 +1268,11 @@ export function hound(size = 1) {
   body.scale(0.85, 0.9, 1.7);
   body.translate(0, 0.62 * S, 0);
   parts.push(body);
+  // 腰（细）
+  const waist = sph(0.22 * S, 9, 7);
+  waist.scale(0.8, 0.85, 1.2);
+  waist.translate(0, 0.6 * S, -0.25 * S);
+  parts.push(waist);
   const neck = cyl(0.1 * S, 0.14 * S, 0.3 * S, 8);
   neck.rotateX(-0.7);
   neck.translate(0, 0.74 * S, 0.36 * S);
@@ -702,15 +1281,23 @@ export function hound(size = 1) {
   head.scale(0.85, 0.95, 1.15);
   head.translate(0, 0.86 * S, 0.52 * S);
   parts.push(head);
-  const snout = cyl(0.05 * S, 0.08 * S, 0.2 * S, 7);
+  // 长吻
+  const snout = cyl(0.042 * S, 0.075 * S, 0.3 * S, 7);
   snout.rotateX(Math.PI / 2);
-  snout.translate(0, 0.8 * S, 0.68 * S);
+  snout.translate(0, 0.79 * S, 0.75 * S);
   parts.push(snout);
+  const nose = sph(0.045 * S, 7, 5);
+  nose.translate(0, 0.78 * S, 0.89 * S);
+  parts.push(nose);
   for (const sx of [-1, 1]) {
+    const eye = sph(0.032 * S, 7, 5);
+    eye.translate(sx * 0.09 * S, 0.9 * S, 0.57 * S);
+    parts.push(eye);
+    // 垂耳
     const ear = sph(0.055 * S, 7, 5);
-    ear.scale(0.5, 1.3, 0.9);
-    ear.rotateZ(sx * 0.45);
-    ear.translate(sx * 0.12 * S, 0.92 * S, 0.48 * S);
+    ear.scale(0.45, 1.5, 0.9);
+    ear.rotateZ(sx * 0.55);
+    ear.translate(sx * 0.13 * S, 0.79 * S, 0.47 * S);
     parts.push(ear);
   }
   for (const sx of [-1, 1]) {
@@ -718,11 +1305,17 @@ export function hound(size = 1) {
       const leg = cyl(0.032 * S, 0.05 * S, 0.62 * S, 6);
       leg.translate(sx * 0.16 * S, 0.31 * S, sz * 0.26 * S);
       parts.push(leg);
+      const paw = sph(0.05 * S, 6, 5);
+      paw.scale(1, 0.7, 1.2);
+      paw.translate(sx * 0.16 * S, 0.04 * S, sz * 0.28 * S);
+      parts.push(paw);
     }
   }
-  const tail = cyl(0.018 * S, 0.04 * S, 0.3 * S, 5);
-  tail.rotateX(-0.9);
-  tail.translate(0, 0.8 * S, -0.42 * S);
+  // 卷尾
+  const tail = torus(0.11 * S, 0.028 * S, 5, 10, Math.PI * 1.5);
+  tail.rotateX(Math.PI / 2);
+  tail.rotateZ(0.6);
+  tail.translate(0, 0.86 * S, -0.5 * S);
   parts.push(tail);
   return mergeAll(parts);
 }
@@ -1024,28 +1617,52 @@ export function stoneLion(size = 1) {
   return mergeAll(parts);
 }
 
-/** 石花盆（带座）：大水法池沿岸 / 观水法栏上 */
+/**
+ * 石花盆（**带座**）：大水法池沿岸 / 观水法栏上。
+ *
+ * 考据：大水法「池沿岸用白玉石精雕花纹，安放带座石花盆，内植三层线法松」；
+ *       观水法「栏上有石刻花盆四对」。
+ *
+ * 做法：方座（带线脚）+ 束腰 + 花瓶腹 + 口沿，**座与盆分体**——
+ * 「带座」的关键就在这一段。形制简化：盆身不做浅浮雕花纹。
+ */
 export function planter(size = 1, height = 1.0) {
   const S = size;
   const parts = [];
+  // 方座 + 线脚
+  parts.push(boxAt(0.94 * S, 0.14 * S, 0.94 * S, 0, -0.07 * S, 0));
+  parts.push(boxAt(0.84 * S, 0.07 * S, 0.84 * S, 0, 0.035 * S, 0));
+  // 束腰
+  parts.push(boxAt(0.58 * S, 0.1 * S, 0.58 * S, 0, 0.12 * S, 0));
+  // 盆身（车削）
+  const baseY = 0.17 * S;
   const prof = [
-    [0.0, 0.62],
-    [0.08, 0.66],
-    [0.12, 0.56],
-    [0.5, 0.44],
-    [0.82, 0.54],
-    [0.9, 0.62],
-    [0.96, 0.6],
-    [1.0, 0.5],
+    [0.0, 0.34],
+    [0.1, 0.4],
+    [0.3, 0.5],
+    [0.55, 0.54],
+    [0.75, 0.46],
+    [0.88, 0.52],
+    [1.0, 0.55],
   ];
   parts.push(
     lathe(
-      prof.map(([t, r]) => new THREE.Vector2(r * S, t * height)),
+      prof.map(([t, r]) => new THREE.Vector2(r * S, baseY + t * (height - baseY))),
       12
     )
   );
-  // 座
-  parts.push(boxAt(0.95 * S, 0.16 * S, 0.95 * S, 0, -0.08 * S, 0));
+  // 口沿（厚边，翻出来的）
+  const rimY = baseY + (height - baseY);
+  parts.push(
+    lathe(
+      [
+        [0.0, 0.55],
+        [0.035, 0.62],
+        [0.075, 0.58],
+      ].map(([t, r]) => new THREE.Vector2(r * S, rimY + t * S * 0.22)),
+      12
+    )
+  );
   return mergeAll(parts);
 }
 
@@ -1130,9 +1747,9 @@ export function baroqueGate(width = 8, height = 9, depth = 1.4) {
   // 横梁
   parts.push(boxAt(width + 1.4, height * 0.2, depth, 0, height * 0.82, 0));
   parts.push(cornice(width + 1.6, depth * 1.25, 0.6, 0));
-  // 山花
-  const ped = pediment(width * 0.8, height * 0.26, depth * 0.8, true);
-  ped.translate(0, height * 0.92, 0);
+  // 山花（巴洛克卷涡式）
+  const ped = scrolledPediment(width * 0.86, height * 0.3, depth * 0.8);
+  ped.translate(0, height * 0.9, 0);
   parts.push(ped);
   return mergeAll(parts);
 }

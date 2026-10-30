@@ -350,8 +350,11 @@ function buildRoofCore(spec, geomsIn) {
     for (const g of buildWadang(Wx, Wz, eaveY, gangCount, -1)) push('tile', g);
   }
   const rc = Math.floor((Wx * 2) / TILE.rafterGap);
-  for (const g of buildRafters(Wx, Wz, eaveY, rc, 1)) push('wood', g);
-  for (const g of buildRafters(Wx, Wz, eaveY, rc, -1)) push('wood', g);
+  for (const sg of [1, -1]) {
+    const rf = buildRafters(Wx, Wz, eaveY, rc, sg);
+    for (const g of rf.wood) push('wood', g);
+    for (const g of rf.eave) push('eave', g);
+  }
 
   /* -------------------------------------------------- 山花（歇山竖面） */
   if (type === 'xieshan') {
@@ -959,22 +962,55 @@ function buildWadang(Wx, Wz, eaveY, count, sign = 1) {
 }
 
 /** 椽头 + 飞椽（檐下两排） */
+/**
+ * 檐下构造：连檐 · 檐檩 · 椽头 · 飞椽
+ *
+ * 清式檐口从下往上看是这么一排：
+ *   最外  一圈**圆形**椽头（截面是圆的，这是中式屋檐最强的识别特征）
+ *   椽头后 斜出的方料**飞椽**（端头按举折角斜切）
+ *   再后   通长的**连檐**（把所有椽头串起来的方木）
+ *   最里   承椽的圆木**檐檩**
+ *
+ * 之前只有两个方盒子，近看就是"贴图放大的板"。
+ */
 function buildRafters(Wx, Wz, eaveY, count, sign = 1) {
-  const parts = [];
+  // 椽头与飞椽是**素木**，不是红漆木件——放进 wood 桶会变成一排红圆盘。
+  // 分成两个桶：wood（连檐、檐檩，漆作）与 eave（椽头、飞椽，素木深褐）。
+  const wood = [];
+  const eave = [];
   const r = TILE.rafterR;
+
+  // 连檐：沿檐口通长的一根方木（漆作）
+  const lianYan = new THREE.BoxGeometry(Wx * 2, r * 2.2, r * 2.6);
+  lianYan.translate(0, eaveY - 0.46, sign * (Wz - 0.5));
+  wood.push(lianYan);
+
+  // 檐檩：圆木，承住椽头（藏在檐内）
+  const yanLin = new THREE.CylinderGeometry(r * 1.6, r * 1.6, Wx * 2, 8);
+  yanLin.rotateZ(Math.PI / 2);
+  yanLin.translate(0, eaveY - 0.72, sign * (Wz - 1.05));
+  wood.push(yanLin);
+
+  const pitch = 0.42; // 飞椽出挑角（与屋面举折相呼应）
   for (let i = 0; i <= count; i++) {
     const x = -Wx + (i * Wx * 2) / count;
-    // 椽头（方料，端头露出）
-    const g = new THREE.BoxGeometry(r * 1.8, r * 1.8, 0.42);
-    g.translate(x, eaveY - 0.3, sign * (Wz - 0.18));
-    parts.push(g);
-    // 飞椽（斜出）
-    const f = new THREE.BoxGeometry(r * 1.6, r * 1.5, 0.5);
-    f.rotateX(-sign * 0.42);
-    f.translate(x, eaveY - 0.18, sign * (Wz - 0.46));
-    parts.push(f);
+
+    // 飞椽：方料，斜向外挑，端头按坡角斜切
+    const flyLen = 0.62;
+    const fly = new THREE.BoxGeometry(r * 1.7, r * 1.5, flyLen);
+    fly.rotateX(-sign * pitch);
+    fly.translate(x, eaveY - 0.34 - Math.sin(pitch) * flyLen * 0.5, sign * (Wz - 0.72));
+    eave.push(fly);
+
+    // 椽头：**圆形**截面，端头微斜（与飞椽同角）
+    const headLen = 0.46;
+    const head = new THREE.CylinderGeometry(r * 1.25, r * 1.15, headLen, 8);
+    head.rotateX(Math.PI / 2);
+    head.rotateX(sign * pitch * 0.35);
+    head.translate(x, eaveY - 0.30, sign * (Wz - 0.10));
+    eave.push(head);
   }
-  return parts;
+  return { wood, eave };
 }
 
 /** 脊：正脊/垂脊用小筒瓦逐个垒起 */

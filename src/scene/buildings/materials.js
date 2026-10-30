@@ -6,6 +6,7 @@ import {
   roofTiles,
   roofTilesNormal,
   caihua,
+  redWall,
   ornateStone,
   columnPaint,
   brickWall,
@@ -66,7 +67,7 @@ export function ridgeMaterial(color = '#6e7176') {
 
 export function eaveMaterial() {
   return make('eave', () =>
-    new THREE.MeshStandardMaterial({ color: 0x5c3b2a, roughness: 0.85 })
+    new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 0.9 })
   );
 }
 
@@ -141,20 +142,23 @@ export function dougongMaterial() {
   );
 }
 
-export function wallMaterial(type = 'brick') {
-  return make(`wall-${type}`, () => {
-    // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳都要在。
+export function wallMaterial(type = 'brick', tint = null) {
+  return make(`wall-${type}-${tint || 'd'}`, () => {
+    // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳、水痕都要在。
+    if (type === 'red') {
+      const map = redWall().clone();
+      map.needsUpdate = true;
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      map.repeat.set(4, 2);
+      return new THREE.MeshStandardMaterial({
+        map,
+        color: tint || 0xffffff,
+        roughness: 0.93,
+      });
+    }
     const map = brickWall().clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    if (type === 'red') {
-      map.repeat.set(6, 3);
-      return new THREE.MeshStandardMaterial({
-        map,
-        color: 0x6f231c,
-        roughness: 0.9,
-      });
-    }
     map.repeat.set(3, 2);
     return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
   });
@@ -209,7 +213,7 @@ export function goldMaterial() {
 
 export function shanhuaMaterial() {
   return make('shanhua', () =>
-    new THREE.MeshStandardMaterial({ color: 0x2b5f6b, roughness: 0.7 })
+    new THREE.MeshStandardMaterial({ color: 0x27535c, roughness: 0.78 })
   );
 }
 
@@ -240,7 +244,10 @@ export function materialFor(key, spec = {}) {
   // 瓦色键（'hui'|'huang'|'lv'…）→ 琉璃/灰瓦参数
   const tileSpec = TILE_COLORS[spec.tile] || null;
   const glazed = tileSpec ? tileSpec.glazed : !!spec.glazed;
-  const tileColor = tileSpec ? tileSpec.color : spec.glazedColor || '#2f7a4a';
+  // 每景的瓦色可以微调（spec.tileColor）：同一等级的殿宇若瓦色完全一致，
+  // 整个园子就像复制粘贴。材质按颜色缓存，合并又是按景做的，
+  // 所以这样改**不增加 draw call**。
+  const tileColor = spec.tileColor || (tileSpec ? tileSpec.color : spec.glazedColor || '#2f7a4a');
   switch (key) {
     case 'tile':
       return roofMaterial(glazed, tileColor);
@@ -264,7 +271,7 @@ export function materialFor(key, spec = {}) {
     case 'dougong':
       return dougongMaterial();
     case 'wall':
-      return wallMaterial(spec.wallType);
+      return wallMaterial(spec.wallType, spec.wallColor);
     case 'wood':
       return woodMaterial();
     case 'lattice':

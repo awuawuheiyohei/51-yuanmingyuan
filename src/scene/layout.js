@@ -10,7 +10,7 @@ import { mergeGroupByMaterial } from './buildings/merge.js';
 import { stoneMaterial, roofMaterial } from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
-import { SCENE_PROGRAM } from './scenes-program.js';
+import { SCENE_PROGRAM, TILE_COLORS } from './scenes-program.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -87,9 +87,21 @@ function buildSceneCluster(scene, heightAt, rnd) {
   const program = SCENE_PROGRAM[scene.name];
   if (!program) return group;
 
+  /**
+   * 放一座建筑。
+   *
+   * 每座建筑都带一点**个体差异**：举高与檐高的微调。
+   * 真实园林里不可能两座殿宇完全一样；全园 41 景若用同一套参数复制过去，
+   * 一眼就是"建模软件里拉出来的"。
+   */
+  let buildSeq = 0;
   const place = (spec, dx, dz, rot = 0) => {
+    const r = mulberry32(hash(scene.name) + buildSeq * 7919);
+    buildSeq++;
     const b = buildBuilding({
       ...spec,
+      rise: (spec.rise ?? 3) * (0.94 + r() * 0.13),
+      eaveY: spec.eaveY != null ? spec.eaveY * (0.975 + r() * 0.05) : spec.eaveY,
       position: [
         scene.x + dx,
         heightAt(scene.x + dx, scene.z + dz),
@@ -100,6 +112,30 @@ function buildSceneCluster(scene, heightAt, rnd) {
     group.add(b);
     return b;
   };
+
+  /* ---- 每景的个体配色 ----
+   * 同一瓦色、同样的墙色，全园看上去就像复制粘贴。
+   * 每一景给瓦色、墙色、柱色一点点色相/明度偏移，
+   * 于是"一片黄琉璃"里能看出深浅差别。
+   * 材质按颜色缓存、几何按景合并 ⇒ **draw call 不变**。 */
+  const sceneRnd = mulberry32(hash(scene.name));
+  const shiftHsl = (hex, dh, dl) => {
+    const c = new THREE.Color(hex);
+    const hsl = { h: 0, s: 0, l: 0 };
+    c.getHSL(hsl);
+    c.setHSL(
+      (hsl.h + dh + 1) % 1,
+      THREE.MathUtils.clamp(hsl.s + (sceneRnd() - 0.5) * 0.06, 0, 1),
+      THREE.MathUtils.clamp(hsl.l + dl, 0, 1)
+    );
+    return `#${c.getHexString()}`;
+  };
+  const baseTile = TILE_COLORS[program.main.tile];
+  const tileColor = baseTile
+    ? shiftHsl(baseTile.color, (sceneRnd() - 0.5) * 0.02, (sceneRnd() - 0.5) * 0.075)
+    : null;
+  const wallColor = shiftHsl('#9c3327', (sceneRnd() - 0.5) * 0.015, (sceneRnd() - 0.5) * 0.07);
+  const columnColor = shiftHsl('#8f2820', (sceneRnd() - 0.5) * 0.015, (sceneRnd() - 0.5) * 0.07);
 
   /* ---- 主建筑 ---- */
   const m = program.main;
@@ -121,6 +157,9 @@ function buildSceneCluster(scene, heightAt, rnd) {
     roof: m.roof,
     caihua: m.caihua,
     tile: m.tile,
+    tileColor,
+    wallColor,
+    columnColor,
     doubleEave: !!m.doubleEave,
     circular: !!m.circular,
     // 匾额题字：优先用考据实记的匾名（勤政殿、纪恩堂、哕鸾殿…），
@@ -202,6 +241,9 @@ function buildSceneCluster(scene, heightAt, rnd) {
         caihua: af.caihua,
         // 配建筑默认随主建筑的瓦色等级；考据里另有实记的用 a.tile 覆盖
         tile: a.tile ?? m.tile,
+        tileColor: a.tile ? null : tileColor,
+        wallColor,
+        columnColor,
         // 有实名的配建筑，匾额就写它的名字（飞云轩、静鉴阁…）
         plaqueText: a.name || a.mian ? a.name : undefined,
         doors: centerDoors(mian),

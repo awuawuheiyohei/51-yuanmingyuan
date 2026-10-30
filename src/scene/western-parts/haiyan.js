@@ -37,6 +37,7 @@ import {
   torus,
   beastHead,
   robedBody,
+  figurePedestal,
   ZODIAC,
   monkey,
   stoneFish,
@@ -66,11 +67,16 @@ function stoneLeopard(size = 1) {
   neck.rotateX(-0.85);
   neck.translate(0, 0.9 * S, 0.5 * S);
   parts.push(neck);
+  // 豹头：圆耳 + 宽吻 + 虎牙
   const head = beastHead(0.72 * S, {
-    muzzle: 0.46,
+    muzzle: 0.42,
     snout: 'box',
     ear: 'round',
-    wide: 1.1,
+    wide: 1.12,
+    brow: true,
+    fangs: true,
+    jaw: true,
+    stripe: true,
   });
   head.translate(0, 1.02 * S, 0.72 * S);
   parts.push(head);
@@ -79,6 +85,10 @@ function stoneLeopard(size = 1) {
       const leg = cyl(0.045 * S, 0.07 * S, 0.78 * S, 6);
       leg.translate(sx * 0.2 * S, 0.39 * S, sz * 0.38 * S);
       parts.push(leg);
+      const paw = sph(0.07 * S, 7, 5);
+      paw.scale(1, 0.7, 1.2);
+      paw.translate(sx * 0.2 * S, 0.05 * S, sz * 0.42 * S);
+      parts.push(paw);
     }
   }
   const tail = cyl(0.022 * S, 0.045 * S, 0.62 * S, 5);
@@ -115,6 +125,9 @@ export function buildHaiYanTang(c, opts) {
         windowY: 1.9,
         windowH: 4.2,
         door: true,
+        // 考据：海晏堂「窗为法式铜窗，窗间立柱为大玻璃镜，镜子上方为三角式
+        //       巴洛克假门楣装饰」「石券花窗口与汉白玉石柱之间墙面为五色琉璃番花」
+        french: true,
       },
     ],
     roof: {
@@ -135,6 +148,23 @@ export function buildHaiYanTang(c, opts) {
     columnBucket: 'stone',
     glassBucket: 'glass',
   });
+  // 考据：海晏堂「屋檐上安露顶石栏杆」——沿屋檐一圈石栏杆
+  {
+    const ex = FW / 2 + 2.2; // 檐口半宽（与 overhang 一致）
+    const ez = FD / 2 + 2.2;
+    const ey = PLAT + 8.4;
+    for (const sz of [1, -1]) {
+      const r = balustrade(FW + 4.4, 0.95, 0.11);
+      r.translate(0, ey, sz * ez);
+      c.add('stone', r);
+    }
+    for (const sx of [1, -1]) {
+      const r = balustrade(FD + 4.4, 0.95, 0.11);
+      r.rotateY(Math.PI / 2);
+      r.translate(sx * ex, ey, 0);
+      c.add('stone', r);
+    }
+  }
   c.setTransform(x, y, z, rotY);
 
   /* ---------------------------------------------------------- 后楼（东楼） */
@@ -273,22 +303,29 @@ export function buildHaiYanTang(c, opts) {
   }
 
   /* ---------------------------------------------------------- 十二生肖 */
+  // 考据：海晏堂「池中央有喷水台一座，两旁石台二座，沿石跑梯八字展开，
+  //       上为十二生肖兽首人身喷水像：右侧（南侧）鼠虎龙马猴狗，
+  //       左侧（北侧）牛兔蛇羊鸡猪」「正午时十二铜像一同喷水」。
+  //
+  // 形制：铜像立在**石台**上（石台归 stone 桶），铜像本体（兽首 + 袍身）
+  //       归 metal 桶；十二者的头型各不相同，见 kit.ZODIAC。
   const south = ['shu', 'hu', 'long', 'ma', 'hou', 'gou'];
   const north = ['niu', 'tu', 'she', 'yang', 'ji', 'zhu'];
   const place = (key, px, pz, faceYaw) => {
     const z = ZODIAC.find((q) => q.key === key);
     if (!z) return;
     const base = gy(px, pz);
-    // 石台
-    c.add('stone', cyl(1.15, 1.35, 0.9, 10).translate(px, base + 0.45, pz));
-    c.add('stone', boxAt(2.6, 0.18, 2.6, px, base + 0.94, pz));
-    // 人身
+    // 石台（承座）：方座 + 束腰 + 圆座 + 线脚
+    const ped = figurePedestal(1.0, 0.95);
+    ped.translate(px, base, pz);
+    c.add('stone', ped);
+    // 人身（袍服）
     const body = robedBody(1.0, 2.0);
     body.rotateY(faceYaw);
     body.translate(px, base + 1.03, pz);
-    c.add('stone', body);
+    c.add('metal', body);
     // 兽首
-    const head = beastHead(0.78, z.head);
+    const head = beastHead(0.82, z.head);
     head.rotateY(faceYaw);
     head.translate(px, base + 3.03, pz);
     c.add('metal', head);
@@ -296,9 +333,9 @@ export function buildHaiYanTang(c, opts) {
     const dir = [PX - px, 0, -pz];
     const len = Math.hypot(dir[0], dir[2]) || 1;
     const mouth = [
-      px + (dir[0] / len) * 0.62,
-      base + 3.18,
-      pz + (dir[2] / len) * 0.62,
+      px + (dir[0] / len) * 0.66,
+      base + 3.16,
+      pz + (dir[2] / len) * 0.66,
     ];
     const target = [PX + (dir[0] / len) * 1.2, base + 1.1, pz + (dir[2] / len) * 1.2];
     c.add('water', jetBetween(mouth, target, 0.055));

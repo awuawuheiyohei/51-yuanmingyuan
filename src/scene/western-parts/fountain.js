@@ -11,7 +11,21 @@
  */
 import * as THREE from 'three';
 import { mergeAll, UVK } from './materials.js';
-import { box, boxAt, cyl, cylAt, sph, cone, lathe, torus, worldUV, volute } from './kit.js';
+import {
+  box,
+  boxAt,
+  cyl,
+  cylAt,
+  sph,
+  cone,
+  lathe,
+  torus,
+  worldUV,
+  volute,
+  leaf,
+  archVoussoirs,
+  archTrim,
+} from './kit.js';
 
 /* ============================================================ 池 */
 
@@ -212,6 +226,22 @@ export function stoneNiche(w = 19, h = 16, d = 2.2) {
   worldUV(wallGeo);
   parts.push(wallGeo);
 
+  // 券洞的石作：**券脚 + 券石分缝 + 拱心石 + 券面线脚**
+  // （巴洛克券洞的识别特征；没有这圈，近看就是一个剪出来的洞）
+  const springY = openH - r;
+  parts.push(archTrim(r, springY, d, { t: 0.42, count: 13 }));
+  // 券口两侧的番花
+  for (const sx of [-1, 1]) {
+    const lf = leaf(1.5, 0.5, 0.1);
+    lf.rotateZ(sx * 1.05);
+    lf.translate(sx * (r + 0.45), springY + r * 0.6, d / 2);
+    parts.push(lf);
+    const v = volute(0.9, 0.14, 1.55);
+    v.rotateZ(sx > 0 ? -Math.PI * 0.35 : Math.PI * 1.35);
+    v.translate(sx * (r + 0.1), springY + r * 0.22, d / 2);
+    parts.push(v);
+  }
+
   // 券洞里的扇贝壳（同心半圆 + 放射肋）
   for (let i = 0; i < 6; i++) {
     const rr = r - 0.12 - i * 0.62;
@@ -271,48 +301,70 @@ export function stoneNiche(w = 19, h = 16, d = 2.2) {
 
 /**
  * 十三层方形喷水塔：大池外东西各一座。
- * 塔身十三层，池底大喷水管八根，塔身小喷水管八十根，
- * 塔顶铜蒺藜十六角、喷水十六道。
+ *
+ * 考据：大水法「大水池外，东西各有**十三层方形喷水塔**一座：塔在水池中，
+ *       池底有大喷水管八根，塔身上有小喷水管**八十根**，水射高六尺；
+ *       塔顶有铜蒺藜十六角，喷水十六道，落入池中」。
+ *
+ * 做法：十三层塔身**逐层收分**（每层收 5.5 cm），每层一道叠涩线脚；
+ *       每层四面开**喷水孔**（凸起的口圈 + 伸出的短管）；
+ *       八十根小管按"每面 20 根"分配（各层 2/1 根相间）。
+ *
+ * 形制简化：管口不做水花（水花在 dawuifa.js 里用锥体水柱表示）。
  */
 export function fountainTower(tiers = 13) {
   const parts = [];
   const baseW = 3.8;
-  const shaftH = 0.62;
   const gap = 0.62;
+  const inset = 0.055;
+  // 每层的喷水管数（每面）：合计 20 根/面 → 80 根
+  const NOZ = [2, 2, 2, 1, 1, 1, 2, 2, 2, 1, 1, 1, 2];
 
   // 池底座
   parts.push(boxAt(baseW + 1.6, 0.5, baseW + 1.6, 0, 0.25, 0));
   parts.push(boxAt(baseW + 0.7, 0.3, baseW + 0.7, 0, 0.62, 0));
 
-  // 塔身
-  parts.push(boxAt(baseW, tiers * gap, baseW, 0, 0.75 + (tiers * gap) / 2, 0));
-
-  // 十三层叠涩线脚 + 小喷水管
-  const noz = [];
   for (let i = 0; i < tiers; i++) {
-    const y = 0.9 + i * gap;
-    parts.push(boxAt(baseW + 0.5, 0.16, baseW + 0.5, 0, y, 0));
-    parts.push(boxAt(baseW + 0.24, 0.1, baseW + 0.24, 0, y + 0.13, 0));
-    // 每层四根小喷水管（80 根 = 13 层 × 4 面 × 约 1.5 根）
+    const y0 = 0.75 + i * gap;
+    const w = baseW - i * inset;
+    // 层身
+    parts.push(boxAt(w, gap * 0.78, w, 0, y0 + gap * 0.39, 0));
+    // 层顶叠涩线脚
+    parts.push(boxAt(w + 0.5, 0.14, w + 0.5, 0, y0 + gap * 0.78, 0));
+    parts.push(boxAt(w + 0.24, 0.09, w + 0.24, 0, y0 + gap * 0.78 + 0.11, 0));
+    // 每层的喷水孔（四面）
+    const cnt = NOZ[i % NOZ.length];
     for (const [dx, dz] of [
       [1, 0],
       [-1, 0],
       [0, 1],
       [0, -1],
     ]) {
-      for (let k = 0; k < 2; k++) {
-        const off = (k - 0.5) * 1.1;
-        const px = dx ? dx * (baseW / 2 + 0.12) : off;
-        const pz = dz ? dz * (baseW / 2 + 0.12) : off;
-        const n = cyl(0.055, 0.07, 0.3, 5);
+      for (let k = 0; k < cnt; k++) {
+        const off = cnt === 1 ? 0 : (k - 0.5) * 1.15;
+        const px = dx ? dx * (w / 2 + 0.1) : off;
+        const pz = dz ? dz * (w / 2 + 0.1) : off;
+        const ny = y0 + gap * 0.42;
+        // 孔口（凸起的圆圈）
+        const ring = cyl(0.11, 0.11, 0.07, 6);
+        if (dx) ring.rotateZ(-dx * Math.PI / 2);
+        else ring.rotateX(dz * Math.PI / 2);
+        ring.translate(px, ny, pz);
+        parts.push(ring);
+        // 短管（喷水嘴）
+        const n = cyl(0.055, 0.075, 0.32, 5);
         if (dx) n.rotateZ(-dx * Math.PI / 2);
         else n.rotateX(dz * Math.PI / 2);
-        n.translate(px, y + 0.3, pz);
-        noz.push(n);
+        n.translate(px + (dx ? dx * 0.15 : 0), ny, pz + (dz ? dz * 0.15 : 0));
+        parts.push(n);
       }
     }
   }
-  parts.push(...noz);
+
+  // 塔顶出檐（承铜蒺藜）
+  const topW = baseW - (tiers - 1) * inset;
+  parts.push(boxAt(topW + 0.8, 0.22, topW + 0.8, 0, 0.75 + tiers * gap + 0.1, 0));
+  parts.push(cyl(0.55, 0.6, 0.5, 10).translate(0, 0.75 + tiers * gap + 0.45, 0));
 
   // 池底大喷水管八根
   for (let i = 0; i < 8; i++) {
@@ -327,19 +379,34 @@ export function fountainTower(tiers = 13) {
   return mergeAll(parts);
 }
 
-/** 铜蒺藜（十六角）：塔顶的喷水构件 */
+/**
+ * 铜蒺藜（十六角）：塔顶的喷水构件。
+ *
+ * 考据：大水法「塔顶有铜蒺藜十六角，喷水十六道」。
+ * 形制简化：蒺藜本体是球 + 十六根朝外的短管（原"尖刺"改成管口，
+ *           因为考据说它是要喷水的）。
+ */
 export function caltrop(r = 1.1) {
   const parts = [];
   const core = sph(r * 0.4, 10, 8);
   parts.push(core);
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
-    const sp = cone(0.09 * r, 0.85 * r, 5);
+    // 管身
+    const sp = cyl(0.055 * r, 0.085 * r, 0.8 * r, 6);
     sp.rotateZ(-Math.PI / 2);
-    sp.translate(r * 0.5, 0, 0);
+    sp.translate(r * 0.55, 0, 0);
     sp.rotateY(-a);
     parts.push(sp);
+    // 管口（喇叭口）
+    const lip = cyl(0.1 * r, 0.06 * r, 0.12 * r, 6);
+    lip.rotateZ(-Math.PI / 2);
+    lip.translate(r * 0.95, 0, 0);
+    lip.rotateY(-a);
+    parts.push(lip);
   }
+  // 顶部的宝珠
+  parts.push(sph(r * 0.16, 8, 6).translate(0, r * 0.42, 0));
   return mergeAll(parts);
 }
 

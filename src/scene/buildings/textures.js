@@ -642,6 +642,83 @@ export function plaqueBoard(text, vertical = false) {
   return tex;
 }
 
+/**
+ * 官式红墙：青砖墙抹红灰，再经风雨。
+ *
+ * 直接给红墙一个纯色或一张干净的砖图，看着就是"一块红板"。
+ * 真实的官墙有三层变化：
+ *   ① 抹红灰的颜色不匀（有深有浅）
+ *   ② 竖向的水痕——雨水从檐口冲下来留下的流痕
+ *   ③ 墙根积尘、墙头被雨水冲淡
+ */
+export function redWall() {
+  const key = 'redwall';
+  if (cache.has(key)) return cache.get(key);
+  const src = brickWall().image;
+  const W = 512;
+  const H = 512;
+  const c = makeCanvas(W, H);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(31337);
+
+  if (src) g.drawImage(src, 0, 0, W, H);
+  else {
+    g.fillStyle = '#8d8a84';
+    g.fillRect(0, 0, W, H);
+  }
+
+  // 抹红灰：正片叠底压成砖红，颜色不匀
+  g.globalCompositeOperation = 'multiply';
+  g.fillStyle = '#c98d80';
+  g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'source-over';
+
+  // 抹灰不匀：一块块的深浅
+  for (let i = 0; i < 90; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = 18 + rnd() * 70;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    const dark = rnd() < 0.5;
+    grd.addColorStop(0, dark ? 'rgba(90,40,34,0.16)' : 'rgba(226,180,168,0.13)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // 竖向水痕：从上往下的细流痕
+  for (let i = 0; i < 130; i++) {
+    const x = rnd() * W;
+    const w = 1 + rnd() * 5;
+    const y0 = rnd() * H * 0.5;
+    const len = 40 + rnd() * 220;
+    const grd = g.createLinearGradient(0, y0, 0, y0 + len);
+    grd.addColorStop(0, 'rgba(58,30,24,0.20)');
+    grd.addColorStop(0.7, 'rgba(58,30,24,0.09)');
+    grd.addColorStop(1, 'rgba(58,30,24,0)');
+    g.fillStyle = grd;
+    g.fillRect(x, y0, w, len);
+  }
+
+  // 墙根积尘 + 墙头被雨冲淡
+  const grd2 = g.createLinearGradient(0, H, 0, H * 0.68);
+  grd2.addColorStop(0, 'rgba(74,66,52,0.30)');
+  grd2.addColorStop(1, 'rgba(74,66,52,0)');
+  g.fillStyle = grd2;
+  g.fillRect(0, H * 0.68, W, H * 0.32);
+  const grd3 = g.createLinearGradient(0, 0, 0, H * 0.3);
+  grd3.addColorStop(0, 'rgba(226,214,196,0.22)');
+  grd3.addColorStop(1, 'rgba(226,214,196,0)');
+  g.fillStyle = grd3;
+  g.fillRect(0, 0, W, H * 0.3);
+
+  const tex = toTexture(c);
+  cache.set(key, tex);
+  return tex;
+}
+
 export function stone() {
   if (OVERRIDE.stone) return OVERRIDE.stone;
   if (cache.has('stone')) return cache.get('stone');
