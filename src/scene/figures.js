@@ -689,13 +689,13 @@ function addBoat(bin, M, len) {
   }
 
   // 乌篷（半圆篷）
-  const canopy = new THREE.SphereGeometry(W * 0.46, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  const canopy = new THREE.SphereGeometry(W * 0.46, 6, 4, 0, Math.PI * 2, 0, Math.PI * 0.5);
   canopy.scale(1, 0.78, 1);
   canopy.translate(0, H - 0.03, -L * 0.02);
   put(bin, 'cloth', canopy, PAL.canopy, M);
   // 篷骨
-  for (const dz of [-L * 0.10, 0, L * 0.10]) {
-    const rib = new THREE.TorusGeometry(W * 0.455, 0.022, 4, 10, Math.PI);
+  for (const dz of [-L * 0.08, L * 0.08]) {
+    const rib = new THREE.TorusGeometry(W * 0.455, 0.022, 3, 8, Math.PI);
     rib.rotateY(Math.PI / 2);
     rib.translate(0, H - 0.03, dz);
     put(bin, 'wood', rib, 0x3a3229, M);
@@ -878,11 +878,19 @@ function makeWaterTest(sceneData, heightAt) {
   };
 }
 
-/** 障碍物：OSM 现状建筑 + 四十景主/配建筑 + 西洋楼 + 假山 */
+/**
+ * 障碍物：OSM 现状建筑 + 四十景主/配建筑 + 西洋楼 + 假山
+ *
+ * 四十景的台基与踏跺比建筑体本身大（须弥座外挑 1.25m×2，
+ * 踏跺再往南伸约 3.3m），人若站在台基里会被"埋进地里"，
+ * 所以主/配建筑的南侧留得比北侧宽。
+ */
 function makeObstacles(sceneData) {
   const boxes = [];
   const circles = [];
-  const pushBox = (x, z, hw, hd) => boxes.push({ x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd });
+  /** hw = 东西半宽；hdN/hdS = 北/南半深 */
+  const pushBox = (x, z, hw, hdN, hdS) =>
+    boxes.push({ x0: x - hw, x1: x + hw, z0: z - hdN, z1: z + hdS });
 
   for (const b of sceneData.buildings || []) {
     if (!b.ring || b.ring.length < 3) continue;
@@ -893,29 +901,34 @@ function makeObstacles(sceneData) {
       if (z < minZ) minZ = z;
       if (z > maxZ) maxZ = z;
     }
-    pushBox((minX + maxX) / 2, (minZ + maxZ) / 2, (maxX - minX) / 2 + 1.0, (maxZ - minZ) / 2 + 1.0);
+    pushBox(
+      (minX + maxX) / 2, (minZ + maxZ) / 2,
+      (maxX - minX) / 2 + 1.0, (maxZ - minZ) / 2 + 1.0, (maxZ - minZ) / 2 + 1.0
+    );
   }
 
   for (const s of sceneData.scenes || []) {
     const p = SCENE_PROGRAM[s.name];
     if (!p) continue;
-    // 主建筑（含台基外沿）
-    const mw = (p.main.mian * 3.6) / 2 + 3.4;
-    const md = (p.main.jin * 3.3) / 2 + 3.4;
-    pushBox(s.x, s.z, mw, md);
-    // 配建筑
+    // 主建筑（须弥座外挑 2.5m，踏跺再往南 3.4m）
+    const mw = (p.main.mian * 3.6) / 2 + 3.2;
+    const mdN = (p.main.jin * 3.3) / 2 + 3.0;
+    const mdS = (p.main.jin * 3.3) / 2 + 4.2;
+    pushBox(s.x, s.z, mw, mdN, mdS);
+    // 配建筑（素台基外挑 0.95m，踏跺往南 3.3m）
     for (const a of p.aux || []) {
       const af = defaultForm(a.rank);
       const mian = a.mian ?? af.mian;
       const jin = a.jin ?? af.jin;
-      const w = (mian * (a.rank === 'pavilion' ? 3.0 : 3.5)) / 2 + 2.2;
-      const d = (jin * 3.2) / 2 + 2.2;
-      pushBox(s.x + a.x, s.z + a.z, w, d);
+      const w = (mian * (a.rank === 'pavilion' ? 3.0 : 3.5)) / 2 + 1.9;
+      const dN = (jin * 3.2) / 2 + 1.9;
+      const dS = (jin * 3.2) / 2 + 3.6;
+      pushBox(s.x + a.x, s.z + a.z, w, dN, dS);
     }
   }
 
   for (const w of sceneData.westBuildings || []) {
-    pushBox(w.x, w.z, 13, 13);
+    pushBox(w.x, w.z, 14, 14, 14);
   }
 
   for (const r of sceneData.rockery || []) {
@@ -1093,15 +1106,15 @@ function mulberry32(seed) {
   };
 }
 
-/** 数量配置（皇家园林游人不算多） */
+/** 数量配置（皇家园林游人不算多；马轿约为人数的 1/12） */
 const COUNT = {
-  commoner: 190, // 游人（散在路径上 + 四十景前庭）
+  commoner: 172, // 游人（散在路径上 + 四十景前庭）
   official: 18, // 戴翎顶帽的品官
   sedan: 12, // 轿舆（各配两名轿夫）
-  horse: 12, // 马
-  porter: 36, // 挑担货郎
+  horse: 9, // 马
+  porter: 28, // 挑担货郎
   guard: 16, // 仪仗执事（4 景 × 4 人）
-  cart: 8, // 板车
+  cart: 6, // 板车
   boat: 16, // 小船
 };
 
@@ -1126,6 +1139,9 @@ export function buildFigures(sceneData, heightAt) {
     guard: 0, horse: 0, sedan: 0, cart: 0, boat: 0,
     onCorridor: 0,
   };
+  // 摆放台账：父级可用 group.userData.figures 自查位置
+  const records = [];
+  const rec = (kind, x, z, y, r) => records.push({ kind, x, z, y, r });
 
   /* ---- 可用路径 ---- */
   const WALK_KINDS = new Set(['footway', 'path', 'pedestrian']);
@@ -1160,6 +1176,22 @@ export function buildFigures(sceneData, heightAt) {
     return true;
   };
 
+  /**
+   * 距最近的四十景中心是否小于 minDist。
+   * 规则 6 要求"人/马/轿避开景中心 18m"——对**路径上的散撒**严格执行；
+   * 但规则 3/5 又要求货郎、官员、执事就站在台阶前，
+   * 那是有意为之的近景，不受此限（真正的硬约束是"不压建筑"，已用足迹精确判定）。
+   */
+  const sceneCenters = (sceneData.scenes || []).map((s) => ({ x: s.x, z: s.z }));
+  const nearScene = (x, z, minDist) => {
+    for (const c of sceneCenters) {
+      const dx = c.x - x, dz = c.z - z;
+      if (dx * dx + dz * dz < minDist * minDist) return true;
+    }
+    return false;
+  };
+  const SCENE_KEEPOUT = 18;
+
   /** 把点贴到附近游廊的柱位上（廊下的人踩在廊地坪） */
   const snapCorridor = (x, z) => {
     const st = corridors.nearest(x, z);
@@ -1170,7 +1202,7 @@ export function buildFigures(sceneData, heightAt) {
   /* ================================================================
    * A. 游人 —— 路径上成小簇散布
    * ================================================================ */
-  const COMMONER_ON_PATH = 128;
+  const COMMONER_ON_PATH = 102;
   let placed = 0;
   let guardCount = 0;
   while (placed < COMMONER_ON_PATH && guardCount < 4000) {
@@ -1200,6 +1232,8 @@ export function buildFigures(sceneData, heightAt) {
       }
 
       if (!usable(x, z, 0.55)) continue;
+      // 规则 6：路径上的散撒游人避开景中心 18m
+      if (nearScene(x, z, SCENE_KEEPOUT)) continue;
       occ.take(x, z, 0.55);
 
       const female = rnd() < 0.26;
@@ -1225,6 +1259,7 @@ export function buildFigures(sceneData, heightAt) {
       }
       placed++;
       stats.commoner++;
+      rec('commoner', x, z, groundY, 0.55);
     }
   }
 
@@ -1243,6 +1278,7 @@ export function buildFigures(sceneData, heightAt) {
     // 游人 1~2 名
     const nPeople = 1 + (rnd() < 0.55 ? 1 : 0);
     for (let i = 0; i < nPeople; i++) {
+      if (stats.commoner >= COUNT.commoner) break;
       for (const [fx, fz] of forecourt) {
         if (!usable(fx, fz, 0.55)) continue;
         occ.take(fx, fz, 0.55);
@@ -1263,10 +1299,12 @@ export function buildFigures(sceneData, heightAt) {
           });
         }
         stats.commoner++;
+        rec('commoner', fx, fz, H(fx, fz), 0.55);
         break;
       }
     }
     // 货郎（挑担）：台阶附近
+    if (stats.porter >= COUNT.porter) continue;
     for (const [fx, fz] of forecourt) {
       if (!usable(fx, fz, 0.7)) continue;
       occ.take(fx, fz, 0.7);
@@ -1284,6 +1322,7 @@ export function buildFigures(sceneData, heightAt) {
       });
       addPorterKit(bin, M, g.s);
       stats.porter++;
+      rec('porter', fx, fz, H(fx, fz), 0.7);
       break;
     }
   }
@@ -1317,6 +1356,7 @@ export function buildFigures(sceneData, heightAt) {
           skin: PAL.skin,
         });
         stats.official++;
+        rec('official', fx, fz, H(fx, fz), 0.8);
         offCount++;
         done++;
       }
@@ -1353,6 +1393,7 @@ export function buildFigures(sceneData, heightAt) {
         });
         addRegalia(bin, M, kind, g.s);
         stats.guard++;
+        rec('guard', fx, fz, H(fx, fz), 0.9);
         done++;
       }
     }
@@ -1386,6 +1427,7 @@ export function buildFigures(sceneData, heightAt) {
     let ok = true;
     for (const [qx, qz] of probe) {
       if (!usable(qx, qz, 1.9)) { ok = false; break; }
+      if (nearScene(qx, qz, SCENE_KEEPOUT)) { ok = false; break; }
     }
     if (!ok) continue;
     for (const [qx, qz] of probe) occ.take(qx, qz, 1.9);
@@ -1410,9 +1452,11 @@ export function buildFigures(sceneData, heightAt) {
         handZ: side * 1.42 + side * 0.10,
       });
       stats.bearer++;
+      rec('bearer', pt.x + nx * side * 1.5, pt.z + nz * side * 1.5, H(pt.x, pt.z), 1.9);
     }
     sedanCount++;
     stats.sedan++;
+    rec('sedan', pt.x, pt.z, H(pt.x, pt.z), 1.9);
   }
 
   /* ================================================================
@@ -1432,6 +1476,7 @@ export function buildFigures(sceneData, heightAt) {
     const ox = pt.x + nx * (rnd() < 0.5 ? -2.6 : 2.6);
     const oz = pt.z + nz * (rnd() < 0.5 ? -2.6 : 2.6);
     if (!usable(ox, oz, 1.7)) continue;
+    if (nearScene(ox, oz, SCENE_KEEPOUT)) continue;
     occ.take(ox, oz, 1.7);
     const M = new THREE.Matrix4().compose(
       new THREE.Vector3(ox, H(ox, oz), oz),
@@ -1441,6 +1486,7 @@ export function buildFigures(sceneData, heightAt) {
     addHorse(bin, M);
     horseCount++;
     stats.horse++;
+    rec('horse', ox, oz, H(ox, oz), 1.7);
   }
 
   /* ================================================================
@@ -1460,6 +1506,7 @@ export function buildFigures(sceneData, heightAt) {
     const ox = pt.x + nx * (rnd() < 0.5 ? -3.2 : 3.2);
     const oz = pt.z + nz * (rnd() < 0.5 ? -3.2 : 3.2);
     if (!usable(ox, oz, 2.0)) continue;
+    if (nearScene(ox, oz, SCENE_KEEPOUT)) continue;
     occ.take(ox, oz, 2.0);
     const M = new THREE.Matrix4().compose(
       new THREE.Vector3(ox, H(ox, oz), oz),
@@ -1469,16 +1516,22 @@ export function buildFigures(sceneData, heightAt) {
     addCart(bin, M);
     cartCount++;
     stats.cart++;
+    rec('cart', ox, oz, H(ox, oz), 2.0);
   }
 
   /* ================================================================
    * H. 小船 —— 只放在水面内部，且贴岸
+   *
+   * 注意：园内水面是**按水位开凿**出来的（build-scene.mjs），
+   * 剖面是 level - depth*(1 - d^2.2)，越靠岸越浅，岸边一格地面
+   * 几乎与水面齐平。所以"贴岸"不能只按环偏移 1~2m——
+   * 必须沿岸法线**向内步进**，直到脚下地面真的低于水面。
    * ================================================================ */
   const waterPolys = (sceneData.water || [])
     .filter((w) => w.ring && w.ring.length > 3 && polyArea(w.ring) > 2500);
   let boatCount = 0;
   let boatTry = 0;
-  while (boatCount < COUNT.boat && boatTry < 1600) {
+  while (boatCount < COUNT.boat && boatTry < 2400) {
     boatTry++;
     if (!waterPolys.length) break;
     const w = waterPolys[Math.floor(rnd() * waterPolys.length)];
@@ -1500,17 +1553,25 @@ export function buildFigures(sceneData, heightAt) {
     const nx = inward ? perpx : -perpx;
     const nz = inward ? perpz : -perpz;
 
+    // 沿岸法线向内步进，找到第一处"脚下确实在水下"的点
+    let bx = null;
+    let bz = null;
+    for (let d = 1.0; d <= 90; d += 0.8) {
+      const tx2 = px + nx * d;
+      const tz2 = pz + nz * d;
+      if (!pointInRing(tx2, tz2, ring)) break;
+      if (H(tx2, tz2) < w.level - 0.30) {
+        bx = tx2;
+        bz = tz2;
+        break;
+      }
+    }
+    if (bx === null) continue;
+
     const len = DIM.boat.lenMin + rnd() * (DIM.boat.lenMax - DIM.boat.lenMin);
-    const inset = DIM.boat.wid * 0.5 + 0.7 + rnd() * 0.9;
-    const bx = px + nx * inset;
-    const bz = pz + nz * inset;
-    // 船底要真的在水下
-    const g = H(bx, bz);
-    if (g > w.level - 0.55) continue;
-    if (g < w.level - 6) continue;
     // 不与岸线/其它船打架
-    if (!occ.free(bx, bz, 2.2)) continue;
-    occ.take(bx, bz, 2.2);
+    if (!occ.free(bx, bz, 2.4)) continue;
+    occ.take(bx, bz, 2.4);
 
     const yaw = Math.atan2(tx, tz);
     const M = new THREE.Matrix4().compose(
@@ -1521,9 +1582,11 @@ export function buildFigures(sceneData, heightAt) {
     addBoat(bin, M, len);
     boatCount++;
     stats.boat++;
+    rec('boat', bx, bz, w.level - 0.12, 2.4);
   }
 
   /* ---- 合并出 Mesh ---- */
+  group.userData.figures = records;
   const bucketStats = bin.build(MATS, group);
   let tris = 0;
   for (const [, t] of bucketStats) tris += t;

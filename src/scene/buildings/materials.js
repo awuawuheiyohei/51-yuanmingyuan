@@ -88,7 +88,25 @@ export function stoneMaterial() {
 }
 
 /**
+ * 素面石材（大面铺砌用）：无雕花，只保留石块的砌缝与质感。
+ */
+export function plainStoneMaterial() {
+  return make('plain-stone', () => {
+    const map = stone().clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 2);
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: 0xe4e0d6,
+      roughness: 0.92,
+    });
+  });
+}
+
+/**
  * 西洋楼的汉白玉/大理石：带西洋番花浮雕的石材贴图。
+ * 只用于柱身、栏板、券口这类小面积构件。
  */
 export function ornateStoneMaterial() {
   return make('ornate-stone', () => {

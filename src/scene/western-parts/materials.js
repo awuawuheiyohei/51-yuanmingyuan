@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   ornateStoneMaterial,
+  plainStoneMaterial,
   roofMaterial,
   caihuaMaterial,
   woodMaterial,
@@ -163,10 +164,14 @@ function rippleNormalTexture() {
 /* ------------------------------------------------------------------ 材质 */
 
 export function makeWesternMaterials() {
-  // 汉白玉 / 大理石：复用建筑系统的石材材质（带 AI 生成的番花浮雕贴图）。
-  // 但要**放大贴图密度**：默认一张贴图铺 8m，番花浮雕每块约 2m——
-  // 铺在广场大面上就密排成一张"地毯"。这里改成一张铺 32m，浮雕每块约 8m。
-  const stone = ornateStoneMaterial();
+  // 汉白玉 / 大理石：**素面**石（条石砌筑）。
+  //
+  // 番花浮雕那张贴图（baroque）不能拿来铺大面——它是"一块雕花板"，
+  // 铺在广场地面��会变成一张巨大的花地毯。番花只用在柱身与栏板
+  // 这些**小面积**构件上（见 mats.ornate）。
+  const stone = plainStoneMaterial();
+  // 番花浮雕：只给柱身、栏板、券口这些小构件用
+  const ornate = ornateStoneMaterial();
   if (stone.map) {
     stone.map = stone.map.clone();
     stone.map.needsUpdate = true;
@@ -235,14 +240,16 @@ export function makeWesternMaterials() {
     transparent: true,
     opacity: 0.97,
     normalMap: rippleNormalTexture(),
-    normalScale: new THREE.Vector2(0.4, 0.4),
+    normalScale: new THREE.Vector2(0.22, 0.22),
     side: THREE.DoubleSide,
     envMapIntensity: 0.6,
     clearcoat: 0.4,
     clearcoatRoughness: 0.08,
   });
 
-  const mats = { stone, rock, plaster, paint, dougong, wood, glass, metal, green, water };
+  const mats = {
+    stone, ornate, rock, plaster, paint, dougong, wood, glass, metal, green, water,
+  };
 
   // 琉璃瓦：直接用 TILE_COLORS 的色，材质实例按色缓存
   for (const [key, spec] of Object.entries(TILE_COLORS)) {

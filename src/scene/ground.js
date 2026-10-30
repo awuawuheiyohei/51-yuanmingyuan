@@ -43,39 +43,53 @@ export function makeGroundTexture() {
     '112,128,66',
     '168,158,108',
   ];
+  // 大块色斑要**画在环绕位置上**（同一点画 9 遍，分别偏移 ±S），
+  // 否则贴图边缘对不上——平铺到全园就是每 18m 一道网格缝，
+  // 俯视时整片草地像铺了一张花地毯。
   for (let i = 0; i < 120; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
     const r = 36 + rnd() * 120;
-    const grd = g.createRadialGradient(x, y, 0, x, y, r);
     const col = PATCH[Math.floor(rnd() * PATCH.length)];
-    grd.addColorStop(0, `rgba(${col},${0.42 + rnd() * 0.36})`);
-    grd.addColorStop(0.6, `rgba(${col},${0.16 + rnd() * 0.2})`);
-    grd.addColorStop(1, `rgba(${col},0)`);
-    g.fillStyle = grd;
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
+    const a0 = 0.42 + rnd() * 0.36;
+    const a1 = 0.16 + rnd() * 0.2;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, `rgba(${col},${a0})`);
+        grd.addColorStop(0.6, `rgba(${col},${a1})`);
+        grd.addColorStop(1, `rgba(${col},0)`);
+        g.fillStyle = grd;
+        g.beginPath();
+        g.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
   }
 
-  // 草叶笔触
+  // 草叶笔触（同样环绕画，保证无缝）
   for (let i = 0; i < 7000; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
     const len = 2 + rnd() * 7;
     const ang = -Math.PI / 2 + (rnd() - 0.5) * 1.4;
     const v = rnd();
-    g.strokeStyle =
+    const col =
       v < 0.3
         ? 'rgba(196,202,138,0.75)'
         : v < 0.62
           ? 'rgba(62,74,42,0.7)'
           : 'rgba(158,152,104,0.6)';
+    g.strokeStyle = col;
     g.lineWidth = 1 + rnd() * 1.4;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
-    g.stroke();
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        g.moveTo(x + ox, y + oy);
+        g.lineTo(x + ox + Math.cos(ang) * len, y + oy + Math.sin(ang) * len);
+        g.stroke();
+      }
+    }
   }
 
   // 细碎土粒

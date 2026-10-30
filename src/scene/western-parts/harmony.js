@@ -68,7 +68,7 @@ export function buildHarmonyHall(c, opts) {
         w: W1,
         d: D1,
         wall: 'plaster',
-        columnBucket: 'stone',
+        columnBucket: 'ornate',
         windowY: 1.3,
         windowH: 3.4,
         carved: true,
@@ -79,7 +79,7 @@ export function buildHarmonyHall(c, opts) {
         w: W2,
         d: D2,
         wall: 'plaster',
-        columnBucket: 'stone',
+        columnBucket: 'ornate',
         windowY: 1.1,
         windowH: 2.9,
         carved: true,
@@ -113,8 +113,8 @@ export function buildHarmonyHall(c, opts) {
       },
     ],
     wallBucket: 'plaster',
-    trimBucket: 'stone',
-    columnBucket: 'stone',
+    trimBucket: 'ornate',
+    columnBucket: 'ornate',
   });
 
   /* ------------------------------------------------------------ 二层月台 */
