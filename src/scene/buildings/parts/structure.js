@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildDougongSet, dougongProjection } from './dougong.js';
 import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
-import { buildShanGe, buildJianChuang } from './lattice.js';
+import { buildShanGeParts } from './lattice.js';
 import { buildColumnBase } from './details.js';
 
 const KEY = {
@@ -24,6 +24,7 @@ const KEY = {
   lattice: 'lattice',
   ceiling: 'ceiling',
   gold: 'gold',
+  dark: 'dark',
   finial: 'finial',
   plaque: 'plaque',
 };
@@ -245,14 +246,17 @@ export function buildStructure(spec) {
       // 两侧山墙开槛窗：真框料 + 步步锦格心
       for (let j = 0; j < jin; j++) {
         const cz = (colZs[j] + colZs[j + 1]) / 2;
-        const win = buildJianChuang(bayD * 0.52, wallH * 0.46);
-        win.rotateY((sx * Math.PI) / 2);
-        win.translate(
-          sx * (width / 2 - wallThick / 2 + 0.05),
-          floorY + wallH * 0.56,
-          cz
-        );
-        bucket(geoms, KEY.wood).push(win);
+        const win = buildShanGeParts(bayD * 0.52, wallH * 0.46);
+        for (const part of [win.frame, win.lattice]) {
+          part.rotateY((sx * Math.PI) / 2);
+          part.translate(
+            sx * (width / 2 - wallThick / 2 + 0.05),
+            floorY + wallH * 0.56,
+            cz
+          );
+        }
+        bucket(geoms, KEY.wood).push(win.frame);
+        bucket(geoms, KEY.lattice).push(win.lattice);
       }
     }
 
@@ -263,17 +267,21 @@ export function buildStructure(spec) {
     for (let i = 0; i < mian; i++) {
       const cx = (colXs[i] + colXs[i + 1]) / 2;
       if (doorSet.has(i)) {
-        // 门洞内的暗底，使隔扇读作"开口"
+        // 门洞内的暗底：殿内是暗的，用墙材质会变成一块红板，
+        // 隔扇就贴在红墙上，读不出"开口"
         const back = new THREE.BoxGeometry(bayW - colDia, wallH, 0.1);
         back.translate(cx, floorY + wallH / 2, frontZ - wallThick * 0.42);
-        bucket(geoms, KEY.wall).push(back);
+        bucket(geoms, KEY.dark).push(back);
         // 隔扇门（四扇槅扇）—— 框料/绦环板/步步锦格心/裙板，全是实体
         const leafW = (bayW - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
           const lx = cx - (bayW - colDia * 1.2) / 2 + leafW * (k + 0.5);
-          const leaf = buildShanGe(leafW * 0.94, wallH * 0.96);
-          leaf.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          bucket(geoms, KEY.wood).push(leaf);
+          const { frame, lattice } = buildShanGeParts(leafW * 0.94, wallH * 0.96);
+          frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+          lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+          // 框料上红漆，格心是棂条 + 背后的暗色门洞——分成两个材质桶
+          bucket(geoms, KEY.wood).push(frame);
+          bucket(geoms, KEY.lattice).push(lattice);
         }
         // 门楣
         const lintel = new THREE.BoxGeometry(bayW - colDia * 0.6, 0.22, wallThick * 1.1);

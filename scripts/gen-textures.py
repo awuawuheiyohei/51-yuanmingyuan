@@ -67,14 +67,33 @@ MATERIALS = {
         "negative": "people, metal, glass, perspective, vignette, blur, text, watermark",
         "steps": 32,
     },
+    # 官式建筑的石材：须弥座、条石、栏杆、柱础
     "stone": {
         "prompt": (
-            "seamless texture of white marble Chinese palace balustrade stone, "
-            "fine crystalline grain, soft weathering, cool white, "
+            "seamless texture of finely chiseled Chinese imperial grey granite "
+            "ashlar blocks, plain rectangular stone courses, straight joints, "
+            "subtle tool marks, light weathering and patina, cool grey, "
             "flat even lighting, top-down orthographic, "
             "photorealistic architectural material, no shadows, high detail"
         ),
-        "negative": "people, plants, cracks, perspective, vignette, blur, text, watermark",
+        # 负向里必须压掉"雕刻"：SD 一看到"palace stone"就给你刻一屏巴洛克卷草，
+        # 贴到中式须弥座上一眼串味。
+        "negative": (
+            "people, plants, cracks, perspective, vignette, blur, text, watermark, "
+            "carving, ornate, relief, baroque, scroll, floral, decorative, pattern"
+        ),
+        "steps": 32,
+    },
+    # 西洋楼的汉白玉：番花浮雕（远瀛观、谐奇趣的柱身与栏板）
+    "baroque": {
+        "prompt": (
+            "seamless texture of ornate baroque carved white marble panel, "
+            "deep relief scrolling acanthus foliage and shell motifs, "
+            "baroque scrollwork border, soft weathering, "
+            "flat even lighting, top-down orthographic, "
+            "photorealistic material, no shadows, high detail"
+        ),
+        "negative": "people, sky, perspective, vignette, blur, text, watermark, plain, smooth",
         "steps": 32,
     },
     "moss": {

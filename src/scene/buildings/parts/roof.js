@@ -144,36 +144,30 @@ function buildRoofCore(spec, geomsIn) {
       return eaveY + rise * (1 - fold(Math.min(1, t)));
     }
 
-    if (type === 'xieshan') {
+    if (type === 'xieshan' || type === 'juanpengxieshan') {
       // 上部：山面之上的悬山段（|z| ≤ zBreak，|x| ≤ xh）
-      // 下部：庑殿段
+      // 下部：庑殿段（前后坡 + 45° 戗脊收分）
       // 两段在折线处必须都等于 yBreak，否则接缝处会裂出一道竖直台阶。
       if (az <= zBreak) {
-        if (ax <= xh) {
-          return ridgeY - (ridgeY - yBreak) * fold(az / zBreak);
-        }
-        return null; // 山花区域：竖直面，稍后单独生成
-      }
-      const u = Math.max(0, ax - xh);
-      const tz = (az - zBreak) / (Wz - zBreak);
-      const base = yBreak - (yBreak - eaveY) * fold(tz);
-      return base * (0.5 + 0.5 * (1 - Math.min(1, u / hipRunX)));
-    }
-
-    if (type === 'juanpengxieshan') {
-      // 卷棚歇山：下部同庑殿（斜脊收进），上部为卷棚——脊两端圆缓卷落，
-      // 没有歇山的竖直山花面。
-      if (az <= zBreak) {
         const y = ridgeY - (ridgeY - yBreak) * fold(az / zBreak);
+        if (type === 'xieshan') {
+          if (ax <= xh) return y;
+          return null; // 山花区域：竖直面，稍后单独生成
+        }
+        // 卷棚歇山：山花位置改为圆缓卷落（无山花）
         const span = Math.max(1.0, Wx - xh);
         const u = Math.min(1, Math.max(0, (ax - xh) / span));
         const k = 1 - smoothstep(0, 1, u);
         return eaveY + (y - eaveY) * k;
       }
-      const u = Math.max(0, ax - xh);
-      const tz = (az - zBreak) / (Wz - zBreak);
-      const base = yBreak - (yBreak - eaveY) * fold(tz);
-      return base * (0.5 + 0.5 * (1 - Math.min(1, u / hipRunX)));
+      // 下部：沿深度取 t，戗脊在 x = xh + t*(Wx-xh) 处。
+      // 戗脊以内取前后坡的举折高度，戗脊以外（角部）取戗脊线上的高度——
+      // 角部因此正好落在 eaveY，而不是像旧公式那样掉到 eaveY 的一半。
+      const t = (az - zBreak) / (Wz - zBreak);
+      const prof = yBreak - (yBreak - eaveY) * fold(t);
+      const xHip = xh + t * (Wx - xh);
+      if (ax <= xHip) return prof;
+      return yBreak - (yBreak - eaveY) * t;
     }
 
     // 庑殿 / 悬山 / 硬山 / 卷棚
@@ -453,13 +447,7 @@ function buildRoofCore(spec, geomsIn) {
   } else if (type === 'xieshan' || type === 'juanpengxieshan') {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        ridges.push({
-          kind: 'hip',
-          pts: [
-            new THREE.Vector3(sx * xh, yBreak, sz * zBreak),
-            new THREE.Vector3(sx * (Wx - 0.25), eaveY + 0.12, sz * (Wz - 0.25)),
-          ],
-        });
+        ridges.push({ kind: 'hip', pts: hipLine(sx, sz) });
       }
     }
   } else if (type === 'juanpeng') {
@@ -476,15 +464,22 @@ function buildRoofCore(spec, geomsIn) {
     }
   }
 
+  /**
+   * 45° 戗脊：从山花底角 (xh, zBreak) 斜下到檐角 (Wx, Wz)。
+   *
+   * 戗脊必须**贴着屋面折线**走。早期版本用一条手写的两点直线，
+   * 屋面的角部高度场与它对不上，戗脊就变成一根甩到屋面外的长刺——
+   * 远看像屋檐上插了根签子。
+   */
   function hipLine(sx, sz) {
     const pts = [];
-    const N = 8;
+    const N = 10;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
       const x = sx * (xh + (Wx - xh) * t);
-      const z = sz * Wz * t;
-      const y = eaveY + rise * (1 - fold(t)) * (1 - t);
-      pts.push(new THREE.Vector3(x, Math.max(y, eaveY + 0.05), z));
+      const z = sz * (zBreak + (Wz - zBreak) * t);
+      const y = yBreak - (yBreak - eaveY) * t;
+      pts.push(new THREE.Vector3(x, y + 0.06, z));
     }
     return pts;
   }

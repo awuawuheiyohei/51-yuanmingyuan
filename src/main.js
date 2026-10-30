@@ -11,6 +11,7 @@ import { buildWater, animateWater } from './scene/water.js';
 import { buildRockery } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
+import { buildCorridors } from './scene/corridor.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
 import { setTextureOverrides } from './scene/buildings/textures.js';
@@ -22,6 +23,14 @@ const state = {
   tourPlaying: true,
   timeOfDay: 9.5, // 小时
   ready: false,
+  /**
+   * 焦距（35mm 等效，mm）。
+   * 默认 35mm：建筑摄影的常规广角。之前的 52° 垂直视场约等于 21mm，
+   * 太广——画面边缘被拉变形、地平线压到画面下缘，一眼就是"游戏截图"。
+   */
+  focal: 35,
+  /** 两点透视（移轴）：光轴水平，竖线不收敛，靠移轴把目标顶到画面中央 */
+  shiftMode: true,
 };
 
 /* ------------------------------------------------------------------ 渲染 */
@@ -41,8 +50,17 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
+
+/** 35mm 画幅垂直高 24mm → 焦距(mm) 与垂直视场的换算 */
+function focalToFov(mm) {
+  return THREE.MathUtils.radToDeg(2 * Math.atan(12 / mm));
+}
+function fovToFocal(fov) {
+  return 12 / Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+}
+
 const camera = new THREE.PerspectiveCamera(
-  52,
+  focalToFov(state.focal),
   window.innerWidth / window.innerHeight,
   0.5,
   12000
@@ -57,6 +75,88 @@ controls.minDistance = 4;
 controls.maxDistance = 6000;
 controls.target.set(300, 40, 200);
 
+/* ------------------------------------------------- 焦距 / 两点透视（移轴） */
+
+/**
+ * 设置焦距（35mm 等效）。
+ * @param {number} mm
+ */
+function setFocal(mm) {
+  state.focal = THREE.MathUtils.clamp(mm, 14, 120);
+  camera.fov = focalToFov(state.focal);
+  camera.updateProjectionMatrix();
+}
+
+/**
+ * 移轴：保持成像框上下平移，但**不改变光轴方向**。
+ *
+ * 这是移轴镜头（tilt-shift）在三维里的做法：`setViewOffset` 只挪动取景窗口，
+ * 投影矩阵的中心轴仍然是水平的。相机俯仰角为 0 时，建筑的竖线就保持竖直，
+ * 和真实建筑摄影（水平机位 + 移轴）一致；不会像"相机一歪、楼就躺下"。
+ *
+ * @param {number} theta 目标相对光轴的仰角（弧度，正为上）
+ */
+function applyShift(theta) {
+  const W = canvas.clientWidth || window.innerWidth;
+  const H = canvas.clientHeight || window.innerHeight;
+  const half = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  // 超过 ~55° 就不移轴了（那已经是俯视/仰视，不是建筑摄影的范畴）
+  if (Math.abs(theta) > 0.96) {
+    camera.clearViewOffset();
+    return false;
+  }
+  const offsetY = -H * Math.tan(theta) / half;
+  camera.setViewOffset(W, H, 0, offsetY, W, H);
+  return true;
+}
+
+/**
+ * 把相机摆成两点透视：机位在 camPos，光轴水平朝向 tgtPos。
+ * @param {{x:number,y:number,z:number}} camPos
+ * @param {{x:number,y:number,z:number}} tgtPos
+ */
+function frameTwoPoint(camPos, tgtPos) {
+  camera.position.set(camPos.x, camPos.y, camPos.z);
+  const dx = tgtPos.x - camPos.x;
+  const dz = tgtPos.z - camPos.z;
+  const dist = Math.hypot(dx, dz) || 1;
+  // 光轴水平：只取偏航
+  camera.rotation.set(0, Math.atan2(-dx, -dz), 0, 'YXZ');
+  const theta = Math.atan2(tgtPos.y - camPos.y, dist);
+  applyShift(theta);
+  controls.target.set(tgtPos.x, tgtPos.y, tgtPos.z);
+}
+
+/**
+ * 两点透视：把相机的俯仰抹平，用移轴把目标顶到画面中央。
+ * 俯视/仰视超过 ~55° 就不移轴了——那是俯瞰图，不是建筑摄影。
+ *
+ * @param {THREE.Vector3} target 取景目标
+ */
+function levelAndShift(target) {
+  const dx = target.x - camera.position.x;
+  const dz = target.z - camera.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-3) {
+    camera.clearViewOffset();
+    return;
+  }
+  const theta = Math.atan2(target.y - camera.position.y, dist);
+  if (Math.abs(theta) > 0.96) {
+    camera.clearViewOffset();
+    return;
+  }
+  applyShift(theta);
+  camera.rotation.set(0, Math.atan2(-dx, -dz), 0, 'YXZ');
+}
+
+/** 自由浏览时的两点透视 */
+function enforceTwoPoint() {
+  if (!state.shiftMode || state.mode !== 'free') return;
+  levelAndShift(controls.target);
+}
+
+
 /* ------------------------------------------------------------------ 天空 */
 
 const skyUniforms = {
@@ -68,10 +168,14 @@ const skyUniforms = {
   offset: { value: 0.05 },
   exponent: { value: 0.7 },
   sunSize: { value: 0.012 },
+  uTime: { value: 0 },
+  cloudLight: { value: new THREE.Color('#ffffff') },
+  cloudDark: { value: new THREE.Color('#9aa6b4') },
+  cloudAmount: { value: 0.55 },
 };
 
 const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(8000, 32, 20),
+  new THREE.SphereGeometry(8000, 48, 28),
   new THREE.ShaderMaterial({
     uniforms: skyUniforms,
     side: THREE.BackSide,
@@ -92,13 +196,58 @@ const sky = new THREE.Mesh(
       uniform float offset;
       uniform float exponent;
       uniform float sunSize;
+      uniform float uTime;
+      uniform vec3 cloudLight;
+      uniform vec3 cloudDark;
+      uniform float cloudAmount;
       varying vec3 vWorld;
+
+      /* 值噪声 + fbm，用来长云 */
+      float hash13(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+      }
+      float vnoise(vec3 x) {
+        vec3 i = floor(x);
+        vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(mix(hash13(i + vec3(0,0,0)), hash13(i + vec3(1,0,0)), f.x),
+              mix(hash13(i + vec3(0,1,0)), hash13(i + vec3(1,1,0)), f.x), f.y),
+          mix(mix(hash13(i + vec3(0,0,1)), hash13(i + vec3(1,0,1)), f.x),
+              mix(hash13(i + vec3(0,1,1)), hash13(i + vec3(1,1,1)), f.x), f.y),
+          f.z);
+      }
+      float fbm(vec3 p) {
+        float v = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 5; i++) {
+          v += a * vnoise(p);
+          p = p * 2.07 + vec3(11.3, 7.1, 5.7);
+          a *= 0.5;
+        }
+        return v;
+      }
 
       void main() {
         vec3 dir = normalize(vWorld);
         float h = dir.y;
         vec3 skyCol = mix(bottomColor, topColor, pow(max(h, 0.0), exponent));
         skyCol = mix(horizonColor, skyCol, smoothstep(-0.05, 0.22, h));
+
+        // 云层：把视线投到固定高度的云底平面，再做 fbm
+        if (h > 0.012) {
+          vec3 cp = dir / h;              // 投到 y = 1 的平面
+          float c = fbm(cp * 0.55 + vec3(uTime * 0.0045, 0.0, uTime * 0.0022));
+          float cov = smoothstep(0.46 - cloudAmount * 0.16, 0.80 - cloudAmount * 0.10, c);
+          // 云底偏灰、云顶偏亮；靠近太阳一侧镶边
+          vec3 cloudCol = mix(cloudDark, cloudLight, smoothstep(0.42, 0.86, c));
+          float sd = max(dot(dir, normalize(sunDir)), 0.0);
+          cloudCol += sunColor * pow(sd, 8.0) * 0.35;
+          skyCol = mix(skyCol, cloudCol, cov * smoothstep(0.012, 0.10, h) * 0.92);
+        }
+
         // 太阳光晕
         float d = max(dot(dir, normalize(sunDir)), 0.0);
         skyCol += sunColor * pow(d, 900.0) * 3.0;
@@ -237,8 +386,15 @@ function updateSun(hour) {
   skyUniforms.bottomColor.value.copy(bottom);
   skyUniforms.horizonColor.value.copy(horizon);
   skyUniforms.sunColor.value.setHSL(0.1, 0.5, 0.6 + day * 0.25);
+  // 云的明暗随时段走：日出日落偏暖，正午偏白
+  skyUniforms.cloudLight.value.setHSL(0.09 + day * 0.02, 0.12 + dusk * 0.25, 0.62 + day * 0.33);
+  skyUniforms.cloudDark.value.setHSL(0.58, 0.14 + dusk * 0.12, 0.28 + day * 0.24);
 
+  // 大气透视：远处要"退"进空气里。原来的雾从 900m 才开始，
+  // 对一个 2.4km 的园区几乎没有作用——远处的山和建筑一样清楚，一眼就假。
   scene.fog.color.copy(horizon).lerp(bottom, 0.35);
+  scene.fog.near = 260;
+  scene.fog.far = 3400;
   renderer.toneMappingExposure = 0.85 + day * 0.35;
 
   // 天空变了，环境光要跟着重烘（限流，别每帧都做）
@@ -316,6 +472,11 @@ async function loadScene() {
 
   const paths = buildPaths(sceneData, heightAt);
   scene.add(paths);
+  scene.add(buildCorridors(sceneData, heightAt));
+
+  // 游廊：圆明园最具辨识度的构件之一（沿水岸连接各景的长廊），
+  // 此前写好了却从未被装进场景——7800m 长廊一直是缺席的。
+  scene.add(buildCorridors(sceneData, heightAt));
 
   const layout = buildLayout(sceneData, heightAt);
   scene.add(layout.group);
@@ -338,6 +499,8 @@ async function loadScene() {
   // 调试视角：?view=top 俯视全景 / ?view=scene 贴近正大光明
   const q = new URLSearchParams(location.search);
   const view = q.get('view');
+  // 焦距可用 URL 覆盖，方便对比：?focal=24 / 35 / 50 / 85
+  if (q.get('focal')) setFocal(Number(q.get('focal')));
   if (view === 'top') {
     // 以园界包围盒中心为俯视中心
     let minX = Infinity;
@@ -355,19 +518,32 @@ async function loadScene() {
     const cy = heightAt(cx, cz);
     const span = maxX - minX;
     // 相机几乎正上方时 lookAt 的朝向会退化，这里留一点南向偏移以稳定方位
+    camera.clearViewOffset();
     camera.position.set(cx, cy + span * 0.92, cz + span * 0.3);
     controls.target.set(cx, cy, cz);
     controls.update();
   } else if (view === 'scene' || view === 'close') {
     // ?view=scene&name=<景名> 看某一景；?view=close&name=<景名> 更近的正面
+    //
+    // 取景方式按**建筑摄影**来：相机放在人眼高度（1.7m），光轴水平，
+    // 靠移轴把屋面顶进画面。这样竖线保持竖直，才像照片而不是游戏截图。
     const s = byName(q.get('name') || '正大光明');
     if (s) {
       const close = view === 'close';
-      const dist = close ? 52 : 112;
-      const high = close ? 16 : 34;
-      // 从南面看正殿正面（隔扇门所在面）
-      camera.position.set(s.x - (close ? 18 : 44), heightAt(s.x, s.z) + high, s.z + dist);
-      controls.target.set(s.x, heightAt(s.x, s.z) + (close ? 9 : 12), s.z);
+      // 三分角构图（斜约 40°）+ 移轴两点透视：建筑摄影的常规取景。
+      // 正对中轴的平视会把殿宇拍成一张"立面图"，看不出进深；
+      // 相机一歪，竖线又收敛成"游戏截图"。
+      // 机位放在景区前的庭院空地里（构建期已把这一圈清空），
+      // 站人眼高度、斜 40° 取景——建筑摄影的常规机位。
+      // 机位抬到配建筑屋面之上，斜 40° 取景：
+      // 配建筑（勤政殿、飞云轩…）就摆在主殿两侧与轴线上，站低了必然被挡。
+      const d = close ? 62 : 96;
+      const yaw = 0.85; // 与正轴约 40°
+      const camX = s.x + Math.sin(yaw) * d;
+      const camZ = s.z + Math.cos(yaw) * d;
+      const eye = (heightAt(camX, camZ) || heightAt(s.x, s.z)) + (close ? 15 : 24);
+      const aim = heightAt(s.x, s.z) + (close ? 6 : 7);
+      frameTwoPoint({ x: camX, y: eye, z: camZ }, { x: s.x, y: aim, z: s.z });
       controls.update();
     }
   } else if (view === 'plan' && q.get('name')) {
@@ -375,6 +551,7 @@ async function loadScene() {
     const s = byName(q.get('name'));
     if (s) {
       const h = heightAt(s.x, s.z);
+      camera.clearViewOffset();
       camera.position.set(s.x, h + 90, s.z + 0.01);
       controls.target.set(s.x, h, s.z);
       controls.update();
@@ -394,11 +571,14 @@ async function loadScene() {
     controls.target.set(x, heightAt(x, z) + h * 0.3, z);
     controls.update();
   } else if (view === 'garden') {
-    // 园中景：站在福海西岸看整片水面与对岸建筑
+    // 园中景：站在福海西岸看整片水面与对岸建筑（人眼高度 + 移轴）
     const s = byName('福海');
     if (s) {
-      camera.position.set(s.x - 150, heightAt(s.x, s.z) + 42, s.z + 130);
-      controls.target.set(s.x + 30, heightAt(s.x, s.z) + 8, s.z - 20);
+      const eye = heightAt(s.x, s.z) + 2.2;
+      frameTwoPoint(
+        { x: s.x - 150, y: eye, z: s.z + 130 },
+        { x: s.x + 30, y: heightAt(s.x, s.z) + 12, z: s.z - 20 }
+      );
       controls.update();
     }
   }
@@ -430,6 +610,11 @@ async function loadScene() {
     controls,
     tour,
     onTimeChange: updateSun,
+    onFocalChange: setFocal,
+    onShiftChange: (v) => {
+      state.shiftMode = v;
+      if (!v) camera.clearViewOffset();
+    },
     onFocusScene: (s) => focusScene(s),
     onShot: () => capture(),
   });
@@ -484,9 +669,17 @@ function animate() {
     if (state.tourTime > tour.totalDur) state.tourTime = 0;
     const info = tour.update(state.tourTime, camera);
     controls.target.copy(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(120).add(camera.position));
+    // 巡游里的建筑镜头同样走两点透视：竖线保持竖直，画面才像照片
+    if (state.shiftMode) levelAndShift(controls.target);
   } else {
     controls.update();
   }
+
+  // 自由浏览：抹平俯仰、用移轴补偿 → 竖线保持竖直（两点透视）
+  if (state.mode === 'free') enforceTwoPoint();
+
+  // 云的缓慢漂移
+  skyUniforms.uTime.value = t;
 
   // 阴影相机跟随视点
   const focus = controls.target;

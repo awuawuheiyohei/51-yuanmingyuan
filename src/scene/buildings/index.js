@@ -35,23 +35,23 @@ import { materialFor } from './materials.js';
 export function defaultForm(rank = 'hall') {
   const table = {
     // 大殿：九间五间、重檐庑殿
-    grand: { mian: 9, jin: 5, roof: 'xieshan', caihua: 'hexi', wallType: 'red', platform: 'xumizuo', columnColor: '#a8302a' },
+    grand: { mian: 9, jin: 5, roof: 'xieshan', caihua: 'hexi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
     // 正殿：七间、歇山
-    hall: { mian: 7, jin: 5, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#a8302a' },
+    hall: { mian: 7, jin: 5, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
     // 配殿：五间、硬山/悬山
-    side: { mian: 5, jin: 3, roof: 'yingshan', caihua: 'xuanzi', wallType: 'brick', platform: 'simple', columnColor: '#a8302a' },
+    side: { mian: 5, jin: 3, roof: 'yingshan', caihua: 'xuanzi', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
     // 馆：五间、卷棚
-    house: { mian: 5, jin: 3, roof: 'juanpeng', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#a8302a' },
+    house: { mian: 5, jin: 3, roof: 'juanpeng', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
     // 轩：面阔较小、单檐
-    xuan: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#a8302a' },
+    xuan: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
     // 亭：攒尖
     pavilion: { mian: 1, jin: 1, roof: 'zanjiandian', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#2f7a4a' },
     // 楼：两层
-    tower: { mian: 5, jin: 3, roof: 'xieshan', caihua: 'xuanzi', wallType: 'brick', platform: 'xumizuo', columnColor: '#a8302a' },
+    tower: { mian: 5, jin: 3, roof: 'xieshan', caihua: 'xuanzi', wallType: 'brick', platform: 'xumizuo', columnColor: '#8f2820' },
     // 门
-    gate: { mian: 3, jin: 2, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#a8302a' },
+    gate: { mian: 3, jin: 2, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
     // 游廊
-    corridor: { mian: 1, jin: 1, roof: 'yingshan', caihua: 'su', wallType: 'brick', platform: 'none', columnColor: '#a8302a' },
+    corridor: { mian: 1, jin: 1, roof: 'yingshan', caihua: 'su', wallType: 'brick', platform: 'none', columnColor: '#8f2820' },
   };
   return table[rank] || table.hall;
 }

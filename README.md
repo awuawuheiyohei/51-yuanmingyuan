@@ -13,6 +13,18 @@ npm run scene     # 合成 scene.json
 npm run dev       # 打开 http://127.0.0.1:5180
 ```
 
+### 透视：焦距与两点透视
+
+右栏「透视」区有两个控件：
+
+- **焦距（14~120mm，35mm 等效）**：默认 35mm。建筑摄影的常规广角。
+  之前的 52° 垂直视场约等于 21mm，太广——画面边缘被拉变形、地平线压到画面下缘。
+- **两点透视**：相机光轴保持水平，用**移轴**（`camera.setViewOffset`）把成像框上下平移。
+  建筑摄影就是这么拍的：水平机位 + 移轴镜头，**建筑的竖线保持竖直**，
+  不会像"相机一歪、楼就躺下"。俯视超过 55° 时自动退回普通透视。
+
+也可以用 URL 直接指定：`?focal=24`、`?focal=50`。
+
 ### 本机 GPU 材质生成（可选）
 
 用 Apple MPS 跑 Stable Diffusion 1.5 生成写实材质，替换程序化贴图：
@@ -46,6 +58,7 @@ HF_HUB_DISABLE_XET=1 .venv-ai/bin/python scripts/gen-textures.py
 | `?view=plan&name=<景名>` | 该景正俯视（查平面形制，如卍字/田字） |
 | `?view=garden` | 福海西岸望对岸 |
 | `?view=west` / `west2` / `west3` / `west4` | 西洋楼：大水法全景 / 海晏堂生肖 / 远瀛观 / 整片西洋楼 |
+| `?focal=<mm>` | 指定焦距（35mm 等效），便于对比 |
 
 俯视诊断图：`python3 scripts/plan-view.py && ffmpeg -i public/scene/plan.ppm public/scene/plan.png`。
 

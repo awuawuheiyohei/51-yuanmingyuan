@@ -53,12 +53,19 @@ export function buildTerrain(sceneData, opts = {}) {
     tmp.lerp(cRock, slope * 0.85);
     tmp.lerp(cSand, Math.max(0, 0.35 - alt) * 0.4);
 
-    // 低频大尺度色变：打散贴图的重复感
+    // 低频 + 中频大尺度色变：打散贴图的重复感。
+    // 一张平铺的草地贴图最大的破绽就是"每 14m 出现同样的花纹"，
+    // 只靠贴图解决不了——必须让**顶点色**在不同尺度上错开，
+    // 肉眼看过去就没有明显的接缝周期了。
     const low =
       Math.sin(x * 0.0055 + 1.3) * 0.5 +
       Math.sin(z * 0.0041 - 0.7) * 0.5 +
       Math.sin((x + z) * 0.0026) * 0.6;
-    tmp.offsetHSL(low * 0.012, low * 0.05, low * 0.055);
+    const mid =
+      Math.sin(x * 0.021 - 0.4) * 0.55 +
+      Math.cos(z * 0.017 + 1.1) * 0.5 +
+      Math.sin((x - z) * 0.013 + 2.3) * 0.45;
+    tmp.offsetHSL(low * 0.016 + mid * 0.008, low * 0.06 + mid * 0.03, low * 0.10 + mid * 0.055);
 
     // 高频抖动：打散 8bit 量化造成的等高线色带。
     // 用**整数哈希**，不要用 sin 大数伪随机——sin(x*12.9898) 在 x 上千之后
@@ -73,8 +80,9 @@ export function buildTerrain(sceneData, opts = {}) {
     colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  // UV 按世界尺度铺开：程序化贴图 35m 一张，AI 照片贴图要密一些（14m）
-  const tile = getTextureOverrides().grass ? 14 : 35;
+  // UV 按世界尺度铺开：程序化贴图 35m 一张，AI 照片贴图 19m 一张。
+  // 14m 时平铺周期太短，站在地面上一眼就看见"一模一样的方块在重复"。
+  const tile = getTextureOverrides().grass ? 19 : 35;
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) {
     uv.setXY(i, uv.getX(i) * (spanX / tile), uv.getY(i) * (spanZ / tile));
@@ -88,6 +96,8 @@ export function buildTerrain(sceneData, opts = {}) {
     roughness: 0.98,
     metalness: 0,
   });
+  // AI 草地图偏"照片绿"，压一点饱和度更像乾隆年间的草坪
+  if (getTextureOverrides().grass) mat.color.setHex(0xd8dcc8);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';

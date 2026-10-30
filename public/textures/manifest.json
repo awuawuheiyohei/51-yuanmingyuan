@@ -5,7 +5,7 @@
   },
   "stone": {
     "file": "stone.png",
-    "size": 520786
+    "size": 301894
   },
   "moss": {
     "file": "moss.png",
@@ -22,5 +22,9 @@
   "tile": {
     "file": "tile.png",
     "size": 441083
+  },
+  "baroque": {
+    "file": "baroque.png",
+    "size": 618391
   }
 }

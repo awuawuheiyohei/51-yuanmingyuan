@@ -7,7 +7,17 @@ import { SCENE_ORDER } from '../scene/scenes-program.js';
 const EXTRA_ORDER = ['福海', '西洋楼', '绮春园'];
 
 export function initHud(ctx) {
-  const { state, sceneData, controls, tour, onTimeChange, onFocusScene, onShot } = ctx;
+  const {
+    state,
+    sceneData,
+    controls,
+    tour,
+    onTimeChange,
+    onFocusScene,
+    onShot,
+    onFocalChange,
+    onShiftChange,
+  } = ctx;
 
   const el = (id) => document.getElementById(id);
 
@@ -90,6 +100,29 @@ export function initHud(ctx) {
     };
     shots.appendChild(b);
   });
+
+  /* ---------- 透视：焦距 + 两点透视 ---------- */
+  const focalSlider = el('focal-slider');
+  const focalLabel = el('focal-label');
+  const shiftBtn = el('btn-shift');
+  focalSlider.oninput = () => {
+    const mm = parseFloat(focalSlider.value);
+    focalLabel.textContent = `${mm}mm`;
+    onFocalChange(mm);
+  };
+  focalSlider.value = state.focal ?? 35;
+  focalLabel.textContent = `${focalSlider.value}mm`;
+  onFocalChange(parseFloat(focalSlider.value));
+
+  shiftBtn.onclick = () => {
+    state.shiftMode = !state.shiftMode;
+    shiftBtn.classList.toggle('active', state.shiftMode);
+    shiftBtn.textContent = state.shiftMode ? '两点透视' : '自由透视';
+    onShiftChange(state.shiftMode);
+  };
+  shiftBtn.classList.toggle('active', state.shiftMode !== false);
+  shiftBtn.textContent = state.shiftMode !== false ? '两点透视' : '自由透视';
+  onShiftChange(state.shiftMode !== false);
 
   /* ---------- 时段 ---------- */
   const timeSlider = el('time-slider');

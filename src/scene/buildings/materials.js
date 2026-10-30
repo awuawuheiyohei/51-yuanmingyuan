@@ -6,12 +6,14 @@ import {
   roofTiles,
   roofTilesNormal,
   caihua,
+  ornateStone,
   columnPaint,
   brickWall,
   stone,
   wood,
   caoJing,
   latticeWindow,
+  plaqueBoard,
 } from './textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
 
@@ -65,10 +67,35 @@ export function eaveMaterial() {
   );
 }
 
+/**
+ * 官式建筑的石材（须弥座、条石、栏杆、柱础）。
+ *
+ * 用**青砖**贴图而不是 AI 生成的那张"西洋番花浮雕石"——后者是给西洋楼
+ * 用的，给中式须弥座贴上巴洛克卷草，一眼就串味。
+ */
 export function stoneMaterial() {
   return make('stone', () => {
-    const map = stone();
-    map.repeat.set(4, 4);
+    const map = stone().clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 2);
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: 0xcac6ba,
+      roughness: 0.95,
+    });
+  });
+}
+
+/**
+ * 西洋楼的汉白玉/大理石：带西洋番花浮雕的石材贴图。
+ */
+export function ornateStoneMaterial() {
+  return make('ornate-stone', () => {
+    const map = ornateStone().clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 2);
     return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
   });
 }
@@ -95,10 +122,18 @@ export function dougongMaterial() {
 
 export function wallMaterial(type = 'brick') {
   return make(`wall-${type}`, () => {
+    // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳都要在。
+    const map = brickWall().clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
     if (type === 'red') {
-      return new THREE.MeshStandardMaterial({ color: 0x9c2f27, roughness: 0.85 });
+      map.repeat.set(6, 3);
+      return new THREE.MeshStandardMaterial({
+        map,
+        color: 0x6f231c,
+        roughness: 0.9,
+      });
     }
-    const map = brickWall();
     map.repeat.set(3, 2);
     return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
   });
@@ -107,7 +142,12 @@ export function wallMaterial(type = 'brick') {
 export function woodMaterial() {
   return make('wood', () => {
     const map = wood();
-    return new THREE.MeshStandardMaterial({ map, roughness: 0.8 });
+    // AI 生成的木纹贴图偏亮红，直接用像塑料；压一档更像旧漆
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: 0xc3b8ae,
+      roughness: 0.86,
+    });
   });
 }
 
@@ -145,10 +185,25 @@ export function shanhuaMaterial() {
   );
 }
 
-/** 匾额漆底（黑漆） */
-export function plaqueMaterial() {
-  return make('plaque', () =>
-    new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.42, metalness: 0.05 })
+/**
+ * 匾额：黑漆金字。
+ * @param {string} [text] 匾文（空则纯漆地）
+ */
+export function plaqueMaterial(text = '') {
+  return make(`plaque-${text}`, () =>
+    new THREE.MeshStandardMaterial({
+      map: text ? plaqueBoard(text) : null,
+      color: text ? 0xffffff : 0x1a1410,
+      roughness: 0.42,
+      metalness: 0.05,
+    })
+  );
+}
+
+/** 门窗洞内的暗色（殿内阴影） */
+export function darkMaterial() {
+  return make('dark', () =>
+    new THREE.MeshStandardMaterial({ color: 0x241a14, roughness: 0.95 })
   );
 }
 
@@ -190,8 +245,10 @@ export function materialFor(key, spec = {}) {
       return ceilingMaterial();
     case 'shanhua':
       return shanhuaMaterial();
+    case 'dark':
+      return darkMaterial();
     case 'plaque':
-      return plaqueMaterial();
+      return plaqueMaterial(spec.plaqueText || '');
     default:
       return new THREE.MeshStandardMaterial({ color: 0x999999 });
   }

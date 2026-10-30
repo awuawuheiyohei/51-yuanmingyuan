@@ -282,16 +282,27 @@ function growBranches(opts) {
   out.push(seg);
 
   if (depth >= maxDepth) {
-    // 末端挂一簇树冠：两片交叉 + 一片侧向，避免看出是"一块贴图"
-    const card = makeCard(end, leafSize, rnd, species);
-    foliageOut.push(card);
-    const card2 = makeCard(
-      end.clone().add(new THREE.Vector3((rnd() - 0.5) * leafSize, rnd() * leafSize * 0.5, (rnd() - 0.5) * leafSize)),
-      leafSize * 0.66,
-      rnd,
-      species
-    );
-    foliageOut.push(card2);
+    // 末端挂一簇树冠。
+    //
+    // 近景最忌讳"一大片贴图叶子"——人眼贴近看，4~6m 宽的卡片就是一块
+    // 平板。改成**小卡片多片**：每片 1/2.5 大小、围着枝端散开 4 片，
+    // 树冠就从"几张大板"变成一团有体积的细叶。
+    const N = 4;
+    for (let i = 0; i < N; i++) {
+      const off = new THREE.Vector3(
+        (rnd() - 0.5) * leafSize * 1.35,
+        (rnd() - 0.3) * leafSize * 0.85,
+        (rnd() - 0.5) * leafSize * 1.35
+      );
+      foliageOut.push(
+        makeCard(
+          end.clone().add(off),
+          leafSize * (0.40 + rnd() * 0.16),
+          rnd,
+          species
+        )
+      );
+    }
     return;
   }
 
@@ -319,8 +330,8 @@ function growBranches(opts) {
 /** 一片树冠卡片：三片交叉面片 */
 function makeCard(pos, size, rnd, species) {
   const parts = [];
-  // 五片、朝向全错开：轮廓才碎得开，不会看成一块板
-  for (let k = 0; k < 5; k++) {
+  // 六片、朝向全错开：轮廓才碎得开，不会看成一块板
+  for (let k = 0; k < 6; k++) {
     const p = new THREE.PlaneGeometry(size * 2, size * 2);
     p.rotateZ(rnd() * Math.PI);
     p.rotateY(rnd() * Math.PI);

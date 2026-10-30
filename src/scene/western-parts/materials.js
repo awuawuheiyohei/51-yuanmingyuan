@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
-  stoneMaterial,
+  ornateStoneMaterial,
   roofMaterial,
   caihuaMaterial,
   woodMaterial,
@@ -166,7 +166,7 @@ export function makeWesternMaterials() {
   // 汉白玉 / 大理石：复用建筑系统的石材材质（带 AI 生成的番花浮雕贴图）。
   // 但要**放大贴图密度**：默认一张贴图铺 8m，番花浮雕每块约 2m——
   // 铺在广场大面上就密排成一张"地毯"。这里改成一张铺 32m，浮雕每块约 8m。
-  const stone = stoneMaterial();
+  const stone = ornateStoneMaterial();
   if (stone.map) {
     stone.map = stone.map.clone();
     stone.map.needsUpdate = true;

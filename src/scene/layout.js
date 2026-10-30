@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
 import { mergeGroupByMaterial } from './buildings/merge.js';
-import { stoneMaterial } from './buildings/materials.js';
+import { stoneMaterial, roofMaterial } from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM } from './scenes-program.js';
@@ -123,6 +123,8 @@ function buildSceneCluster(scene, heightAt, rnd) {
     tile: m.tile,
     doubleEave: !!m.doubleEave,
     circular: !!m.circular,
+    // 匾额写景名（正大光明殿的"正大光明"是雍正御笔，匾上没有字一眼就假）
+    plaqueText: scene.name,
     doors: centerDoors(m.mian),
     caojing: m.mian >= 5,
     rise: Math.max(2.0, bayW * 0.26),
@@ -197,6 +199,8 @@ function buildSceneCluster(scene, heightAt, rnd) {
         caihua: af.caihua,
         // 配建筑默认随主建筑的瓦色等级；考据里另有实记的用 a.tile 覆盖
         tile: a.tile ?? m.tile,
+        // 有实名的配建筑，匾额就写它的名字（飞云轩、静鉴阁…）
+        plaqueText: a.name || a.mian ? a.name : undefined,
         doors: centerDoors(mian),
         rise: Math.max(1.6, w * 0.26),
       },
@@ -272,10 +276,32 @@ function buildCourtyardWall(halfW, halfD, heightAt, cx, cz) {
       g.translate(mx, y + h / 2, mz);
       wallParts.push(g);
 
-      const cap = new THREE.BoxGeometry(len + 0.05, 0.35, t + 0.5);
-      cap.rotateY(-ang);
-      cap.translate(mx, y + h + 0.17, mz);
-      capParts.push(cap);
+      // 压顶：官式院墙是**小青瓦双坡顶**，不是一块灰板。
+      // 做法：墙顶正中起脊，两侧各铺一坡瓦，出檐 0.3m。
+      const halfW = t / 2 + 0.3;
+      const drop = 0.34;
+      const slopeLen = Math.hypot(halfW, drop);
+      const pitch = Math.atan2(drop, halfW);
+      // 墙的横向单位向量（局部 +Z 在世界里的方向）
+      const px = -Math.sin(ang);
+      const pz = Math.cos(ang);
+      for (const sgn of [-1, 1]) {
+        const slab = new THREE.BoxGeometry(len + 0.05, 0.1, slopeLen);
+        slab.rotateX(pitch);
+        slab.rotateY(-ang);
+        const off = (sgn * halfW) / 2;
+        slab.translate(
+          mx + px * off,
+          y + h + drop / 2 - 0.05,
+          mz + pz * off
+        );
+        capParts.push(slab);
+      }
+      // 脊
+      const ridge = new THREE.BoxGeometry(len + 0.05, 0.2, 0.24);
+      ridge.rotateY(-ang);
+      ridge.translate(mx, y + h + drop + 0.04, mz);
+      capParts.push(ridge);
     }
   }
 
@@ -291,9 +317,11 @@ function buildCourtyardWall(halfW, halfD, heightAt, cx, cz) {
     color: wallMap ? 0xffffff : 0x6e6a61,
     roughness: 0.97,
   });
-  const capMat = new THREE.MeshStandardMaterial({ color: 0x42454a, roughness: 0.92 });
+  // 墙顶小青瓦：复用官式建筑的瓦材质（灰瓦）
+  const capMat = roofMaterial(false);
   const wall = new THREE.Mesh(mergeGeometries(wallParts, false), mat);
   const cap = new THREE.Mesh(mergeGeometries(capParts, false), capMat);
+  cap.name = 'wallcap';
   wall.castShadow = wall.receiveShadow = true;
   cap.castShadow = true;
   group.add(wall, cap);

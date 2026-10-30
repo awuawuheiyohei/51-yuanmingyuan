@@ -564,6 +564,74 @@ export function brickWall(tint = '#8d8a84') {
 }
 
 /** 汉白玉 / 青石台基 */
+/** 西洋楼番花浮雕石（远瀛观、谐奇趣的柱身与栏板） */
+export function ornateStone() {
+  if (OVERRIDE.baroque) return OVERRIDE.baroque;
+  return stone();
+}
+
+/**
+ * 匾额：黑漆地 + 金框 + 金字（清代官式"黑漆金字"）。
+ *
+ * 正大光明殿的"正大光明"四字是雍正御笔——匾额没有字，一眼就假。
+ *
+ * @param {string} text 匾文
+ * @returns {THREE.CanvasTexture}
+ */
+export function plaqueBoard(text) {
+  const key = `plaque-${text}`;
+  if (cache.has(key)) return cache.get(key);
+  const W = 512;
+  const H = 160;
+  const c = makeCanvas(W, H);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(text.length * 977 + text.charCodeAt(0));
+
+  // 漆地：深黑带一点不匀
+  g.fillStyle = '#140f0a';
+  g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 260; i++) {
+    g.globalAlpha = 0.03 + rnd() * 0.05;
+    g.fillStyle = rnd() < 0.5 ? '#2c2118' : '#0a0705';
+    g.beginPath();
+    g.ellipse(rnd() * W, rnd() * H, 20 + rnd() * 70, 10 + rnd() * 40, rnd() * 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+
+  // 金框（内外两道）
+  const gold = '#c9a227';
+  g.strokeStyle = gold;
+  g.lineWidth = 5;
+  g.strokeRect(9, 9, W - 18, H - 18);
+  g.lineWidth = 1.6;
+  g.strokeRect(19, 19, W - 38, H - 38);
+
+  // 金字（从右往左排，符合传统匾额右起读法）
+  const chars = [...text].slice(0, 5);
+  if (chars.length) {
+    const size = Math.min(92, (W - 90) / chars.length);
+    g.font = `bold ${size}px "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(0,0,0,0.55)';
+    const step = (W - 90) / chars.length;
+    for (let i = 0; i < chars.length; i++) {
+      const cx = W - 45 - step * (i + 0.5);
+      g.fillText(chars[i], cx + 2, H / 2 + 2);
+    }
+    g.fillStyle = gold;
+    for (let i = 0; i < chars.length; i++) {
+      const cx = W - 45 - step * (i + 0.5);
+      g.fillText(chars[i], cx, H / 2);
+    }
+  }
+
+  const tex = toTexture(c);
+  cache.set(key, tex);
+  return tex;
+}
+
 export function stone() {
   if (OVERRIDE.stone) return OVERRIDE.stone;
   if (cache.has('stone')) return cache.get('stone');

@@ -92,9 +92,16 @@ export function buildFrame(w, h, t = 0.06, fw = 0.075) {
  * 一整扇隔扇（门扇或窗扇）
  * 竖向比例：上绦环板 → 中格心 → 下裙板
  */
-export function buildShanGe(w, h, opts = {}) {
+/**
+ * 槅扇/槛窗：分成**框料**与**格心**两件返回。
+ *
+ * 为什么要分开：框料是朱红大漆（wood 材质），格心是棂条 + 背后的暗色门洞。
+ * 合成一件的话，格心会跟着上红漆——一扇门全是红的，棂条根本读不出来。
+ */
+export function buildShanGeParts(w, h, opts = {}) {
   const { lattice = 'bubu', t = 0.06 } = opts;
-  const parts = [];
+  const frameParts = [];
+  const latticeParts = [];
   const fw = 0.075;
 
   // 三段高度分配
@@ -106,17 +113,17 @@ export function buildShanGe(w, h, opts = {}) {
   const bot = -h / 2 + fw / 2;
 
   // 框料
-  parts.push(buildFrame(w, h, t, fw));
+  frameParts.push(buildFrame(w, h, t, fw));
 
   // 绦环板（实心薄板）
   const tiao = new THREE.BoxGeometry(w - fw * 2, tiaoH, t * 0.55);
   tiao.translate(0, top - tiaoH / 2, 0);
-  parts.push(tiao);
+  frameParts.push(tiao);
 
   // 裙板（实心厚板）
   const qun = new THREE.BoxGeometry(w - fw * 2, qunH, t * 0.8);
   qun.translate(0, bot + qunH / 2, 0);
-  parts.push(qun);
+  frameParts.push(qun);
 
   // 格心
   const geY = bot + qunH + geH / 2;
@@ -125,10 +132,21 @@ export function buildShanGe(w, h, opts = {}) {
       ? buildBubuJin(w - fw * 2, geH, t * 0.7)
       : buildBubuJin(w - fw * 2, geH, t * 0.7);
   lat.translate(0, geY, 0);
-  parts.push(lat);
+  latticeParts.push(lat);
 
-  const g = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
+  const frame = mergeGeometries(frameParts, false);
+  const lat2 = mergeGeometries(latticeParts, false);
+  for (const p of frameParts) p.dispose();
+  for (const p of latticeParts) p.dispose();
+  return { frame, lattice: lat2 };
+}
+
+/** 槅扇（合成一件，兼容旧调用） */
+export function buildShanGe(w, h, opts = {}) {
+  const { frame, lattice } = buildShanGeParts(w, h, opts);
+  const g = mergeGeometries([frame, lattice], false);
+  frame.dispose();
+  lattice.dispose();
   return g;
 }
 

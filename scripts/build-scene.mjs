@@ -699,6 +699,8 @@ async function main() {
     for (let i = 0; i < n; i++) {
       const a = rnd() * Math.PI * 2;
       const r = (18 + rnd() * spread) * (0.55 + s.rock * 0.7);
+      // 叠山不许压在正殿上：山头盖住屋面，比没有山还糟
+      if (r < 20) continue;
       rockery.push({
         x: s.x + Math.cos(a) * r,
         z: s.z + Math.sin(a) * r,
@@ -781,6 +783,28 @@ async function main() {
       return dx * dx + dz * dz <= 1;
     });
 
+  // 景区建筑前要留出空地。
+  // 树是按林相随机撒的，撒到建筑跟前就会把屋面盖死——从地面看过去，
+  // 一座座殿宇全埋在树冠里，既不真实也看不见。真实园林里建筑周围必有庭院。
+  const clearings = sceneOut
+    .filter((s2) => s2.name)
+    .map((s2) => ({ x: s2.x, z: s2.z, r: 30 }));
+  for (const w of WEST_BUILDINGS) {
+    clearings.push({ x: toX(w.lon), z: toZ(w.lat), r: 20 });
+  }
+  const inClearing = (x, z) =>
+    clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r);
+
+  // 御路通道：每景正面朝南（建筑正面朝 +Z），南面开一条 16m 宽、75m 长的空廊。
+  // 真实园林里正殿前必有轴线御道；不空出来，从任何角度都只能看见树。
+  const axialPaths = sceneOut
+    .filter((s2) => s2.name)
+    .map((s2) => ({ x: s2.x, z: s2.z, halfW: 9, len: 78 }));
+  const inCorridor = (x, z) =>
+    axialPaths.some(
+      (c) => Math.abs(x - c.x) < c.halfW && z > c.z - 6 && z < c.z + c.len
+    );
+
   for (let i = 0; i < 62000; i++) {
     const x = minX + rnd() * sizeX;
     const z = minZ + rnd() * sizeZ;
@@ -789,6 +813,10 @@ async function main() {
     if (isWaterCell(x, z)) continue;
     // 避开西洋楼喷泉院落
     if (inWestCourt(x, z)) continue;
+    // 避开景区建筑前的庭院空地
+    if (inClearing(x, z)) continue;
+    // 避开御路通道
+    if (inCorridor(x, z)) continue;
     // 避开建筑
     let inBuilding = false;
     for (const b of buildings) {
@@ -819,6 +847,9 @@ async function main() {
       const x = s.x + Math.cos(a) * r;
       const z = s.z + Math.sin(a) * r;
       if (!inPark(x, z) || isWaterCell(x, z)) continue;
+      // 林相也要让开建筑：树贴着殿宇种，屋面就看不见了
+      if (inClearing(x, z)) continue;
+      if (inCorridor(x, z)) continue;
       trees.push({
         x,
         z,
