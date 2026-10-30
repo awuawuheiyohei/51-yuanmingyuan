@@ -297,7 +297,9 @@ function growBranches(opts) {
       foliageOut.push(
         makeCard(
           end.clone().add(off),
-          leafSize * (0.40 + rnd() * 0.16),
+          // 卡片尺寸：四片合计的投影面积要接近旧版的两张大卡，
+          // 否则树冠会明显变稀（三角面数不变，只调尺寸）。
+          leafSize * (0.62 + rnd() * 0.2),
           rnd,
           species
         )

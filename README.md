@@ -84,6 +84,8 @@ src/
     terrain.js    高程网格 + 顶点着色
     water.js      水面（福海、诸池、逐景补池）
     nature.js     假山叠山（层叠石块 + 太湖石瘦峰）
+    aquatic.js    水生植物：荷叶（福海荷塘）/ 芦苇 / 菖蒲
+    figures.js    尺度参照物与生活痕迹：人·马·轿·仪仗·货郎·小船
     trees.js      树木：递归枝干 + alpha 贴图树冠，按树种×变体实例化
     ground.js     草土地面贴图 + OSM 步道 + 水岸驳岸
     layout.js     装配：现状建筑 + 四十景聚落 + 西洋楼

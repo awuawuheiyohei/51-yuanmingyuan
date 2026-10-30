@@ -12,6 +12,7 @@ import { buildRockery } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildAquatic } from './scene/aquatic.js';
+import { buildFigures } from './scene/figures.js';
 import { buildCorridors } from './scene/corridor.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
@@ -503,6 +504,10 @@ async function loadScene() {
 
   // 水生植物：荷叶（福海荷塘）、芦苇、菖蒲——岸线没有它们就是一条刀切的直边
   scene.add(buildAquatic(sceneData, heightAt));
+
+  // 尺度参照物与生活痕迹（人、马、轿、仪仗…）：
+  // 没有已知尺寸的参照物，殿宇到底是 8m 还是 20m 高根本看不出来。
+  scene.add(buildFigures(sceneData, heightAt));
 
   // 游廊：圆明园最具辨识度的构件之一（沿水岸连接各景的长廊），
   // 此前写好了却从未被装进场景——7800m 长廊一直是缺席的。
