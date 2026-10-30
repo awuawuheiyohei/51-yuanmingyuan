@@ -348,16 +348,40 @@ function buildEnvironment() {
 
 /* ------------------------------------------------------------ 太阳位置 */
 
+/**
+ * 太阳位置：按**真实天文公式**算，不用随手编的曲线。
+ *
+ *   纬度 φ = 39.99°N（北京）
+ *   赤纬 δ = 0（取春分/秋分；本工程不设日期，取中性值）
+ *   时角 H = 15° × (真太阳时 − 12)
+ *   sin α = sinφ·sinδ + cosφ·cosδ·cos H
+ *   cos A = (sinδ − sinφ·sinα)/(cosφ·cosα)     （A 自北起算）
+ *
+ * 旧公式在 9:30 给出 65° 的太阳高度角——北京 9:30 的真实高度约 37°。
+ * 高度角虚高一倍，阴影就短一半、正午的日头垂直往下，全场没有一点斜光，
+ * 这是"不像照片"的一大来源。
+ *
+ * 场景坐标：**X 向东，Z 向南**，故北 = −Z。
+ */
+const SUN_LAT = (39.99 * Math.PI) / 180;
+const SUN_DECL = 0;
+
 function updateSun(hour) {
-  // 以北京时间近似太阳高度角（简化：日出 4.5h，日落 19.5h）
-  const t = (hour - 4.5) / 15; // 0..1 白天进度
-  const ang = Math.PI * (0.08 + t * 0.84);
-  const elev = Math.sin(ang);
-  const azim = Math.PI * (0.22 + t * 0.56);
+  const H = (hour - 12) * 15 * Math.PI / 180;
+  const sinAlt =
+    Math.sin(SUN_LAT) * Math.sin(SUN_DECL) +
+    Math.cos(SUN_LAT) * Math.cos(SUN_DECL) * Math.cos(H);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  const elev = Math.sin(alt);
+  let cosAz =
+    (Math.sin(SUN_DECL) - Math.sin(alt) * Math.sin(SUN_LAT)) /
+    (Math.cos(alt) * Math.cos(SUN_LAT) || 1e-6);
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))); // 自北起算，0=北 180=南
+  if (H > 0) az = 2 * Math.PI - az; // 下午太阳偏西
   const dir = new THREE.Vector3(
-    Math.cos(elev) * Math.cos(azim),
+    Math.sin(az) * Math.cos(alt),
     Math.max(elev, -0.25),
-    Math.cos(elev) * Math.sin(azim)
+    -Math.cos(az) * Math.cos(alt)
   ).normalize();
 
   skyUniforms.sunDir.value.copy(dir);

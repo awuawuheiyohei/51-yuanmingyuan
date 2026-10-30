@@ -724,6 +724,22 @@ async function main() {
     'poplar', 'poplar', 'poplar',
     'maple',
   ];
+  /**
+   * 各树种的**实际高度区间**（米）。
+   * 全园都用同一高度是不对的：白杨能到 15~20m，垂柳 5~10m，桃杏只有 3.5~6.5m。
+   * 高度是判断"等比例"最直接的线索——树矮了，殿宇就显大。
+   */
+  const TREE_HEIGHT = {
+    pine: [7, 13], // 松（含古松，园中最老的树）
+    willow: [5, 10], // 垂柳
+    blossom: [3.5, 6.5], // 桃、杏、海棠
+    poplar: [12, 20], // 白杨（钻天杨）
+    maple: [7, 12], // 枫、皂荚
+  };
+  const treeH = (type) => {
+    const r = TREE_HEIGHT[type] || [5, 9];
+    return r[0] + rnd() * (r[1] - r[0]);
+  };
   const inPark = (x, z) =>
     (parkRing ? pointInRing(x, z, parkRing) : true) && inGarden(x, z);
   // 预先把水面做成网格占用表，避免逐点做点在多边形内
@@ -826,11 +842,12 @@ async function main() {
       }
     }
     if (inBuilding) continue;
+    const type = treeTypes[Math.floor(rnd() * treeTypes.length)];
     trees.push({
       x,
       z,
-      h: 3.2 + rnd() * 4.6,
-      type: treeTypes[Math.floor(rnd() * treeTypes.length)],
+      h: treeH(type),
+      type,
       seed: Math.floor(rnd() * 1e6),
       y: 0,
     });
@@ -853,7 +870,7 @@ async function main() {
       trees.push({
         x,
         z,
-        h: 3.4 + rnd() * 4.2,
+        h: treeH(s.grove),
         type: s.grove,
         seed: Math.floor(rnd() * 1e6),
         y: 0,
