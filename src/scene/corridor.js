@@ -95,13 +95,23 @@ function corridorMaterials() {
   // 故克隆一份改成 DoubleSide —— 只改本文件，不动 materials.js。
   const roof = roofMaterial(false).clone();
   roof.side = THREE.DoubleSide;
-  return {
+  const mats = {
     roof,
     wood: woodMaterial(), // 美人靠 / 檐檩 / 椽头
     caihua: caihuaMaterial('xuanzi'), // 额枋彩画
     column: columnMaterial('#a8302a'), // 柱
     stone: stoneMaterial(), // 柱础 / 地坪条石
   };
+  // DEBUG（临时）：?corr=roof/wood/… 给某个材质桶染色，用来定位是哪一层几何
+  const dbg = new URLSearchParams(location.search).get('corr');
+  if (dbg && mats[dbg]) {
+    const C = { roof: 0xff00ff, wood: 0x00ffff, caihua: 0xffff00, column: 0xff8000, stone: 0x0080ff };
+    const t = mats[dbg];
+    t.color.setHex(C[dbg]);
+    t.emissive.setHex(C[dbg]);
+    t.emissiveIntensity = 0.6;
+  }
+  return mats;
 }
 
 /* ==================================================================
@@ -337,14 +347,31 @@ const V_UP = new THREE.Vector3(0, 1, 0);
  * ================================================================== */
 
 /**
- * 卷棚屋面横截面。
+ * 贴图约定 —— 必须与 `buildings/parts/roof.js` 严格一致，
+ * 否则屋面会变成一张"花地毯"（AGENTS.md §4.1.1 已踩过的坑）：
  *
- * 两坡在脊部以一段圆弧相接（卷棚无正脊），单坡上按 gang 间距排
- * 半圆筒瓦垄。整条屋面就是这一个截面沿路径挤出来的。
+ *   · 贴图 U = **横向**：6 垄 / 循环 → 一垄瓦占 1/6 个循环，
+ *     垄与垄之间落在循环边界（暗）。
+ *   · 贴图 V = **沿瓦垄方向**：1 循环 = 1.5 m（= 6 层瓦当），
+ *     所以 V = 沿坡距离 × (1/1.5)。
  *
- * 贴图坐标与贴图布局严格对应（见 buildings/textures.js roofTiles）：
- *   贴图 U 向 = 横向 6 垄/循环 → 一垄瓦占 1/6 个循环，垄间瓦沟落在循环边界（暗）；
- *   贴图 V 向 = 沿坡向 6 层瓦当/循环 → v = 沿坡距离 × 4。
+ * ⚠ 之前这里写的是"沿坡距离 × 4"——比实际密度高 **6 倍**：
+ *   一层瓦当只有 4 cm，屏幕上糊成一片噪点，贴图等于没贴，
+ *   屋面只剩一层塑料似的光滑圆垄。
+ */
+const V_PER_M = 1 / 1.5;
+
+/**
+ * 卷棚屋面横截面 —— 拆成**三段**：
+ *
+ *   左坡（檐口 → 起翘点）/ 卷棚脊（圆弧）/ 右坡（起翘点 → 檐口）
+ *
+ * 为什么要拆：卷棚脊是一段**独立的构件**（瓦垄在这里翻过脊顶），
+ * 它的贴图方向和坡面**转了 90°**：
+ *   坡面上 —— U 横向、V 沿坡；
+ *   脊上   —— U 沿脊长、V 横跨脊（瓦垄翻过脊顶的方向）。
+ * 合成一条带子的话，脊那一段的 U 只能是常数 → 整条脊采样贴图的
+ * **同一列**，糊成一条颜色均匀的亮带（"白屋顶"就是这么来的）。
  */
 function roofProfile() {
   const W = EAVE_U;
@@ -370,15 +397,18 @@ function roofProfile() {
   const spacing = Ls / ribN;
   const R0 = CORRIDOR.tongR;
 
-  const prof = [];
-  const push = (u, h, tu, tv) => prof.push({ u, h, v: tv, u0: tu });
+  const left = [];
+  const roll = [];
+  const right = [];
+  const push = (arr, u, h, tu, tv) => arr.push({ u, h, tu, tv });
 
   // ---- 左坡：檐口 (-W,0) → 起翘点 (-spring,yS) ----
+  // 瓦垄自檐口向脊排；V = 离脊距离（贴图循环数）
   const dLx = Math.cos(alpha);
   const dLy = Math.sin(alpha);
   const nLx = -Math.sin(alpha);
   const nLy = Math.cos(alpha);
-  push(-W, 0, 0, Ls * 4);
+  push(left, -W, 0, 0, Ls * V_PER_M);
   for (let i = 0; i < ribN; i++) {
     const d = (i + 0.5) * spacing;
     for (const phi of [-90, -30, 30, 90]) {
@@ -386,17 +416,26 @@ function roofProfile() {
       const t = (phi + 90) / 180;
       const along = d + R0 * Math.sin(rad);
       const outw = R0 * Math.cos(rad);
-      push(-W + dLx * along + nLx * outw, dLy * along + nLy * outw, (i + t) / 6, (Ls - d) * 4);
+      push(
+        left,
+        -W + dLx * along + nLx * outw,
+        dLy * along + nLy * outw,
+        (i + t) / 6,
+        (Ls - d) * V_PER_M
+      );
     }
   }
-  push(-spring, yS, ribN / 6, 0);
+  push(left, -spring, yS, ribN / 6, 0);
 
-  // ---- 脊部圆缓段 ----
+  // ---- 脊部圆缓段（卷棚无正脊）----
+  // V = 翻卷弧长（瓦垄从左坡翻过脊顶到右坡）
   const b1 = Math.atan2(yS - yc, -spring);
   const b2 = Math.atan2(yS - yc, spring);
-  for (const k of [0.25, 0.5, 0.75]) {
-    const b = b1 + (b2 - b1) * k;
-    push(Math.cos(b) * R, yc + Math.sin(b) * R, ribN / 6, 0);
+  const arcLen = R * (b2 - b1);
+  const steps = 4;
+  for (let k = 0; k <= steps; k++) {
+    const b = b1 + ((b2 - b1) * k) / steps;
+    push(roll, Math.cos(b) * R, yc + Math.sin(b) * R, 0, (arcLen * k * V_PER_M) / steps);
   }
 
   // ---- 右坡：起翘点 (spring,yS) → 檐口 (W,0) ----
@@ -404,6 +443,7 @@ function roofProfile() {
   const dRy = -Math.sin(alpha);
   const nRx = Math.sin(alpha);
   const nRy = Math.cos(alpha);
+  push(right, spring, yS, ribN / 6, 0);
   for (let i = 0; i < ribN; i++) {
     const d = (i + 0.5) * spacing;
     for (const phi of [90, 30, -30, -90]) {
@@ -411,67 +451,157 @@ function roofProfile() {
       const t = (1 - phi) / 180;
       const along = d + R0 * Math.sin(rad);
       const outw = R0 * Math.cos(rad);
-      push(spring + dRx * along + nRx * outw, yS + dRy * along + nRy * outw, (ribN + i + t) / 6, d * 4);
+      push(
+        right,
+        spring + dRx * along + nRx * outw,
+        yS + dRy * along + nRy * outw,
+        (ribN + i + t) / 6,
+        d * V_PER_M
+      );
     }
   }
-  push(W, 0, (ribN * 2) / 6, Ls * 4);
+  push(right, W, 0, (ribN * 2) / 6, Ls * V_PER_M);
 
-  return prof;
+  return { left, roll, right, ribN, spacing };
 }
 
 /**
- * 屋面几何：截面沿路径挤出。
- * 截面点自带 u0（贴图 U），挤出时按"同一垄取同一段 U"重排。
+ * 把一条横截面（u, h）沿路径挤成带状几何。
+ *
+ * @param profile [{u,h,tu,tv}] tu/tv = 贴图 U/V（对整条路径恒定）
+ * @param path    [{x,z,y,nx,nz,s}]
+ * @param flip    绕向翻转（用于需要反面的构件）
  */
-function buildRoof(path) {
-  const prof = roofProfile();
-  // 挤出用的截面：u = 横向，h = 高度（相对檐口），v = 贴图 U
-  const m = prof.length;
+function extrudeRibbon(profile, path, flip = false) {
+  const n = path.length;
+  const m = profile.length;
   const pos = [];
   const uv = [];
   const idx = [];
-  for (let i = 0; i < path.length; i++) {
+  for (let i = 0; i < n; i++) {
     const p = path[i];
     for (let j = 0; j < m; j++) {
-      const q = prof[j];
+      const q = profile[j];
       pos.push(p.x + p.nx * q.u, p.y + q.h, p.z + p.nz * q.u);
-      uv.push(q.u0, q.v);
+      uv.push(q.tu, q.tv);
     }
   }
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < n - 1; i++) {
     for (let j = 0; j < m - 1; j++) {
       const a = i * m + j;
       const b = i * m + j + 1;
       const c = (i + 1) * m + j;
       const d = (i + 1) * m + j + 1;
-      // 屋面朝上：轮廓自左檐口经脊到右檐口，绕向须与挤出方向相反
-      idx.push(a, b, c, b, d, c);
+      if (flip) idx.push(a, c, b, b, c, d);
+      else idx.push(a, b, c, b, d, c);
     }
   }
-  // 端头封口（卷棚端面）
-  const capA = pos.length / 3;
-  const p0 = path[0];
-  for (let j = 0; j < m; j++) {
-    const q = prof[j];
-    pos.push(p0.x + p0.nx * q.u, p0.y + q.h, p0.z + p0.nz * q.u);
-    uv.push(q.u0, q.v);
-  }
-  for (let j = 1; j < m - 1; j++) idx.push(capA, capA + j + 1, capA + j);
-  const capB = pos.length / 3;
-  const p1 = path[path.length - 1];
-  for (let j = 0; j < m; j++) {
-    const q = prof[j];
-    pos.push(p1.x + p1.nx * q.u, p1.y + q.h, p1.z + p1.nz * q.u);
-    uv.push(q.u0, q.v);
-  }
-  for (let j = 1; j < m - 1; j++) idx.push(capB, capB + j, capB + j + 1);
-
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
+}
+
+/**
+ * 卷棚脊：沿脊长的贴图 U + 横跨脊的贴图 V（瓦垄翻过脊顶的方向）。
+ *
+ * U 沿脊长按"每 1/6 循环一根瓦垄"推进 → 与坡面的垄距一致，
+ * 否则脊上的垄和坡上的垄对不上，一眼假。
+ */
+function extrudeRidgeRoll(roll, path, spacing) {
+  const n = path.length;
+  const m = roll.length;
+  const uCycle = 6 * spacing; // 沿脊：1/6 循环 = 一垄瓦的间距
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  for (let i = 0; i < n; i++) {
+    const p = path[i];
+    const su = p.s / uCycle;
+    for (let j = 0; j < m; j++) {
+      const q = roll[j];
+      pos.push(p.x + p.nx * q.u, p.y + q.h, p.z + p.nz * q.u);
+      uv.push(su, q.tv);
+    }
+  }
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = 0; j < m - 1; j++) {
+      const a = i * m + j;
+      const b = i * m + j + 1;
+      const c = (i + 1) * m + j;
+      const d = (i + 1) * m + j + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * 端头封口：截面是**开口折线**（檐口→脊→檐口），
+ * 不能用扇形三角化（截面是凹的，扇形会翻出轮廓外）。
+ * 这里用"折线 ↔ 弦"的三角带：每个截面点对一条弦上的点，
+ * 逐段拼成四边形 —— 凹的也拼得对。
+ */
+function capRibbonEnd(profile, pathPoint, flip = false) {
+  const m = profile.length;
+  const a = profile[0];
+  const b = profile[m - 1];
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  for (let j = 0; j < m; j++) {
+    const q = profile[j];
+    const t = j / (m - 1);
+    // 弦上的点（与折线同 u，h 线性插值）
+    const cu = a.u + (b.u - a.u) * t;
+    const ch = a.h + (b.h - a.h) * t;
+    pos.push(pathPoint.x + pathPoint.nx * q.u, pathPoint.y + q.h, pathPoint.z + pathPoint.nz * q.u);
+    uv.push(q.tu, q.tv);
+    pos.push(pathPoint.x + pathPoint.nx * cu, pathPoint.y + ch, pathPoint.z + pathPoint.nz * cu);
+    uv.push(q.tu, q.tv);
+  }
+  for (let j = 0; j < m - 1; j++) {
+    const p0 = j * 2;
+    const p1 = p0 + 1;
+    const p2 = p0 + 2;
+    const p3 = p0 + 3;
+    if (flip) idx.push(p0, p1, p2, p2, p1, p3);
+    else idx.push(p0, p2, p1, p1, p2, p3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * 屋面几何：左坡 + 卷棚脊 + 右坡，沿路径挤出后合并。
+ */
+function buildRoof(path) {
+  const prof = roofProfile();
+  const parts = [
+    extrudeRibbon(prof.left, path),
+    extrudeRibbon(prof.right, path),
+    extrudeRidgeRoll(prof.roll, path, prof.spacing),
+    capRibbonEnd(prof.left, path[0]),
+    capRibbonEnd(prof.left, path[path.length - 1], true),
+    capRibbonEnd(prof.right, path[0], true),
+    capRibbonEnd(prof.right, path[path.length - 1]),
+    capRibbonEnd(prof.roll, path[0]),
+    capRibbonEnd(prof.roll, path[path.length - 1], true),
+  ];
+  const merged = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  return merged;
 }
 
 /* ==================================================================
@@ -609,9 +739,12 @@ function buildPurlinProfile(side) {
 
 /** 廊内平顶（吊顶）：挡住屋面背面，从廊内看是平的木顶 */
 function buildCeiling(path) {
+  // ⚠ 截面点的顺序决定面绕向：两点截面的有向面积恒为 0，
+  // extrudeProfile 只能给出"沿 +u 方向、法线朝上"的一种绕向。
+  // 吊顶是给人**从下往上看**的，法线必须朝下 → 截面要反着写。
   const prof = [
-    { u: -HALF, h: LV.ceil, v: 0 },
     { u: HALF, h: LV.ceil, v: 1 },
+    { u: -HALF, h: LV.ceil, v: 0 },
   ];
   const p = path.map((q) => ({ ...q, y: q.y + CORRIDOR.floorH }));
   return extrudeProfile(prof, p, { uScale: 0.3 });
@@ -626,10 +759,14 @@ function buildCeiling(path) {
  *
  * 清式：每垄瓦的下端扣一枚圆瓦当，瓦当之间夹一枚如意头滴水。
  * 这里不逐枚建圆盘（太贵），而是把"瓦当 + 滴水"压成一条**扇贝断面的
- * 薄带**：断面位于"路径方向 × 坡法线方向"平面内 —— 与真瓦当所在平面
- * 一致，远看成排圆瓦当、瓦当之间滴水尖。
+ * 薄带**：断面位于"路径方向 × 竖向"平面内 —— 与真瓦当所在平面
+ * （檐口线上的竖直面）一致，远看成排圆瓦当、瓦当之间滴水尖。
  *
- * 形制简化：瓦当正面纹样（团寿/凸环）未做，见 buildings/parts/roof.js。
+ * ⚠ 两个坑：
+ *   ① 瓦当是**竖直挂着**的（盖在筒瓦端头，平面垂直于屋面），
+ *      不能顺着坡法线斜出去 —— 那样从下往上看只剩一条黑边。
+ *   ② 面绕向必须随 side 翻转：左檐与右檐的外法线相反，
+ *      绕向不翻的话有一侧的瓦当整排变成**背面（发黑）**。
  */
 function buildEaveTileBand(path, side) {
   const gangLen = CORRIDOR.gang * 1.105; // 沿廊方向的垄距
@@ -648,8 +785,7 @@ function buildEaveTileBand(path, side) {
   const n = Math.max(1, Math.floor(total / step));
   for (let k = 0; k <= n; k++) {
     const s = k * step;
-    const idx = findStation(samples, s);
-    const p = samples[idx].p;
+    const p = sampleAt(samples, s);
     // 一个周期内的扇贝：半圆瓦当（4 段）+ 滴水尖
     const ph = (s / gangLen) % 1; // 0..1
     let depth;
@@ -669,12 +805,11 @@ function buildEaveTileBand(path, side) {
     }
     prof.push({ p, lat, depth });
   }
-  // 挤成薄带：上沿贴着檐口，下沿是扇贝
+  // 挤成薄带：上沿贴着檐口，下沿是扇贝（竖直挂下）
   const pos = [];
   const uv = [];
   const idx = [];
-  const alpha = Math.atan2(CORRIDOR.roofRise, EAVE_U - CORRIDOR.spring);
-  const nUp = { x: Math.sin(alpha), y: Math.cos(alpha) }; // 坡法线（朝外上）
+  const PRONE = 0.02; // 瓦当略微挑出檐口，侧面也看得见
   for (let i = 0; i < prof.length; i++) {
     const q = prof[i];
     const p = q.p;
@@ -683,29 +818,23 @@ function buildEaveTileBand(path, side) {
     const ex = p.x + p.nx * sgn * EAVE_U;
     const ez = p.z + p.nz * sgn * EAVE_U;
     const ey = p.y + CORRIDOR.floorH + LV.eave;
-    // 沿路径方向偏移 lat，沿海法线外移 depth
+    // 沿路径方向偏移 lat
     const tx = p.tx;
     const tz = p.tz;
-    const lx = p.nx * sgn;
+    const lx = p.nx * sgn; // 檐口外侧的水平法向
     const lz = p.nz * sgn;
-    // 外法线 = 横向 * sinα + 竖向 * cosα
-    const onx = lx * nUp.x;
-    const onz = lz * nUp.x;
-    const ony = nUp.y;
     // 上沿
-    pos.push(ex + tx * q.lat, ey + ony * 0.004, ez + tz * q.lat);
-    uv.push(q.p.s * 0.39, 0.02);
-    // 下沿
-    pos.push(
-      ex + tx * q.lat + onx * q.depth,
-      ey - ony * q.depth,
-      ez + tz * q.lat + onz * q.depth
-    );
-    uv.push(q.p.s * 0.39, 0.14);
+    pos.push(ex + tx * q.lat, ey, ez + tz * q.lat);
+    uv.push(p.s * 0.39, 0.02);
+    // 下沿：竖直挂下，并略微挑出檐口
+    pos.push(ex + tx * q.lat + lx * PRONE * q.depth, ey - q.depth, ez + tz * q.lat + lz * PRONE * q.depth);
+    uv.push(p.s * 0.39, 0.14);
   }
   for (let i = 0; i < prof.length - 1; i++) {
     const a = i * 2;
-    idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+    // 绕向随 side 翻转，保证正面（朝廊外）始终朝观众
+    if (side > 0) idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+    else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -725,6 +854,37 @@ function findStation(samples, s) {
     else hi = mid;
   }
   return lo;
+}
+
+/**
+ * 按弧长取样路径上的一个点（**位置与标架都插值**）。
+ *
+ * ⚠ 不能直接用 findStation 取到的路径点：路径点之间有 0.9 m，
+ * 而檐口细部要按 0.1 m 采样。若只取路径点，转弯处相邻两段之间
+ * 横向会差半米多 —— 瓦当带就被撕成一排**黑色三角碎片**。
+ */
+function sampleAt(samples, s) {
+  const i = findStation(samples, s);
+  const b = samples[Math.min(i, samples.length - 1)];
+  const a = samples[Math.max(0, i - 1)];
+  const span = b.s - a.s;
+  const t = span > 1e-6 ? (s - a.s) / span : 0;
+  const lerp = (u, v) => u + (v - u) * t;
+  const tx = lerp(a.p.tx, b.p.tx);
+  const tz = lerp(a.p.tz, b.p.tz);
+  const tl = Math.hypot(tx, tz) || 1;
+  const nx = lerp(a.p.nx, b.p.nx);
+  const nz = lerp(a.p.nz, b.p.nz);
+  const nl = Math.hypot(nx, nz) || 1;
+  return {
+    x: lerp(a.p.x, b.p.x),
+    z: lerp(a.p.z, b.p.z),
+    tx: tx / tl,
+    tz: tz / tl,
+    nx: nx / nl,
+    nz: nz / nl,
+    s,
+  };
 }
 
 /**

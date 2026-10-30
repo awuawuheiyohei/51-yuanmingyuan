@@ -1,0 +1,540 @@
+{
+  "generator": "scripts/gen-rock.py",
+  "seed": 20261030,
+  "resolution": 112,
+  "targetFaces": 6000,
+  "device": "MPS (Apple GPU)",
+  "archetypes": {
+    "spire": "瘦峰",
+    "strata": "层叠",
+    "cavern": "洞穴",
+    "reclining": "卧牛",
+    "shoot": "笋状",
+    "cluster": "群峰"
+  },
+  "stones": [
+    {
+      "file": "spire-0.glb",
+      "kind": "spire",
+      "kindCN": "瘦峰",
+      "seed": 20276379,
+      "variant": 0,
+      "triangles": 5999,
+      "rawTriangles": 69616,
+      "decimated": true,
+      "bbox": {
+        "width": 0.232,
+        "height": 1.0,
+        "depth": 0.2034
+      },
+      "holes": 2,
+      "topology": {
+        "components": 6,
+        "boundaryEdges": 63,
+        "closed": false,
+        "euler": -8974,
+        "genus": null
+      },
+      "bytes": 170328,
+      "genSeconds": {
+        "field": 1.265,
+        "marchingCubes": 0.022,
+        "decimate": 0.031
+      }
+    },
+    {
+      "file": "spire-1.glb",
+      "kind": "spire",
+      "kindCN": "瘦峰",
+      "seed": 20276380,
+      "variant": 1,
+      "triangles": 6000,
+      "rawTriangles": 110058,
+      "decimated": true,
+      "bbox": {
+        "width": 0.2724,
+        "height": 1.0,
+        "depth": 0.247
+      },
+      "holes": 3,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9003,
+        "genus": 4502
+      },
+      "bytes": 169508,
+      "genSeconds": {
+        "field": 0.939,
+        "marchingCubes": 0.022,
+        "decimate": 0.037
+      }
+    },
+    {
+      "file": "spire-2.glb",
+      "kind": "spire",
+      "kindCN": "瘦峰",
+      "seed": 20276381,
+      "variant": 2,
+      "triangles": 5999,
+      "rawTriangles": 93046,
+      "decimated": true,
+      "bbox": {
+        "width": 0.4185,
+        "height": 1.0,
+        "depth": 0.2434
+      },
+      "holes": 2,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 47,
+        "closed": false,
+        "euler": -8996,
+        "genus": null
+      },
+      "bytes": 169620,
+      "genSeconds": {
+        "field": 0.924,
+        "marchingCubes": 0.018,
+        "decimate": 0.027
+      }
+    },
+    {
+      "file": "strata-0.glb",
+      "kind": "strata",
+      "kindCN": "层叠",
+      "seed": 20298069,
+      "variant": 0,
+      "triangles": 5999,
+      "rawTriangles": 76380,
+      "decimated": true,
+      "bbox": {
+        "width": 1.0823,
+        "height": 1.0,
+        "depth": 0.9676
+      },
+      "holes": 3,
+      "topology": {
+        "components": 9,
+        "boundaryEdges": 25,
+        "closed": false,
+        "euler": -8987,
+        "genus": null
+      },
+      "bytes": 169904,
+      "genSeconds": {
+        "field": 0.912,
+        "marchingCubes": 0.015,
+        "decimate": 0.021
+      }
+    },
+    {
+      "file": "strata-1.glb",
+      "kind": "strata",
+      "kindCN": "层叠",
+      "seed": 20298070,
+      "variant": 1,
+      "triangles": 6000,
+      "rawTriangles": 109754,
+      "decimated": true,
+      "bbox": {
+        "width": 1.2882,
+        "height": 1.0,
+        "depth": 1.1493
+      },
+      "holes": 3,
+      "topology": {
+        "components": 8,
+        "boundaryEdges": 10,
+        "closed": false,
+        "euler": -9061,
+        "genus": null
+      },
+      "bytes": 167604,
+      "genSeconds": {
+        "field": 0.911,
+        "marchingCubes": 0.019,
+        "decimate": 0.031
+      }
+    },
+    {
+      "file": "strata-2.glb",
+      "kind": "strata",
+      "kindCN": "层叠",
+      "seed": 20298071,
+      "variant": 2,
+      "triangles": 6000,
+      "rawTriangles": 108166,
+      "decimated": true,
+      "bbox": {
+        "width": 1.162,
+        "height": 1.0,
+        "depth": 0.91
+      },
+      "holes": 2,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9027,
+        "genus": 4514
+      },
+      "bytes": 168736,
+      "genSeconds": {
+        "field": 0.913,
+        "marchingCubes": 0.023,
+        "decimate": 0.033
+      }
+    },
+    {
+      "file": "cavern-0.glb",
+      "kind": "cavern",
+      "kindCN": "洞穴",
+      "seed": 20282265,
+      "variant": 0,
+      "triangles": 6000,
+      "rawTriangles": 95230,
+      "decimated": true,
+      "bbox": {
+        "width": 0.8797,
+        "height": 1.0,
+        "depth": 0.7311
+      },
+      "holes": 2,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9009,
+        "genus": 4505
+      },
+      "bytes": 169296,
+      "genSeconds": {
+        "field": 0.902,
+        "marchingCubes": 0.018,
+        "decimate": 0.027
+      }
+    },
+    {
+      "file": "cavern-1.glb",
+      "kind": "cavern",
+      "kindCN": "洞穴",
+      "seed": 20282266,
+      "variant": 1,
+      "triangles": 5999,
+      "rawTriangles": 120014,
+      "decimated": true,
+      "bbox": {
+        "width": 0.9225,
+        "height": 1.0,
+        "depth": 0.7644
+      },
+      "holes": 2,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 13,
+        "closed": false,
+        "euler": -9019,
+        "genus": null
+      },
+      "bytes": 168892,
+      "genSeconds": {
+        "field": 0.926,
+        "marchingCubes": 0.021,
+        "decimate": 0.04
+      }
+    },
+    {
+      "file": "cavern-2.glb",
+      "kind": "cavern",
+      "kindCN": "洞穴",
+      "seed": 20282267,
+      "variant": 2,
+      "triangles": 6000,
+      "rawTriangles": 78000,
+      "decimated": true,
+      "bbox": {
+        "width": 1.0588,
+        "height": 1.0,
+        "depth": 0.8695
+      },
+      "holes": 1,
+      "topology": {
+        "components": 3,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9016,
+        "genus": 4509
+      },
+      "bytes": 169044,
+      "genSeconds": {
+        "field": 0.902,
+        "marchingCubes": 0.016,
+        "decimate": 0.026
+      }
+    },
+    {
+      "file": "reclining-0.glb",
+      "kind": "reclining",
+      "kindCN": "卧牛",
+      "seed": 20315801,
+      "variant": 0,
+      "triangles": 5999,
+      "rawTriangles": 76482,
+      "decimated": true,
+      "bbox": {
+        "width": 3.1793,
+        "height": 1.0,
+        "depth": 2.4847
+      },
+      "holes": 3,
+      "topology": {
+        "components": 2,
+        "boundaryEdges": 29,
+        "closed": false,
+        "euler": -8987,
+        "genus": null
+      },
+      "bytes": 169916,
+      "genSeconds": {
+        "field": 0.943,
+        "marchingCubes": 0.024,
+        "decimate": 0.034
+      }
+    },
+    {
+      "file": "reclining-1.glb",
+      "kind": "reclining",
+      "kindCN": "卧牛",
+      "seed": 20315802,
+      "variant": 1,
+      "triangles": 5999,
+      "rawTriangles": 87982,
+      "decimated": true,
+      "bbox": {
+        "width": 3.8639,
+        "height": 1.0,
+        "depth": 2.204
+      },
+      "holes": 2,
+      "topology": {
+        "components": 2,
+        "boundaryEdges": 45,
+        "closed": false,
+        "euler": -8978,
+        "genus": null
+      },
+      "bytes": 170180,
+      "genSeconds": {
+        "field": 0.909,
+        "marchingCubes": 0.016,
+        "decimate": 0.023
+      }
+    },
+    {
+      "file": "reclining-2.glb",
+      "kind": "reclining",
+      "kindCN": "卧牛",
+      "seed": 20315803,
+      "variant": 2,
+      "triangles": 6000,
+      "rawTriangles": 70880,
+      "decimated": true,
+      "bbox": {
+        "width": 3.3813,
+        "height": 1.0,
+        "depth": 1.9556
+      },
+      "holes": 3,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9008,
+        "genus": 4505
+      },
+      "bytes": 169292,
+      "genSeconds": {
+        "field": 0.898,
+        "marchingCubes": 0.015,
+        "decimate": 0.02
+      }
+    },
+    {
+      "file": "shoot-0.glb",
+      "kind": "shoot",
+      "kindCN": "笋状",
+      "seed": 20349855,
+      "variant": 0,
+      "triangles": 6000,
+      "rawTriangles": 86104,
+      "decimated": true,
+      "bbox": {
+        "width": 0.2807,
+        "height": 1.0,
+        "depth": 0.2924
+      },
+      "holes": 1,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9004,
+        "genus": 4503
+      },
+      "bytes": 169416,
+      "genSeconds": {
+        "field": 0.886,
+        "marchingCubes": 0.016,
+        "decimate": 0.023
+      }
+    },
+    {
+      "file": "shoot-1.glb",
+      "kind": "shoot",
+      "kindCN": "笋状",
+      "seed": 20349856,
+      "variant": 1,
+      "triangles": 6000,
+      "rawTriangles": 83132,
+      "decimated": true,
+      "bbox": {
+        "width": 0.2874,
+        "height": 1.0,
+        "depth": 0.2556
+      },
+      "holes": 1,
+      "topology": {
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9020,
+        "genus": 4511
+      },
+      "bytes": 168932,
+      "genSeconds": {
+        "field": 0.882,
+        "marchingCubes": 0.016,
+        "decimate": 0.026
+      }
+    },
+    {
+      "file": "shoot-2.glb",
+      "kind": "shoot",
+      "kindCN": "笋状",
+      "seed": 20349857,
+      "variant": 2,
+      "triangles": 5999,
+      "rawTriangles": 86916,
+      "decimated": true,
+      "bbox": {
+        "width": 0.2763,
+        "height": 1.0,
+        "depth": 0.2724
+      },
+      "holes": 3,
+      "topology": {
+        "components": 3,
+        "boundaryEdges": 45,
+        "closed": false,
+        "euler": -8985,
+        "genus": null
+      },
+      "bytes": 169948,
+      "genSeconds": {
+        "field": 0.918,
+        "marchingCubes": 0.018,
+        "decimate": 0.031
+      }
+    },
+    {
+      "file": "cluster-0.glb",
+      "kind": "cluster",
+      "kindCN": "群峰",
+      "seed": 20289086,
+      "variant": 0,
+      "triangles": 6000,
+      "rawTriangles": 90172,
+      "decimated": true,
+      "bbox": {
+        "width": 0.337,
+        "height": 1.0,
+        "depth": 0.3406
+      },
+      "holes": 3,
+      "topology": {
+        "components": 4,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -8999,
+        "genus": 4500
+      },
+      "bytes": 169632,
+      "genSeconds": {
+        "field": 0.945,
+        "marchingCubes": 0.017,
+        "decimate": 0.036
+      }
+    },
+    {
+      "file": "cluster-1.glb",
+      "kind": "cluster",
+      "kindCN": "群峰",
+      "seed": 20289087,
+      "variant": 1,
+      "triangles": 6000,
+      "rawTriangles": 90896,
+      "decimated": true,
+      "bbox": {
+        "width": 0.4009,
+        "height": 1.0,
+        "depth": 0.4452
+      },
+      "holes": 1,
+      "topology": {
+        "components": 2,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9015,
+        "genus": 4508
+      },
+      "bytes": 169080,
+      "genSeconds": {
+        "field": 0.904,
+        "marchingCubes": 0.017,
+        "decimate": 0.032
+      }
+    },
+    {
+      "file": "cluster-2.glb",
+      "kind": "cluster",
+      "kindCN": "群峰",
+      "seed": 20289088,
+      "variant": 2,
+      "triangles": 6000,
+      "rawTriangles": 91278,
+      "decimated": true,
+      "bbox": {
+        "width": 0.489,
+        "height": 1.0,
+        "depth": 0.3917
+      },
+      "holes": 2,
+      "topology": {
+        "components": 2,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -9011,
+        "genus": 4506
+      },
+      "bytes": 169220,
+      "genSeconds": {
+        "field": 0.913,
+        "marchingCubes": 0.017,
+        "decimate": 0.033
+      }
+    }
+  ],
+  "totalSeconds": 20.09
+}

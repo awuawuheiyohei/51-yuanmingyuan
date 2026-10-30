@@ -81,10 +81,14 @@ function buildWestern(sceneData, heightAt) {
   const byName = new Map(list.map((b) => [b.name, b]));
   const c = createCollector(makeWesternMaterials());
 
+  /** 调试取景用的机位表：名字 → {x, z, rotY（正面朝向）} */
+  const views = [];
+
   /* ------------------------------------------------------------ 谐奇趣 */
   const he = byName.get('谐奇趣');
   const heRot = he ? faceTo(he.x, he.z, anchor.x, anchor.z) : 0;
   if (he) {
+    views.push({ name: '谐奇趣', x: he.x, z: he.z, rotY: heRot });
     buildHarmonyHall(c, {
       x: he.x,
       y: heightAt(he.x, he.z),
@@ -98,6 +102,7 @@ function buildWestern(sceneData, heightAt) {
   const fw = byName.get('方外观');
   if (fw) {
     const fwRot = faceTo(fw.x, fw.z, anchor.x, anchor.z);
+    views.push({ name: '方外观', x: fw.x, z: fw.z, rotY: fwRot });
     buildFangWaiGuan(c, {
       x: fw.x,
       y: heightAt(fw.x, fw.z),
@@ -113,6 +118,7 @@ function buildWestern(sceneData, heightAt) {
     ? faceTo(hy.x, hy.z, fw ? fw.x : anchor.x, fw ? fw.z : anchor.z)
     : 0;
   if (hy) {
+    views.push({ name: '海晏堂', x: hy.x, z: hy.z, rotY: hyRot });
     // 前楼长立面朝西（正门向西），即朝向前一座方外观
     buildHaiYanTang(c, {
       x: hy.x,
@@ -128,6 +134,7 @@ function buildWestern(sceneData, heightAt) {
   let dwRot = 0;
   if (dw) {
     dwRot = Math.atan2(AXIS.perp.x, AXIS.perp.y);
+    views.push({ name: '大水法', x: dw.x, z: dw.z, rotY: dwRot });
     buildDaShuiFa(c, {
       x: dw.x,
       y: heightAt(dw.x, dw.z),
@@ -141,6 +148,7 @@ function buildWestern(sceneData, heightAt) {
   const yy = byName.get('远瀛观');
   if (yy) {
     const yyRot = faceTo(yy.x, yy.z, anchor.x, anchor.z);
+    views.push({ name: '远瀛观', x: yy.x, z: yy.z, rotY: yyRot });
     buildYuanYingGuan(c, {
       x: yy.x,
       y: heightAt(yy.x, yy.z),
@@ -154,6 +162,7 @@ function buildWestern(sceneData, heightAt) {
   if (dw) {
     const gx = dw.x + AXIS.perp.x * GUAN_SHUI_FA_OFFSET;
     const gz = dw.z + AXIS.perp.y * GUAN_SHUI_FA_OFFSET;
+    views.push({ name: '观水法', x: gx, z: gz, rotY: dwRot + Math.PI });
     buildGuanShuiFa(c, {
       x: gx,
       y: heightAt(gx, gz),
@@ -167,6 +176,7 @@ function buildWestern(sceneData, heightAt) {
   /* ------------------------------------------------------------ 线法山 */
   const xf = byName.get('线法山');
   if (xf) {
+    views.push({ name: '线法山', x: xf.x, z: xf.z, rotY: dwRot });
     buildXianFaShan(c, {
       x: xf.x,
       y: heightAt(xf.x, xf.z),
@@ -237,7 +247,7 @@ function buildWestern(sceneData, heightAt) {
 
   // 喷泉院里不长树：已在构建期排除（scripts/build-scene.mjs 的 westCourts），
   // 不在运行期改实例矩阵。
-  installWestDebugView(group, anchor, heightAt);
+  installWestDebugView(group, anchor, heightAt, views);
 
   return group;
 }
@@ -249,43 +259,82 @@ function buildWestern(sceneData, heightAt) {
  * 这里加一个 `?view=west`：只有在明确要求时才挂钩渲染器取相机，
  * 正常浏览时零开销、零副作用。
  *
- *   ?view=west            大水法全景（西南向）
- *   ?view=west2           海晏堂十二生肖（西向）
- *   ?view=west3           远瀛观（南向）
- *   ?view=west4           整片西洋楼（东南向高空）
- *   ?view=west&cam=x,y,z&tgt=x,y,z   自定义机位（局部坐标）
+ *   ?view=west&b=大水法            某景的**正面**（按考据定朝向）
+ *   ?view=west&b=海晏堂&d=60&h=6&aim=8   距离 / 机位高 / 取景目标高
+ *   ?view=west&plan=1              西洋楼全景俯视（查平面关系）
+ *   ?view=west&cam=x,y,z&tgt=x,y,z 自定义机位（世界坐标）
+ *
+ * 取景用**移轴两点透视**：光轴水平，竖线保持竖直（建筑摄影的常规机位）。
  */
-function installWestDebugView(group, anchor, heightAt) {
+function installWestDebugView(group, anchor, heightAt, views = []) {
   if (typeof location === 'undefined') return;
+
   const params = new URLSearchParams(location.search);
   const view = params.get('view') || '';
   if (!view.startsWith('west')) return;
 
+  // 统计西洋楼自身的 draw call 与三角面（合并之后）
+  {
+    let tris = 0;
+    let meshes = 0;
+    group.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      meshes++;
+      const g = o.geometry;
+      const cnt = g.index ? g.index.count : g.attributes.position.count;
+      tris += cnt / 3;
+    });
+    console.log(
+      `✓ 西洋楼：${meshes} 个材质桶（draw call）· ${Math.round(tris).toLocaleString()} 三角面`
+    );
+  }
+
   // 机位以大水法处的地面高程为基准（该景区在园东北的台地上，高程约 47 m）
   const g = heightAt(anchor.x, anchor.z);
-  const presets = {
-    west: {
-      cam: [anchor.x - 92, g + 26, anchor.z + 56],
-      tgt: [anchor.x + 2, g + 7, anchor.z + 2],
-    },
-    west2: {
-      cam: [anchor.x - 150, g + 15, anchor.z + 30],
-      tgt: [anchor.x - 46, g + 6, anchor.z + 12],
-    },
-    west3: {
-      cam: [anchor.x - 14, g + 22, anchor.z + 86],
-      tgt: [anchor.x - 4, g + 18, anchor.z - 48],
-    },
-    west4: {
-      cam: [anchor.x + 140, g + 74, anchor.z + 160],
-      tgt: [anchor.x + 16, g + 10, anchor.z - 8],
-    },
+  const num = (k, dflt) => {
+    const v = Number(params.get(k));
+    return Number.isFinite(v) && v !== 0 ? v : dflt;
   };
-  const p = presets[view] || presets.west;
+
+  let cam = null;
+  let tgt = null;
+  let level = true; // 是否用移轴两点透视（水平光轴）
+
   const camArg = params.get('cam');
   const tgtArg = params.get('tgt');
-  const cam = camArg ? camArg.split(',').map(Number) : p.cam;
-  const tgt = tgtArg ? tgtArg.split(',').map(Number) : p.tgt;
+  if (camArg && tgtArg) {
+    cam = camArg.split(',').map(Number);
+    tgt = tgtArg.split(',').map(Number);
+    level = params.get('level') !== '0';
+  } else if (params.get('plan')) {
+    // 俯视：看平面关系（池子、喷水塔、平台的位置对不对）
+    const h = num('h', 150);
+    cam = [anchor.x - 30, g + h, anchor.z + 10];
+    tgt = [anchor.x + 10, g, anchor.z - 40];
+    level = false;
+  } else if (params.get('b')) {
+    // 按考据定朝向取正面
+    const v = views.find((q) => q.name === params.get('b'));
+    if (v) {
+      const d = num('d', 46);
+      const eye = num('h', 5);
+      const aim = num('aim', 7);
+      // yaw：绕建筑正面轴左右挪机位（度，0 = 正对正面）
+      const yaw = ((Number(params.get('yaw')) || 0) * Math.PI) / 180;
+      const fx = Math.sin(v.rotY + yaw);
+      const fz = Math.cos(v.rotY + yaw);
+      const bg = heightAt(v.x, v.z);
+      cam = [v.x + fx * d, bg + eye, v.z + fz * d];
+      tgt = [v.x, bg + aim, v.z];
+    }
+  }
+
+  if (!cam || !tgt) {
+    // 兜底：整片西洋楼（东南向高空）
+    cam = [anchor.x + 140, g + 74, anchor.z + 160];
+    tgt = [anchor.x + 16, g + 10, anchor.z - 8];
+    level = false;
+  }
 
   const orig = THREE.Object3D.prototype.updateMatrixWorld;
   THREE.Object3D.prototype.updateMatrixWorld = function (force) {
@@ -293,7 +342,21 @@ function installWestDebugView(group, anchor, heightAt) {
     // 在这里改机位最省事（只在调试视角存在时安装）。
     if (this.isCamera) {
       this.position.set(cam[0], cam[1], cam[2]);
-      this.lookAt(tgt[0], tgt[1], tgt[2]);
+      if (level) {
+        // 移轴两点透视：光轴水平 + setViewOffset 把目标顶到画面中央
+        const dx = tgt[0] - cam[0];
+        const dz = tgt[2] - cam[2];
+        const dist = Math.hypot(dx, dz) || 1;
+        this.rotation.set(0, Math.atan2(-dx, -dz), 0, 'YXZ');
+        const theta = Math.atan2(tgt[1] - cam[1], dist);
+        const H = 1000;
+        const W = H * (this.aspect || 1.6);
+        const half = Math.tan(THREE.MathUtils.degToRad(this.fov) / 2);
+        if (Math.abs(theta) > 0.96) this.clearViewOffset();
+        else this.setViewOffset(W, H, 0, (-H * Math.tan(theta)) / half, W, H);
+      } else {
+        this.lookAt(tgt[0], tgt[1], tgt[2]);
+      }
     }
     return orig.call(this, force);
   };

@@ -33,14 +33,23 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   // 叶子数量少而大 —— 早前 120 片小叶挤在 256px 里，
   // 放大到近景就是一团糊；改成可辨认的单叶
   // 数量按 512px 画布重算：单叶只占十几像素，必须多画才密
-  const n = kind === 'needle' ? 420 : kind === 'flower' ? 150 : 260;
+  //
+  // ⚠ 叶子的 alpha 要**高**（0.85~1.0）：早前用 0.5~1.0 随机，
+  // 半透明的叶叠起来 alpha 累积不足，树冠看着稀疏透光，
+  // 能一眼看穿到枝干——不像真的树。
+  //
+  // 但数量也不能无限加：叶片一多、彼此叠满，
+  // 远看就成了一团**绿色糊**（看不清单叶，像喷漆），
+  // 近看又只是密密的叶子没有枝干穿插。
+  // 平衡点：单叶画得够大够清楚，数量够盖住枝干但留出空隙。
+  const n = kind === 'needle' ? 520 : kind === 'flower' ? 200 : 330;
   for (let i = 0; i < n; i++) {
     const a = rnd() * Math.PI * 2;
     const rr = Math.pow(rnd(), 0.62) * r;
     const x = cx + Math.cos(a) * rr;
     const y = cy + Math.sin(a) * rr * 0.86;
     const c = palette[Math.floor(rnd() * palette.length)];
-    g.globalAlpha = 0.5 + rnd() * 0.5;
+    g.globalAlpha = 0.88 + rnd() * 0.12;
     g.fillStyle = c;
     if (kind === 'needle') {
       // 针叶束：一撮细线（稍长，近看能分出针）

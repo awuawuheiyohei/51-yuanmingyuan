@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { UVK, mergeAll } from './materials.js';
+import { UVK, mergeAll, tint } from './materials.js';
 
 /* ============================================================ 基础体 */
 
@@ -433,6 +433,11 @@ export function windowSurround(w, h, d = 0.22, opts = {}) {
   // 窗楣线脚
   parts.push(boxAt(w + t * 3, 0.16, d * 1.3, 0, h + 0.12, 0));
   parts.push(boxAt(w + t * 2.2, 0.09, d * 1.5, 0, h + 0.245, 0));
+  // **窗台**（承雨石 + 挑出的台面 + 线脚）——巴洛克窗下必有一道，
+  // 没有窗台，窗就是墙上一个洞。
+  parts.push(boxAt(w + t * 2.6, 0.12, d * 1.7, 0, -0.06, 0));
+  parts.push(boxAt(w + t * 3.2, 0.07, d * 2.0, 0, -0.155, 0));
+  parts.push(boxAt(w + t * 1.8, 0.14, d * 1.3, 0, -0.26, 0));
   // 券口番花（拱心两侧）
   if (relief) {
     for (const sx of [-1, 1]) {
@@ -1703,7 +1708,7 @@ export function waterJet(len, r = 0.05, seg = 6) {
   const g = new THREE.CylinderGeometry(r * 0.7, r, len, seg, 1, true);
   g.translate(0, len / 2, 0);
   g.computeVertexNormals();
-  return worldUV(g);
+  return tint(worldUV(g), 0xffffff);
 }
 
 /** 从 A 射到 B 的水柱（兽首喷水用） */
@@ -1720,7 +1725,7 @@ export function jetBetween(a, b, r = 0.05) {
   g.applyQuaternion(q);
   g.translate(a[0] + dx / 2, a[1] + dy / 2, a[2] + dz / 2);
   g.computeVertexNormals();
-  return worldUV(g);
+  return tint(worldUV(g), 0xffffff);
 }
 
 /** 落水花（水柱顶端的散花） */
@@ -1728,7 +1733,7 @@ export function spray(r = 0.14, h = 0.4) {
   const g = new THREE.ConeGeometry(r, h, 7, 1, true);
   g.translate(0, h / 2, 0);
   g.computeVertexNormals();
-  return worldUV(g);
+  return tint(worldUV(g), 0xffffff);
 }
 
 /* ============================================================ 组合件 */

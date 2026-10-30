@@ -577,25 +577,57 @@ export function buildStructure(spec) {
 
   /* ----------------------------------------------------------- 藻井 */
   if (caojing) {
-    // 藻井只做**中央**一片（清式藻井本就是居中的方井），
-    // 四周留空——那才是露出梁架的地方。
-    // 原来铺满整个面，从下往上看只有一张平板，屋架全被盖住了。
+    // 清式藻井是**真木作**：井口枋 → 层层叠涩的井框（每层内收）→
+    // 井心方井（内供佛像/镜子）。原来是一张贴图平面——从下往上看
+    // 就是一块印刷品，没有一点体积感。
+    //
+    // 现在全部建为几何：叠涩层数越多，从下往上看层层收进，
+    // 才有"井"的深度。
     const cw = (width - colDia * 2) * 0.56;
     const cd = (depth - colDia * 2) * 0.56;
-    const g = new THREE.PlaneGeometry(cw, cd);
-    g.rotateX(Math.PI / 2);
-    g.translate(0, eaveY - 0.55, 0);
-    bucket(geoms, KEY.ceiling).push(g);
-    // 井口边框（方井的井圈）
+    const topY = eaveY - 0.55;
+
+    // 1) 井口枋（最外一圈方框）：四根枋木
     for (const [bw, bd, ox, oz] of [
-      [cw + 0.36, 0.18, 0, cd / 2],
-      [cw + 0.36, 0.18, 0, -cd / 2],
-      [0.18, cd + 0.36, cw / 2, 0],
-      [0.18, cd + 0.36, -cw / 2, 0],
+      [cw + 0.72, 0.30, 0, cd / 2 + 0.18],
+      [cw + 0.72, 0.30, 0, -cd / 2 - 0.18],
+      [0.30, cd + 0.72, cw / 2 + 0.18, 0],
+      [0.30, cd + 0.72, -cw / 2 - 0.18, 0],
     ]) {
-      const b = new THREE.BoxGeometry(bw, 0.26, bd);
-      b.translate(ox, eaveY - 0.58, oz);
+      const b = new THREE.BoxGeometry(bw, 0.34, bd);
+      b.translate(ox, topY - 0.17, oz);
       bucket(geoms, KEY.wood).push(b);
+    }
+
+    // 2) 叠涩：层层内收的井框，每层是一圈"回"字木
+    const RINGS = 4;
+    for (let k = 0; k < RINGS; k++) {
+      const t = (k + 1) / RINGS;
+      const iw = cw * (1 - t * 0.62);
+      const id = cd * (1 - t * 0.62);
+      const y = topY - 0.34 - k * 0.26;
+      const w = 0.20; // 井框木宽
+      // 每一层：四条边框
+      for (const [bw, bd, ox, oz] of [
+        [iw + w * 2, w, 0, id / 2 + w / 2],
+        [iw + w * 2, w, 0, -id / 2 - w / 2],
+        [w, id, iw / 2 + w / 2, 0],
+        [w, id, -iw / 2 - w / 2, 0],
+      ]) {
+        const b = new THREE.BoxGeometry(bw, 0.26, bd);
+        b.translate(ox, y, oz);
+        bucket(geoms, KEY.wood).push(b);
+      }
+    }
+
+    // 3) 井心方井底：最深处的平面（内供佛像/镜子）
+    {
+      const iw = cw * (1 - 0.62);
+      const id = cd * (1 - 0.62);
+      const g = new THREE.PlaneGeometry(iw, id);
+      g.rotateX(Math.PI / 2);
+      g.translate(0, topY - 0.34 - RINGS * 0.26 - 0.02, 0);
+      bucket(geoms, KEY.ceiling).push(g);
     }
   }
 

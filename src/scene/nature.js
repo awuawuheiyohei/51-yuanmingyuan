@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { getTextureOverrides } from './buildings/textures.js';
 
 function mulberry32(seed) {
@@ -241,6 +242,140 @@ function buildRockeryCluster(radius, height, seed) {
   return merged;
 }
 
+/**
+ * 假山（叠山）——GPU 生成的真网格资产
+ *
+ * 资产来自 `scripts/gen-rock.py`：在 MPS 上用 SDF + marching cubes
+ * 生成带「漏、透、皱、断口」的真石头网格（太湖石那种形态），
+ * 导出 GLB 到 `public/rocks/`。这里加载它们并按假山位置表摆放。
+ *
+ * 加载失败（离线 / 没跑生成脚本）时**回退到程序化叠山**，
+ * 保证场景永远能出图。
+ */
+let rockAssets = null; // Map<kind, THREE.BufferGeometry[]>（世界尺度已归一）
+let rockAssetsPromise = null;
+
+/**
+ * 把几何体归一成 mergeGeometries 能合并的形态。
+ *
+ * mergeGeometries 要求所有几何**属性集合完全一致**（position/normal/uv），
+ * 且要么都索引要么都不索引。GLB 里的几何常常缺 uv 或索引方式不同，
+ * 混在一起合并会直接抛 "Invalid array length"。
+ */
+function normalizeRockGeo(g) {
+  if (!g.attributes.position) return null;
+  // **统一转成非索引几何**。
+  // mergeGeometries 在混合索引/非索引、或索引位宽不同时会抛
+  // "Invalid array length"。非索引是唯一 100% 安全的合并形态，
+  // 代价是顶点数变多——石头网格最终会合并成 1 个 Mesh，
+  // 顶点翻倍换来的是绝不炸，比省顶点重要。
+  const out = g.index ? g.toNonIndexed() : g;
+  if (out !== g) g.dispose();
+  if (!out.attributes.normal) out.computeVertexNormals();
+  if (!out.attributes.uv) {
+    const n = out.attributes.position.count;
+    out.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  }
+  // 多余的属性（tangents/color/uv1…）会让合并失败 → 只留三者
+  for (const key of Object.keys(out.attributes)) {
+    if (!['position', 'normal', 'uv'].includes(key)) out.deleteAttribute(key);
+  }
+  out.clearGroups();
+  return out;
+}
+
+async function loadRockAssets() {
+  if (rockAssetsPromise) return rockAssetsPromise;
+  rockAssetsPromise = (async () => {
+    try {
+      const res = await fetch('rocks/manifest.json');
+      if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
+      const manifest = await res.json();
+      const list = manifest.stones || [];
+      if (!list.length) throw new Error('manifest 里没有石头');
+
+      const loader = new GLTFLoader();
+      const byKind = new Map();
+      for (const s of list) {
+        const gltf = await loader.loadAsync(`rocks/${s.file}`);
+        const src = gltf.scene;
+        src.traverse((o) => {
+          if (!o.isMesh || !o.geometry) return;
+          const g = o.geometry.clone();
+          // GLB 的坐标轴与 three.js 不同，先转到 Y 朝上
+          g.rotateX(Math.PI / 2);
+          // 归一化到「高度 1」，摆放时按假山尺寸缩放
+          g.computeBoundingBox();
+          const h = g.boundingBox.max.y - g.boundingBox.min.y || 1;
+          g.scale(1 / h, 1 / h, 1 / h);
+          g.computeBoundingBox();
+          // 把底面对齐到 y=0
+          g.translate(0, -g.boundingBox.min.y, 0);
+          const norm = normalizeRockGeo(g);
+          if (!norm) return;
+          if (!byKind.has(s.kind)) byKind.set(s.kind, []);
+          byKind.get(s.kind).push(norm);
+        });
+      }
+      if (!byKind.size) throw new Error('GLB 里没有网格');
+      rockAssets = byKind;
+      console.log(
+        `  ✓ 假山资产：${list.length} 块 / ${byKind.size} 种石型（GPU 生成）`
+      );
+      return byKind;
+    } catch (err) {
+      console.warn('  ! 假山资产加载失败，回退到程序化叠山：', err.message);
+      rockAssets = null;
+      return null;
+    }
+  })();
+  return rockAssetsPromise;
+}
+
+/**
+ * 用 GPU 资产摆一座假山：一堆大小不一的石头咬合堆叠。
+ * @returns {THREE.BufferGeometry[]}
+ */
+function buildRockeryClusterFromAssets(kindPool, radius, height, seed) {
+  const rnd = mulberry32(seed);
+  const parts = [];
+  const kinds = [...kindPool.keys()];
+  if (!kinds.length) return parts;
+
+  // 叠山有主次：一条自下而上的偏斜主脊，石块围绕它咬合
+  const spineLean = (rnd() - 0.5) * radius * 0.9;
+  const spineDir = rnd() * Math.PI * 2;
+  const layers = 4 + Math.floor(rnd() * 3);
+
+  for (let l = 0; l < layers; l++) {
+    const t = l / layers;
+    const y = height * Math.pow(t, 1.2) * 0.8;
+    const r = radius * (1 - t * 0.5) * (0.75 + rnd() * 0.45);
+    const cx = Math.cos(spineDir) * spineLean * t;
+    const cz = Math.sin(spineDir) * spineLean * t;
+    const blocks = 3 + Math.floor(rnd() * 4);
+    for (let b = 0; b < blocks; b++) {
+      const kind = kinds[Math.floor(rnd() * kinds.length)];
+      const pool = kindPool.get(kind);
+      if (!pool?.length) continue;
+      const src = pool[Math.floor(rnd() * pool.length)];
+      const g = src.clone();      const a = rnd() * Math.PI * 2;
+      const d = r * Math.sqrt(rnd()) * 0.95;
+      // 单块石头的尺寸：底层大、顶层小
+      const size = radius * (0.28 + rnd() * 0.42) * (1 - t * 0.4);
+      g.scale(size, size * (0.85 + rnd() * 0.6), size);
+      g.rotateY(rnd() * Math.PI * 2);
+      g.rotateX((rnd() - 0.5) * 0.25);
+      g.translate(cx + Math.cos(a) * d, y, cz + Math.sin(a) * d);
+      parts.push(g);
+    }
+  }
+  return parts;
+}
+
+/**
+ * 假山。资产已加载则用 GPU 真网格，否则用程序化叠山。
+ */
 export function buildRockery(sceneData, heightAt) {
   const group = new THREE.Group();
   group.name = 'rockery';
@@ -258,23 +393,49 @@ export function buildRockery(sceneData, heightAt) {
   // 合并成一个 Mesh：几百座假山各一个 draw call 太浪费
   const all = [];
   for (const r of items) {
-    const geo = buildRockeryCluster(r.r, r.h, r.seed);
+    const geo = rockAssets
+      ? buildRockeryClusterFromAssets(rockAssets, r.r, r.h, r.seed)
+      : buildRockeryCluster(r.r, r.h, r.seed);
     if (!geo) continue;
-    const m = new THREE.Matrix4()
-      .makeRotationY(((r.seed % 1000) / 1000) * Math.PI * 2)
-      .setPosition(r.x, (heightAt?.(r.x, r.z) ?? 0) - 0.9, r.z);
-    geo.applyMatrix4(m);
-    all.push(geo);
+    const list = Array.isArray(geo) ? geo : [geo];
+    for (const g of list) {
+      const m = new THREE.Matrix4()
+        .makeRotationY(((r.seed % 1000) / 1000) * Math.PI * 2)
+        .setPosition(r.x, (heightAt?.(r.x, r.z) ?? 0) - 0.9, r.z);
+      g.applyMatrix4(m);
+      all.push(g);
+    }
   }
   if (all.length) {
-    const merged = mergeGeometries(all, false);
+    // 合并前再统一归一化一次：GPU 资产与程序化几何的属性集合必须一致，
+    // 否则 mergeGeometries 直接抛 "Invalid array length"。
+    const prepared = all.map(normalizeRockGeo).filter(Boolean);
+    const merged = prepared.length ? mergeGeometries(prepared, false) : null;
     if (merged) {
       const mesh = new THREE.Mesh(merged, mat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       group.add(mesh);
+    } else {
+      console.warn('  ! 假山几何合并失败，逐块添加');
+      for (const g of prepared) {
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      }
     }
     for (const g of all) g.dispose();
+    for (const g of prepared) if (!all.includes(g)) g.dispose();
   }
   return group;
+}
+
+/**
+ * 预加载假山资产。场景装配时先 await 这个，
+ * 这样假山一出场就是 GPU 真网格，不用先出程序化版再换。
+ */
+export async function preloadRockAssets() {
+  await loadRockAssets();
+  return rockAssets;
 }

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrain, makeHeightSampler } from './scene/terrain.js';
 import { buildWater, animateWater } from './scene/water.js';
-import { buildRockery } from './scene/nature.js';
+import { buildRockery, preloadRockAssets } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildAquatic } from './scene/aquatic.js';
@@ -516,6 +516,10 @@ async function loadScene() {
   const layout = buildLayout(sceneData, heightAt);
   scene.add(layout.group);
 
+  // 假山：先加载 GPU 生成的真网格资产（scripts/gen-rock.py 产出），
+  // 加载失败会自动回退到程序化叠山。放在建场景之前预加载，
+  // 免得假山先以程序化形态出现再被替换。
+  await preloadRockAssets();
   const rockery = buildRockery(sceneData, heightAt);
   scene.add(rockery);
 

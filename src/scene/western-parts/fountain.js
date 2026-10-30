@@ -10,7 +10,7 @@
  *              十二生肖兽首人身像沿石跑梯八字展开。
  */
 import * as THREE from 'three';
-import { mergeAll, UVK } from './materials.js';
+import { mergeAll, UVK, tint } from './materials.js';
 import {
   box,
   boxAt,
@@ -123,6 +123,8 @@ export function begoniaPool(R, depth = 1.2, wall = 1.0) {
   floor.translate(0, -depth, 0);
 
   const water = flatten(new THREE.ShapeGeometry(inner, 8));
+  // 池面刷深青（与白色水柱区分，同一个 water 桶）
+  tint(water, 0x123f49);
 
   return { rim, floor, water };
 }
@@ -158,6 +160,8 @@ export function octagonalPool(R, depth = 0.9, wall = 0.55) {
   const floor = flatten(new THREE.ShapeGeometry(inner, 1));
   floor.translate(0, -depth, 0);
   const water = flatten(new THREE.ShapeGeometry(inner, 1));
+  // 池面刷深青（与白色水柱区分，同一个 water 桶）
+  tint(water, 0x123f49);
   return { rim, floor, water };
 }
 
