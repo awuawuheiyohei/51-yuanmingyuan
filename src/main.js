@@ -763,6 +763,35 @@ async function loadScene() {
     }
   }
 
+  // DEBUG（临时）：?rock=1 把假山 Mesh 的世界包围盒写进 DOM（找机位用）
+  {
+    if (new URLSearchParams(location.search).get('rock')) {
+      const rows = [];
+      scene.traverse((o) => {
+        if (o.name !== 'rockery') return;
+        const bb = new THREE.Box3().setFromObject(o);
+        let tris = 0;
+        o.traverse((c) => {
+          if (!c.isMesh || !c.geometry) return;
+          const p = c.geometry.attributes.position;
+          tris += c.geometry.index ? c.geometry.index.count / 3 : p.count / 3;
+        });
+        rows.push(
+          `rockery 世界包围盒 x:[${bb.min.x.toFixed(0)},${bb.max.x.toFixed(0)}] ` +
+            `y:[${bb.min.y.toFixed(0)},${bb.max.y.toFixed(0)}] z:[${bb.min.z.toFixed(0)},${bb.max.z.toFixed(0)}] ` +
+            `三角面=${Math.round(tris).toLocaleString()}`
+        );
+      });
+      const div = document.createElement('pre');
+      div.id = 'rock-result';
+      div.style.cssText =
+        'position:fixed;left:0;bottom:0;z-index:9999;background:#000;color:#0f0;' +
+        'font:12px monospace;padding:6px;white-space:pre;';
+      div.textContent = rows.join('\n') || '(没有 rockery)';
+      document.body.appendChild(div);
+    }
+  }
+
   initHud({
     state,
     sceneData,
