@@ -82,13 +82,29 @@ export function buildTerrain(sceneData, opts = {}) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   // UV 按世界尺度铺开：程序化贴图 35m 一张，AI 照片贴图 19m 一张。
   // 14m 时平铺周期太短，站在地面上一眼就看见"一模一样的方块在重复"。
-  const tile = getTextureOverrides().grass ? 19 : 35;
+  const tile = getTextureOverrides().grass ? 38 : 35;
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) {
     uv.setXY(i, uv.getX(i) * (spanX / tile), uv.getY(i) * (spanZ / tile));
   }
   uv.needsUpdate = true;
-  geo.computeVertexNormals();
+  // 法线用**中心差分**重算，不用 computeVertexNormals。
+  // DEM 是 10m 分辨率上采样的，三角形化后每个 DEM 格子的台阶会变成一片
+  // 规则的斜向刻面（俯视时满屏灯芯绒）。差分步长取 6m（大于 DEM 格距），
+  // 法线就只反映真实坡度、不反映量化台阶。
+  {
+    const nrm = geo.getAttribute('normal');
+    const d = 6;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      const hx = heightAt(x + d, z) - heightAt(x - d, z);
+      const hz = heightAt(x, z + d) - heightAt(x, z - d);
+      const len = Math.hypot(hx, 2 * d, hz) || 1;
+      nrm.setXYZ(i, -hx / len, (2 * d) / len, -hz / len);
+    }
+    nrm.needsUpdate = true;
+  }
 
   const mat = new THREE.MeshStandardMaterial({
     map: makeGroundTexture(),

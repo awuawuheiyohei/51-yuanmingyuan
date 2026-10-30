@@ -681,6 +681,14 @@ function animate() {
   // 云的缓慢漂移
   skyUniforms.uTime.value = t;
 
+  // 大气透视随视高自适应：
+  // 雾是**贴着地面**的空气层，站在地面看远处要有雾，
+  // 高空俯瞰时雾必须推远——否则整个园区被白雾吃掉，俯视图全白。
+  const camGround = heightAt(camera.position.x, camera.position.z);
+  const hFactor = THREE.MathUtils.clamp((camera.position.y - camGround) / 260, 0, 8);
+  scene.fog.near = 260 * hFactor;
+  scene.fog.far = 3400 * hFactor;
+
   // 阴影相机跟随视点
   const focus = controls.target;
   sun.target.position.copy(focus);
