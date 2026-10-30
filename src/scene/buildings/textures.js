@@ -33,20 +33,78 @@ const OVERRIDE_REPEAT = {
   grass: [1, 1],
 };
 
+/** 由反照率推出的法线 / 粗糙度贴图（scripts/gen-maps.py 生成） */
+const OVERRIDE_N = {};
+const OVERRIDE_R = {};
+/** 同一材质的多个变体：`<name>#v0` … 用来打散"贴图复制"的重复感 */
+const OVERRIDE_V = {};
+
 export function setTextureOverrides(map) {
   for (const [k, tex] of Object.entries(map)) {
     if (!tex) continue;
-    tex.colorSpace = THREE.SRGBColorSpace;
+    // manifest 里的键：`brick` / `brick#normal` / `brick#v0` / `brick#v0#normal`
+    const parts = k.split('#');
+    const base = parts[0];
+    const variant = parts[1] && parts[1].startsWith('v') ? parts[1] : '';
+    const kind = parts[2] || (parts[1] === 'normal' || parts[1] === 'rough' ? parts[1] : '');
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 8;
-    const r = OVERRIDE_REPEAT[k];
+    const key = base + variant;
+    if (kind === 'normal' || kind === 'rough') {
+      // 法线/粗糙度是**数据**，不能按 sRGB 解码
+      tex.colorSpace = THREE.NoColorSpace;
+      if (kind === 'normal') OVERRIDE_N[key] = tex;
+      else OVERRIDE_R[key] = tex;
+      continue;
+    }
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const r = OVERRIDE_REPEAT[base] || OVERRIDE_REPEAT[k];
     if (r) tex.repeat.set(r[0], r[1]);
-    OVERRIDE[k] = tex;
+    if (variant) {
+      (OVERRIDE_V[base] ||= {})[variant] = tex;
+    } else {
+      OVERRIDE[base] = tex;
+    }
+  }
+  // 变体按 v0、v1、v2 的顺序排，保证"第几个变体"是稳定的
+  for (const k of Object.keys(OVERRIDE_V)) {
+    OVERRIDE_V[k] = Object.entries(OVERRIDE_V[k])
+      .sort((a, b) => parseInt(a[0].slice(1)) - parseInt(b[0].slice(1)))
+      .map((e) => e[1]);
   }
 }
 
 export function getTextureOverrides() {
   return { ...OVERRIDE };
+}
+
+/** 取某材质的第 v 个变体（没有变体就退回本体） */
+export function variantTexture(name, v = 0) {
+  const list = OVERRIDE_V[name];
+  if (!list || !list.length) return OVERRIDE[name] || null;
+  return list[((v % list.length) + list.length) % list.length];
+}
+
+/** 该材质有没有变体可用 */
+export function hasVariants(name) {
+  return !!(OVERRIDE_V[name] && OVERRIDE_V[name].length);
+}
+
+export function normalFor(name) {
+  return OVERRIDE_N[name] || null;
+}
+
+/** 变体专属的法线/粗糙度（没有就退回本体） */
+export function variantNormal(name, v = 0) {
+  return OVERRIDE_N[`${name}#v${v}`] || OVERRIDE_N[name] || null;
+}
+
+export function variantRough(name, v = 0) {
+  return OVERRIDE_R[`${name}#v${v}`] || OVERRIDE_R[name] || null;
+}
+
+export function roughFor(name) {
+  return OVERRIDE_R[name] || null;
 }
 
 function makeCanvas(w, h) {
@@ -147,6 +205,7 @@ export function roofTiles() {
 
 /** 瓦垄法线贴图：横向正弦起伏 + 纵向接缝 */
 export function roofTilesNormal() {
+  if (OVERRIDE_N.tile) return OVERRIDE_N.tile;
   if (cache.has('roofTilesNormal')) return cache.get('roofTilesNormal');
   const W = 256;
   const H = 256;
@@ -651,10 +710,11 @@ export function plaqueBoard(text, vertical = false) {
  *   ② 竖向的水痕——雨水从檐口冲下来留下的流痕
  *   ③ 墙根积尘、墙头被雨水冲淡
  */
-export function redWall() {
-  const key = 'redwall';
+export function redWall(variant = 0) {
+  const key = `redwall-${variant}`;
   if (cache.has(key)) return cache.get(key);
-  const src = brickWall().image;
+  const base = variantTexture('brick', variant) || brickWall();
+  const src = base.image;
   const W = 512;
   const H = 512;
   const c = makeCanvas(W, H);

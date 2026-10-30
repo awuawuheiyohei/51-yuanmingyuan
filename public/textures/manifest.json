@@ -1,30 +1,9 @@
 {
-  "wood": {
-    "file": "wood.png",
-    "size": 525931
-  },
-  "stone": {
-    "file": "stone.png",
-    "size": 301894
-  },
-  "moss": {
-    "file": "moss.png",
-    "size": 437804
-  },
-  "grass": {
-    "file": "grass.png",
-    "size": 640813
-  },
-  "brick": {
-    "file": "brick.png",
-    "size": 540843
-  },
-  "tile": {
-    "file": "tile.png",
-    "size": 441083
-  },
-  "baroque": {
-    "file": "baroque.png",
-    "size": 618391
-  }
+  "baroque": "baroque.png",
+  "brick": "brick.png",
+  "grass": "grass.png",
+  "moss": "moss.png",
+  "stone": "stone.png",
+  "tile": "tile.png",
+  "wood": "wood.png"
 }

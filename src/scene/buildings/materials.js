@@ -8,6 +8,11 @@ import {
   caihua,
   redWall,
   ornateStone,
+  normalFor,
+  roughFor,
+  variantNormal,
+  variantRough,
+  variantTexture,
   columnPaint,
   brickWall,
   stone,
@@ -77,9 +82,9 @@ export function eaveMaterial() {
  * 用**青砖**贴图而不是 AI 生成的那张"西洋番花浮雕石"——后者是给西洋楼
  * 用的，给中式须弥座贴上巴洛克卷草，一眼就串味。
  */
-export function stoneMaterial() {
-  return make('stone', () => {
-    const map = stone().clone();
+export function stoneMaterial(variant = 0) {
+  return make(`stone-v${variant}`, () => {
+    const map = (variantTexture('stone', variant) || stone()).clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(2, 2);
@@ -144,16 +149,23 @@ export function dougongMaterial() {
   );
 }
 
-export function wallMaterial(type = 'brick', tint = null) {
-  return make(`wall-${type}-${tint || 'd'}`, () => {
+export function wallMaterial(type = 'brick', tint = null, variant = 0) {
+  return make(`wall-${type}-${tint || 'd'}-v${variant}`, () => {
     // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳、水痕都要在。
     if (type === 'red') {
-      const map = redWall().clone();
+      const map = redWall(variant).clone();
       map.needsUpdate = true;
       map.wrapS = map.wrapT = THREE.RepeatWrapping;
       map.repeat.set(4, 2);
+      const nrm = variantNormal('brick', variant);
+      const rgh = variantRough('brick', variant);
+      if (nrm) nrm.repeat.set(4, 2);
+      if (rgh) rgh.repeat.set(4, 2);
       return new THREE.MeshStandardMaterial({
         map,
+        normalMap: nrm || null,
+        roughnessMap: rgh || null,
+        normalScale: new THREE.Vector2(0.85, 0.85),
         color: tint || 0xffffff,
         roughness: 0.93,
       });
@@ -166,13 +178,16 @@ export function wallMaterial(type = 'brick', tint = null) {
   });
 }
 
-export function woodMaterial() {
-  return make('wood', () => {
-    const map = wood();
+export function woodMaterial(variant = 0) {
+  return make(`wood-v${variant}`, () => {
+    const map = (variantTexture('wood', variant) || wood()).clone();
+    map.needsUpdate = true;
     // AI 生成的木纹贴图偏亮红，直接用像塑料；压一档更像旧漆
     return new THREE.MeshStandardMaterial({
       map,
-      color: 0xc3b8ae,
+      normalMap: variantNormal('wood', variant),
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      color: 0x9d9189,
       roughness: 0.86,
     });
   });
@@ -265,7 +280,7 @@ export function materialFor(key, spec = {}) {
     case 'finial':
       return goldMaterial();
     case 'stone':
-      return stoneMaterial();
+      return stoneMaterial(spec.variant ?? 0);
     case 'column':
       return columnMaterial(spec.columnColor);
     case 'caihua':
@@ -273,9 +288,9 @@ export function materialFor(key, spec = {}) {
     case 'dougong':
       return dougongMaterial();
     case 'wall':
-      return wallMaterial(spec.wallType, spec.wallColor);
+      return wallMaterial(spec.wallType, spec.wallColor, spec.variant ?? 0);
     case 'wood':
-      return woodMaterial();
+      return woodMaterial(spec.variant ?? 0);
     case 'lattice':
       return latticeMaterial(spec.windowKind);
     case 'ceiling':

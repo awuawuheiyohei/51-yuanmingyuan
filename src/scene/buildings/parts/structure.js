@@ -1,3 +1,128 @@
+
+/**
+ * 屋架（抬梁式）——建筑的**骨架**
+ *
+ * 之前的实现是：柱网 → 额枋 → 斗栱 → 屋面。屋面是个壳，
+ * 壳底下什么都没有——从下往上看只有一层望板的背面，
+ * 整个建筑就没有"骨"。真实的官式建筑屋面下是一副完整的梁架：
+ *
+ *   脊檩   屋脊正下的大檩
+ *   脊瓜柱 托住脊檩的短柱
+ *   三架梁 架在瓜柱上的短梁（前后向）
+ *   金檩   架在五架梁上、承瓜柱的檩
+ *   瓜柱   五架梁到金檩之间的短柱
+ *   五架梁 落在柱头额枋上的大梁（前后向，通长）
+ *   垫板   五架梁背上垫金檩的薄板
+ *   角背   檐柱上斜撑到金檩的斜杆
+ *
+ * 这套东西从廊下、隔扇缝、檐口斜看进去都能看见，
+ * 是"这是盖出来的房子"和"这是一个壳"的分水岭。
+ */
+function buildRoofFrame(opts) {
+  const {
+    width,
+    depth,
+    colXs,
+    eaveY,
+    rise,
+    colTop,
+    geoms,
+    bucket,
+    KEY,
+    fold,
+  } = opts;
+  const pushWood = (g) => bucket(geoms, KEY.wood).push(g);
+
+  const halfD = depth / 2;
+  const Wz = halfD + 1.2; // 屋面半进深（含出檐）
+  const ridgeY = eaveY + rise;
+  const purlinR = 0.11;
+
+  // 屋面在某个进深处的高度（与 roof.js 的举折一致）
+  const surfAt = (z) => {
+    const t = Math.min(1, Math.abs(z) / Wz);
+    return ridgeY - rise * fold(t);
+  };
+
+  const zEave = halfD - 0.25;
+  const zGold = halfD * 0.5;
+  const yEave = eaveY - 0.12;
+  const yGold = surfAt(zGold) - purlinR * 1.6;
+  const yRidge = ridgeY - purlinR * 1.8;
+
+  const beamH = 0.5; // 五架梁高
+  const beamW = 0.26;
+
+  // ---- 檩（沿 X 通长）----
+  const purlin = (y, z, r = purlinR) => {
+    const g = new THREE.CylinderGeometry(r, r, width + 0.3, 7);
+    g.rotateZ(Math.PI / 2);
+    g.translate(0, y, z);
+    pushWood(g);
+  };
+  purlin(yEave, zEave);
+  purlin(yEave, -zEave);
+  purlin(yGold, zGold);
+  purlin(yGold, -zGold);
+  purlin(yRidge, 0, purlinR * 1.25);
+
+  // ---- 梁（沿 Z 通长）与瓜柱 ----
+  const beamAlongZ = (x, y0, y1, w = beamW) => {
+    const len = Math.abs(y1 - y0) > 0 ? zEave * 2 : zEave * 2;
+    const g = new THREE.BoxGeometry(w, beamH, len);
+    g.translate(x, y0 + beamH / 2, 0);
+    pushWood(g);
+  };
+
+  for (const x of colXs) {
+    // 五架梁：落在柱头（额枋）上
+    const y0 = colTop;
+    const g = new THREE.BoxGeometry(beamW, beamH, zEave * 2);
+    g.translate(x, y0 + beamH / 2, 0);
+    pushWood(g);
+
+    // 瓜柱：五架梁背 → 金檩
+    const zh = yGold - (y0 + beamH);
+    if (zh > 0.12) {
+      for (const zs of [1, -1]) {
+        const p = new THREE.BoxGeometry(beamW * 0.8, zh, beamW * 0.8);
+        p.translate(x, y0 + beamH + zh / 2, zs * zGold);
+        pushWood(p);
+      }
+      // 垫板：五架梁背上垫金檩
+      const pad = new THREE.BoxGeometry(beamW * 1.1, 0.09, zGold * 2);
+      pad.translate(x, y0 + beamH + 0.045, 0);
+      pushWood(pad);
+    }
+
+    // 角背：檐柱上斜撑到金檩
+    for (const zs of [1, -1]) {
+      const dy = yGold - y0 - beamH * 0.5;
+      const dz = zEave - zGold;
+      const len = Math.hypot(dy, dz);
+      const br = new THREE.BoxGeometry(beamW * 0.7, len, beamW * 0.7);
+      br.rotateX(zs * Math.atan2(dy, dz));
+      br.translate(x, (y0 + beamH * 0.5 + yGold) / 2, (zs * (zEave + zGold)) / 2);
+      pushWood(br);
+    }
+  }
+
+  // ---- 三架梁 + 脊瓜柱（只在中柱线上）----
+  const midXs = colXs.filter((x) => Math.abs(x) < width * 0.26);
+  for (const x of midXs.length ? midXs : [0]) {
+    const y0 = yGold;
+    const g = new THREE.BoxGeometry(beamW * 0.9, beamH * 0.8, zGold * 2);
+    g.translate(x, y0 + beamH * 0.4, 0);
+    pushWood(g);
+    const zh = yRidge - (y0 + beamH * 0.8);
+    if (zh > 0.12) {
+      const p = new THREE.BoxGeometry(beamW * 0.8, zh, beamW * 0.8);
+      p.translate(x, y0 + beamH * 0.8 + zh / 2, 0);
+      pushWood(p);
+    }
+  }
+}
+
 /**
  * 清式官式建筑「台基 → 柱网 → 额枋 → 斗栱 → 墙体」参数化构件
  *
@@ -230,6 +355,21 @@ export function buildStructure(spec) {
     }
   }
 
+  /* --------------------------------------------------------- 屋架（骨架）*/
+  // 屋面下的梁架：五架梁 / 瓜柱 / 金檩 / 三架梁 / 脊瓜柱 / 脊檩 / 角背
+  buildRoofFrame({
+    width,
+    depth,
+    colXs,
+    eaveY,
+    rise: spec.rise ?? Math.max(1.8, width * 0.26),
+    colTop: floorY + colH,
+    geoms,
+    bucket,
+    KEY,
+    fold: (t) => Math.pow(Math.min(1, Math.max(0, t)), 0.62),
+  });
+
   /* ----------------------------------------------------------- 墙体 */
   const wallTop = floorY + colH + beamH - 0.06;
   const wallH = wallTop - floorY;
@@ -324,10 +464,26 @@ export function buildStructure(spec) {
 
   /* ----------------------------------------------------------- 藻井 */
   if (caojing) {
-    const g = new THREE.PlaneGeometry(width - colDia * 2, depth - colDia * 2);
+    // 藻井只做**中央**一片（清式藻井本就是居中的方井），
+    // 四周留空——那才是露出梁架的地方。
+    // 原来铺满整个面，从下往上看只有一张平板，屋架全被盖住了。
+    const cw = (width - colDia * 2) * 0.56;
+    const cd = (depth - colDia * 2) * 0.56;
+    const g = new THREE.PlaneGeometry(cw, cd);
     g.rotateX(Math.PI / 2);
     g.translate(0, eaveY - 0.55, 0);
     bucket(geoms, KEY.ceiling).push(g);
+    // 井口边框（方井的井圈）
+    for (const [bw, bd, ox, oz] of [
+      [cw + 0.36, 0.18, 0, cd / 2],
+      [cw + 0.36, 0.18, 0, -cd / 2],
+      [0.18, cd + 0.36, cw / 2, 0],
+      [0.18, cd + 0.36, -cw / 2, 0],
+    ]) {
+      const b = new THREE.BoxGeometry(bw, 0.26, bd);
+      b.translate(ox, eaveY - 0.58, oz);
+      bucket(geoms, KEY.wood).push(b);
+    }
   }
 
   return {

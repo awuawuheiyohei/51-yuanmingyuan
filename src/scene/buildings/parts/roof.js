@@ -321,6 +321,14 @@ function buildRoofCore(spec, geomsIn) {
   }
   uvAttr.needsUpdate = true;
   push('tile', roofGeo);
+
+  // 望板：屋面之下的铺板。屋面是单面的，从下往上看会直接看穿到天上，
+  // 有了望板，屋架才有"底"，梁架也才有依附的地方。
+  {
+    const board = roofGeo.clone();
+    board.translate(0, -0.075, 0);
+    push('wood', board);
+  }
   // 小屋顶（亭、轩）不做真瓦：远看无差别，却占掉大半构建时间
   const detailTiles = Wx > 3.0;
   const findStart = (x, sign) => {

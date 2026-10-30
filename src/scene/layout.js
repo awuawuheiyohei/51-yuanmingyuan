@@ -130,6 +130,11 @@ function buildSceneCluster(scene, heightAt, rnd) {
     );
     return `#${c.getHexString()}`;
   };
+  // 材质变体：同一种砖/石/木生成多个变体，每景挑一个。
+  // 几何是**按景合并**的，所以每景用自己的材质实例 → draw call 不变，
+  // 但"同一个贴图铺满全园"的复制感会消失。
+  const variant = Math.floor(sceneRnd() * 4);
+
   const baseTile = TILE_COLORS[program.main.tile];
   const tileColor = baseTile
     ? shiftHsl(baseTile.color, (sceneRnd() - 0.5) * 0.02, (sceneRnd() - 0.5) * 0.075)
@@ -157,6 +162,7 @@ function buildSceneCluster(scene, heightAt, rnd) {
     roof: m.roof,
     caihua: m.caihua,
     tile: m.tile,
+    variant,
     tileColor,
     wallColor,
     columnColor,
@@ -241,6 +247,7 @@ function buildSceneCluster(scene, heightAt, rnd) {
         caihua: af.caihua,
         // 配建筑默认随主建筑的瓦色等级；考据里另有实记的用 a.tile 覆盖
         tile: a.tile ?? m.tile,
+        variant,
         tileColor: a.tile ? null : tileColor,
         wallColor,
         columnColor,
