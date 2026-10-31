@@ -1,0 +1,78 @@
+{
+  "file": "stones.glb",
+  "bytes": 86636,
+  "stones": [
+    {
+      "name": "spire-0",
+      "kind": "spire",
+      "variant": 0,
+      "triangles": 220
+    },
+    {
+      "name": "spire-1",
+      "kind": "spire",
+      "variant": 1,
+      "triangles": 220
+    },
+    {
+      "name": "strata-0",
+      "kind": "strata",
+      "variant": 0,
+      "triangles": 219
+    },
+    {
+      "name": "strata-1",
+      "kind": "strata",
+      "variant": 1,
+      "triangles": 220
+    },
+    {
+      "name": "cavern-0",
+      "kind": "cavern",
+      "variant": 0,
+      "triangles": 220
+    },
+    {
+      "name": "cavern-1",
+      "kind": "cavern",
+      "variant": 1,
+      "triangles": 220
+    },
+    {
+      "name": "reclining-0",
+      "kind": "reclining",
+      "variant": 0,
+      "triangles": 220
+    },
+    {
+      "name": "reclining-1",
+      "kind": "reclining",
+      "variant": 1,
+      "triangles": 220
+    },
+    {
+      "name": "shoot-0",
+      "kind": "shoot",
+      "variant": 0,
+      "triangles": 219
+    },
+    {
+      "name": "shoot-1",
+      "kind": "shoot",
+      "variant": 1,
+      "triangles": 220
+    },
+    {
+      "name": "cluster-0",
+      "kind": "cluster",
+      "variant": 0,
+      "triangles": 220
+    },
+    {
+      "name": "cluster-1",
+      "kind": "cluster",
+      "variant": 1,
+      "triangles": 220
+    }
+  ]
+}

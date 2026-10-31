@@ -25,7 +25,9 @@
  * 后楼在其东。
  */
 import * as THREE from 'three';
-import { mergeAll } from './materials.js';
+import { buildRoof } from '../buildings/parts/roof.js';
+import { buildDougongSet } from '../buildings/parts/dougong.js';
+import { mergeAll, tint } from './materials.js';
 import {
   box,
   boxAt,
@@ -38,6 +40,7 @@ import {
   beastHead,
   robedBody,
   figurePedestal,
+  bronzeDeer,
   ZODIAC,
   monkey,
   stoneFish,
@@ -47,13 +50,19 @@ import {
   acanthusBand,
   pediment,
   volute,
+  columnCapital,
   waterJet,
+  fountainPlume,
   jetBetween,
   spray,
   steps,
+  archedPane,
+  windowSurround,
+  frenchMuntins,
+  ornamentalTree,
 } from './kit.js';
 import { buildHall } from './hall.js';
-import { octagonalPool, clamAndWheel, conformPool } from './fountain.js';
+import { octagonalPool, clamAndWheel, conformPool, conformPoolCoping } from './fountain.js';
 
 /** 西洋石豹（正门前，口中吐水） */
 function stoneLeopard(size = 1) {
@@ -186,12 +195,38 @@ export function buildHaiYanTang(c, opts) {
       const panel = archedPanelLocal(RW, h, 0.6, 5, y0);
       panel.translate(rxc, y0, rzt + sz * (RD / 2 - 0.3));
       c.add('plaster', panel);
+      // 券花窗（前后两面）
+      const bayF = RW / 5;
+      for (let i = 0; i < 5; i++) {
+        addRearWindow(c, {
+          cx: -RW / 2 + bayF * (i + 0.5),
+          y: y0 + 1.0,
+          w: bayF * 0.46,
+          h: h * 0.36,
+          yaw: sz > 0 ? 0 : Math.PI,
+          face: rzt + sz * (RD / 2),
+          out: sz,
+        });
+      }
     }
     for (const sx of [1, -1]) {
       const panel = archedPanelLocal(RD - 1.2, h, 0.6, 3, y0);
       panel.rotateY((Math.PI / 2) * sx);
       panel.translate(rxc + sx * (RW / 2 - 0.3), y0, rzt);
       c.add('plaster', panel);
+      // 券花窗（两侧面）
+      const bayS = (RD - 1.2) / 3;
+      for (let i = 0; i < 3; i++) {
+        addRearWindow(c, {
+          cx: -(RD - 1.2) / 2 + bayS * (i + 0.5),
+          y: y0 + 1.0,
+          w: bayS * 0.46,
+          h: h * 0.36,
+          yaw: (Math.PI / 2) * sx,
+          face: rxc + sx * (RW / 2),
+          out: sx,
+        });
+      }
     }
     // 檐部
     for (const sz of [1, -1]) {
@@ -205,6 +240,41 @@ export function buildHaiYanTang(c, opts) {
       cm.translate(rxc + sx * (RW / 2 + 0.2), y0 + h - 0.4, rzt);
       c.add('stone', cm);
     }
+    // 檐柱 + 斗栱（只在有屋面的那一层做）
+    if (lv === 1) {
+      const colH = h - 0.42;
+      const bays = 5;
+      const bayW = RW / bays;
+      for (let i = 0; i <= bays; i++) {
+        const px = rxc - RW / 2 + bayW * i;
+        for (const sz of [1, -1]) {
+          // 柱身（顶端让出柱头的位置）
+          const shaftH = colH - 0.4;
+          const col = cyl(0.27, 0.29, shaftH, 10);
+          col.translate(px, y0 + shaftH / 2, rzt + sz * (RD / 2 + 0.36));
+          c.add('stone', col);
+          // **柱头**：西洋柱式（原来柱顶直接顶进斗栱，什么也读不出来）
+          const cap = columnCapital(0.27, { h: 0.4, order: 'composite' });
+          cap.translate(px, y0 + shaftH, rzt + sz * (RD / 2 + 0.36));
+          c.add('stone', cap);
+        }
+      }
+      const dgScale = 0.9;
+      const unitX = buildDougongSet(dgScale, 'x');
+      const dgY = y0 + h - 0.42 - 1.3 * dgScale;
+      for (let i = 0; i <= bays; i++) {
+        const px = rxc - RW / 2 + bayW * i;
+        for (const sz of [1, -1]) {
+          for (const s2 of [1, -1]) {
+            const g = unitX.clone();
+            if (s2 < 0) g.scale(-1, 1, 1);
+            g.translate(px, dgY, rzt + sz * (RD / 2 + 0.36));
+            c.add('dougong', g);
+          }
+        }
+      }
+      unitX.dispose();
+    }
   }
   // 后楼屋面（孔雀绿琉璃庑殿顶）
   addRoofLocal(c, RW, RD, PLAT + 12.6, 3.4, 'keque', rxc, rzt);
@@ -217,10 +287,14 @@ export function buildHaiYanTang(c, opts) {
     c.add('stone', cyl(1.5, 1.6, 1.2, 12).translate(tx, PLAT + 12.9, rzt));
     // 轧水机
     c.add('metal', cyl(0.9, 0.9, 1.6, 10).translate(tx, PLAT + 14.2, rzt));
+    // 蓄水楼的小屋面（真瓦作，不再是一块平色板）
+    addRoofLocal(c, 6.2, RD - 3.0, PLAT + 19.0, 1.5, 'keque', tx, rzt);
   }
   // 后楼中央锡海（蓄水池）
   c.add('stone', boxAt(9.0, 2.2, RD - 2.0, rxc, PLAT + 13.6, rzt));
-  c.add('water', boxAt(8.2, 0.2, RD - 3.0, rxc, PLAT + 14.5, rzt));
+  // 水面必须刷成深青：water 桶是 vertexColors 的，少了顶点色就补白 ——
+  // 这里原来是一块**白板**（锡海看上去是一块白瓷砖）。
+  c.add('water', tint(boxAt(8.2, 0.2, RD - 3.0, rxc, PLAT + 14.5, rzt), 0x123f49));
 
   /* ---------------------------------------------------------- 门前平台与喷水池 */
   const COURT_X = -FD / 2 - 2.5; // 平台西缘
@@ -264,9 +338,12 @@ export function buildHaiYanTang(c, opts) {
   pool.rim.translate(PX, 0, 0);
   pool.floor.translate(PX, 0, 0);
   pool.water.translate(PX, 0, 0);
+  pool.coping.translate(PX, 0, 0);
   conformPool(pool, ground);
+  conformPoolCoping(pool, ground);
   c.add('stone', pool.rim);
   c.add('stone', pool.floor);
+  c.add('stone', pool.coping);
   c.add('water', pool.water);
   // 池缘栏杆
   for (let i = 0; i < 8; i++) {
@@ -292,14 +369,14 @@ export function buildHaiYanTang(c, opts) {
       jetBetween(
         [PX + sx * 2.6, 4.0, 0],
         [PX + sx * 1.2, 0.2, 0],
-        0.06
+        0.11
       )
     );
   }
   // 两旁石台二座
   for (const sz of [-1, 1]) {
     c.add('stone', cyl(1.8, 2.1, 1.0, 10).translate(PX, 0.5, sz * 7.2));
-    c.add('water', waterJet(2.6, 0.06).translate(PX, 1.0, sz * 7.2));
+    c.add('water', waterJet(2.6, 0.11).translate(PX, 1.0, sz * 7.2));
   }
 
   /* ---------------------------------------------------------- 十二生肖 */
@@ -338,7 +415,7 @@ export function buildHaiYanTang(c, opts) {
       pz + (dir[2] / len) * 0.66,
     ];
     const target = [PX + (dir[0] / len) * 1.2, base + 1.1, pz + (dir[2] / len) * 1.2];
-    c.add('water', jetBetween(mouth, target, 0.055));
+    c.add('water', jetBetween(mouth, target, 0.10));
   };
   south.forEach((k, i) => {
     const t = i / 5;
@@ -388,23 +465,50 @@ export function buildHaiYanTang(c, opts) {
     p.rim.translate(px, 0, pz);
     p.floor.translate(px, 0, pz);
     p.water.translate(px, 0, pz);
+    p.coping.translate(px, 0, pz);
     conformPool(p, ground);
+    conformPoolCoping(p, ground);
     c.add('stone', p.rim);
     c.add('stone', p.floor);
+    c.add('stone', p.coping);
     c.add('water', p.water);
-    c.add('water', waterJet(2.4, 0.055).translate(px, 0, pz));
+    // 冲天水柱：用**束状**的 fountainPlume（几根细流 + 顶端散花），
+    // 不要一根实心白柱 —— 那看着像白玉碑插在池里。
+    c.add('water', fountainPlume(2.4, 0.035, 5, 0.13).translate(px, 0, pz));
+    // 池中主雕塑：石座 + 铜鹿（海晏堂的兽首铜雕群之一）。
+    // 原来池里只有一根水柱，池心是**空的** —— 喷泉没有主角。
+    {
+      const ped = figurePedestal(1.5, 0.85);
+      ped.translate(px, 0.1, pz);
+      c.add('stone', ped);
+      const deer = bronzeDeer(1.35);
+      deer.rotateY(0.7);
+      deer.translate(px, 0.95, pz);
+      c.add('metal', deer);
+    }
     if (tag === 'west') {
-      // 西池：二铜猴在树下捅马蜂窝
+      // 西池：二铜猴在**池边树上**捅马蜂窝。
+      //
+      // ⚠ 树原本放在 `pz + 1.4` —— 那是**池中心**，
+      // 树直接长在水里（截图里能看到树泡在池中）。
+      // 正确位置：池**外侧**（沿 z 轴向外退到池沿之外），
+      // 猴也在树下、贴着池沿。
+      const treeZ = pz + (pz > 0 ? 6.4 : -6.4);
+      const treeX = px + (px < rxc ? -1.2 : 1.2);
       for (const sx of [-1, 1]) {
         const mk = monkey(1.1);
         mk.rotateY(sx > 0 ? -0.4 : 0.4);
-        mk.translate(px + sx * 1.4, 0.2, pz + 0.6);
+        mk.translate(treeX + sx * 1.3, 0.2, treeZ - (pz > 0 ? 1.1 : -1.1));
         c.add('metal', mk);
       }
       // 树（马蜂窝在树上）
-      c.add('wood', cyl(0.24, 0.34, 4.4, 8).translate(px, 2.2, pz + 1.4));
-      c.add('green', sph(1.5, 8, 6).translate(px, 4.8, pz + 1.4));
-      c.add('wood', sph(0.42, 7, 5).translate(px + 0.7, 3.9, pz + 1.2));
+      // 之前这里是「一根圆柱 + 一个半径 1.5m 的实心绿球」——远看像棒棒糖。
+      // 现在用 ornamentalTree：分枝树干 + 多个不规则叶簇。
+      const tree = ornamentalTree(5.6, 88);
+      for (const g of tree.wood) c.add('bark', g.clone().translate(treeX, 0, treeZ));
+      for (const g of tree.green) c.add('green', g.clone().translate(treeX, 0, treeZ));
+      // 马蜂窝（挂在枝上）
+      c.add('wood', sph(0.42, 7, 5).translate(treeX + 0.7, 3.6, treeZ - 0.4));
     } else if (pz > 0) {
       // 南面东池：铜猴坐假山上执伞
       const rock = sph(1.3, 9, 7);
@@ -425,6 +529,38 @@ export function buildHaiYanTang(c, opts) {
 }
 
 /* ------------------------------------------------------------------ 局部工具 */
+
+/**
+ * 后楼墙板上的一扇券花窗：券脚/券石/拱心石/窗楣/窗台 + 玻璃 + 法式铜棂。
+ *
+ * ⚠ 2026-10-30 验收补：后楼原先只有"墙上开洞"的墙板，四面全是**裸洞口**
+ * ——没有窗套、没有玻璃、没有棂条，从东面或侧面看过去就是一片破面。
+ * 现在按前楼的规格补齐，深度关系与前楼一致：
+ *   墙外皮 ─┬─ 铜棂（退进 0.05 m）
+ *           └─ 玻璃（退进 0.12 m）
+ *
+ * @param cx   洞口中心的局部 x（与墙板一致）
+ * @param y    洞口底标高
+ * @param w,h  洞口尺寸
+ * @param yaw  墙面朝向
+ * @param face 墙外皮坐标（带符号）
+ * @param out  外法线方向（+1 / -1）
+ */
+function addRearWindow(c, o) {
+  const { cx, y, w, h, yaw, face, out } = o;
+  const sw = windowSurround(w, h, 0.6 * 1.25);
+  sw.rotateY(yaw);
+  sw.translate(cx, y, face - out * 0.186);
+  c.add('stone', sw);
+  const pane = archedPane(w, h, 0.12);
+  pane.rotateY(yaw);
+  pane.translate(cx, y, face - out * 0.12);
+  c.add('glass', pane);
+  const mt = frenchMuntins(w, h, 0.09);
+  mt.rotateY(yaw);
+  mt.translate(cx, y, face - out * 0.05);
+  c.add('metal', mt);
+}
 
 /** 局部带券洞的墙板（供后楼使用） */
 function archedPanelLocal(w, h, t, n, baseY) {
@@ -491,10 +627,39 @@ function corniceLocal(len, depth) {
   return mergeAll(parts);
 }
 
-/** 局部屋面（叠涩瓦顶 + 压边），ox/oz 为在景区坐标系里的中心偏移 */
+/**
+ * 局部屋面（真清式屋面：筒瓦 + 望板 + 屋脊 + 博风板）。
+ *
+ * ⚠ 2026-10-30 验收改：原先是三块叠起来的方盒子 —— 一大片平涂的孔雀绿琉璃，
+ * 既没有瓦垄也没有举折，近看就是一块色板（AGENTS §4.1「屋面要做成真瓦作」）。
+ * 现在改成调用建筑系统的 `buildRoof`，与前楼同一套屋面做法；
+ * 考据：后楼「亦为两层」，用孔雀绿琉璃庑殿顶。
+ */
 function addRoofLocal(c, w, d, eaveY, rise, tileKey, ox = 0, oz = 0) {
-  c.add(`tile-${tileKey}`, boxAt(w + 3.2, 0.5, d + 3.2, ox, eaveY + 0.25, oz));
-  c.add(`tile-${tileKey}`, boxAt(w + 2.4, rise * 0.55, d + 2.4, ox, eaveY + 0.5 + rise * 0.275, oz));
-  c.add(`tile-${tileKey}`, boxAt(w + 1.2, rise * 0.45, d + 1.2, ox, eaveY + 0.5 + rise * 0.55 + rise * 0.225, oz));
-  c.add('wood', boxAt(w + 3.6, 0.3, d + 3.6, ox, eaveY - 0.15, oz));
+  const r = buildRoof({
+    width: w,
+    depth: d,
+    eaveY,
+    rise,
+    type: 'wudian',
+    overhang: 1.8,
+    overhangX: 1.5,
+    hipRunX: Math.max(2.4, d * 0.26),
+    upturn: 0.9,
+    bulge: 0.5,
+    segments: 1,
+  });
+  const tileBucket = `tile-${tileKey}`;
+  for (const [key, list] of r.geoms) {
+    let bucket = key;
+    if (key === 'tile' || key === 'ridge' || key === 'finial') bucket = tileBucket;
+    else if (key === 'wall') bucket = 'plaster';
+    else if (key === 'shanhua') bucket = 'stone';
+    else if (key === 'eave' || key === 'wood') bucket = 'wood';
+    for (const g of list) {
+      if (!g || !g.attributes?.position) continue; // roof.js 的 finial 桶里混有数组
+      g.translate(ox, 0, oz);
+      c.add(bucket, g);
+    }
+  }
 }

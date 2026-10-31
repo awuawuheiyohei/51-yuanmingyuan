@@ -31,6 +31,8 @@ import {
   planter,
   volute,
   leaf,
+  squareCapital,
+  entablature,
   pediment,
   throne,
   semicircleScreen,
@@ -45,15 +47,25 @@ function squareTower(size = 2.2, height = 5.4) {
   const parts = [];
   parts.push(boxAt(size + 0.8, 0.5, size + 0.8, 0, 0.25, 0));
   parts.push(boxAt(size, height - 1.4, size, 0, 0.5 + (height - 1.4) / 2, 0));
-  // 四角的壁柱
+  // 四角的壁柱（**带方柱柱头**：原来柱顶是一根光杆直接插进檐口）
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      parts.push(boxAt(0.36, height - 1.6, 0.36, sx * (size / 2 - 0.1), 0.5 + (height - 1.6) / 2, sz * (size / 2 - 0.1)));
+      const px = sx * (size / 2 - 0.1);
+      const pz = sz * (size / 2 - 0.1);
+      const postH = height - 1.6;
+      parts.push(boxAt(0.36, postH - 0.32, 0.36, px, 0.5 + (postH - 0.32) / 2, pz));
+      const cap = squareCapital(0.36, 0.36, 0.32);
+      cap.translate(px, 0.5 + postH - 0.32, pz);
+      parts.push(cap);
     }
   }
   // 檐口 + 攒尖顶
   parts.push(boxAt(size + 1.2, 0.42, size + 1.2, 0, height - 0.9, 0));
   parts.push(boxAt(size + 0.6, 0.3, size + 0.6, 0, height - 0.55, 0));
+  // 檐下**额枋 + 檐壁 + 檐口线脚**（西洋檐部，不是三块叠板）
+  const ent = entablature(size + 1.2, 0.34, { h: 0.42, dentils: false });
+  ent.translate(0, height - 1.32, 0);
+  parts.push(ent);
   const prof = [];
   for (let i = 0; i <= 5; i++) {
     const t = i / 5;
@@ -74,6 +86,10 @@ function clockTowerGate(height = 7.2) {
   // 侧壁柱
   for (const sx of [-1, 1]) {
     parts.push(boxAt(0.5, height - 2.8, 0.5, sx * 1.6, 0.6 + (height - 2.8) / 2, 1.2));
+    // **柱头**（原来柱顶是一块光板）
+    const cap = squareCapital(0.5, 0.5, 0.36);
+    cap.translate(sx * 1.6, 0.6 + (height - 2.8) - 0.36, 1.2);
+    parts.push(cap);
     const v = volute(0.6, 0.12, 1.5);
     v.rotateY(Math.PI / 2);
     v.translate(sx * 1.6, height - 2.4, 1.4);
@@ -82,11 +98,41 @@ function clockTowerGate(height = 7.2) {
   // 顶檐
   parts.push(boxAt(4.4, 0.44, 3.0, 0, height - 1.9, 0));
   parts.push(boxAt(3.8, 0.3, 2.6, 0, height - 1.5, 0));
-  // 座钟（钟面 + 钟顶）
+  // 檐下**西洋檐部**（额枋 + 檐壁 + 檐口），压在顶檐之下
+  const ent = entablature(4.4, 0.36, { h: 0.44, dentils: false });
+  ent.translate(0, height - 2.34, 1.5);
+  parts.push(ent);
+  // 座钟（钟面 + 时盘刻度 + 指针 + 钟顶）
   const clock = cyl(1.0, 1.05, 0.35, 16);
   clock.rotateX(Math.PI / 2);
   clock.translate(0, height - 0.3, 1.5);
   parts.push(clock);
+  // 时盘：外圈 + 12 道刻度 + 时针分针
+  // （原来钟面是一块光板圆片，近看什么也读不出来）
+  const dial = torus(0.92, 0.07, 5, 20);
+  dial.translate(0, height - 0.3, 1.69);
+  parts.push(dial);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const long = i % 3 === 0;
+    const mark = boxAt(long ? 0.07 : 0.04, long ? 0.26 : 0.15, 0.05, 0, 0, 0);
+    mark.rotateZ(-a);
+    mark.translate(Math.cos(a) * 0.74, height - 0.3 + Math.sin(a) * 0.74, 1.7);
+    parts.push(mark);
+  }
+  for (const [ang, len, wid] of [
+    [-Math.PI / 3, 0.55, 0.09], // 时针
+    [Math.PI / 6, 0.78, 0.06], // 分针
+  ]) {
+    const hand = boxAt(wid, len, 0.05, 0, len / 2 - 0.08, 0);
+    hand.rotateZ(ang);
+    hand.translate(0, height - 0.3, 1.72);
+    parts.push(hand);
+  }
+  const pin = cyl(0.07, 0.07, 0.08, 8);
+  pin.rotateX(Math.PI / 2);
+  pin.translate(0, height - 0.3, 1.74);
+  parts.push(pin);
   const dome = sph(1.0, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.scale(1, 0.8, 1);
   dome.translate(0, height + 0.6, 1.3);

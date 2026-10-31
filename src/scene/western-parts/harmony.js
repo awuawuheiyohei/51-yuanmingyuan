@@ -35,13 +35,15 @@ import {
   curvedSteps,
   octagonalPavilion,
   planter,
+  columnCapital,
   waterJet,
   jetBetween,
   spray,
+  fountainPlume,
   steps,
 } from './kit.js';
 import { buildHall } from './hall.js';
-import { begoniaPool, octagonalPool, conformPool } from './fountain.js';
+import { begoniaPool, octagonalPool, conformPool, conformPoolCoping } from './fountain.js';
 
 export function buildHarmonyHall(c, opts) {
   const { x, y, z, rotY = 0, ground = null } = opts;
@@ -166,9 +168,12 @@ export function buildHarmonyHall(c, opts) {
   pool.rim.translate(0, 0, POOL_Z);
   pool.floor.translate(0, 0, POOL_Z);
   pool.water.translate(0, 0, POOL_Z);
+  pool.coping.translate(0, 0, POOL_Z);
   conformPool(pool, ground);
+  conformPoolCoping(pool, ground);
   c.add('stone', pool.rim);
   c.add('stone', pool.floor);
+  c.add('stone', pool.coping);
   c.add('water', pool.water);
 
   // 池心大翻尾石鱼（口中可立一人，向上喷水五丈余）
@@ -176,8 +181,11 @@ export function buildHarmonyHall(c, opts) {
   bigFish.rotateY(Math.PI);
   bigFish.translate(0, gy(0, POOL_Z + PR * 0.62) + 0.4, POOL_Z + PR * 0.62);
   c.add('stone', bigFish);
-  c.add('water', waterJet(15.5, 0.14).translate(0, 1.6, POOL_Z + PR * 0.62));
-  c.add('water', spray(0.6, 1.3).translate(0, 17.0, POOL_Z + PR * 0.62));
+  // 五丈余的水柱：做成**一束**细流（原来是一根白柱，远看像白玉碑）
+  c.add(
+    'water',
+    fountainPlume(15.5, 0.045, 6, 0.26).translate(0, 1.6, POOL_Z + PR * 0.62)
+  );
 
   /* ------------------------------------------------------------ 铜雁十八 · 铜羊四 */
   const geese = [];
@@ -265,9 +273,15 @@ export function buildHarmonyHall(c, opts) {
     for (let i = 0; i <= 6; i++) {
       const cz = czz - cl / 2 + (cl * i) / 6;
       for (const s2 of [-1, 1]) {
-        const col = cyl(0.17, 0.19, 3.1, 8);
-        col.translate(cxx + s2 * (cw / 2 - 0.3), 0.9 + 1.55, cz);
+        // 柱身（顶端让出柱头）
+        const shaftH = 3.1 - 0.26;
+        const col = cyl(0.17, 0.19, shaftH, 8);
+        col.translate(cxx + s2 * (cw / 2 - 0.3), 0.9 + 0.13 + shaftH / 2, cz);
         c.add('stone', col);
+        // 柱头（游廊柱很细，用省面做法：颈线脚 + 顶板 + 一圈卷涡）
+        const cap = columnCapital(0.175, { h: 0.26, order: 'plain' });
+        cap.translate(cxx + s2 * (cw / 2 - 0.3), 0.9 + 0.13 + shaftH, cz);
+        c.add('stone', cap);
       }
     }
     const rf = buildRoof({
@@ -287,7 +301,9 @@ export function buildHarmonyHall(c, opts) {
           ? 'tile-hui'
           : k === 'wood' || k === 'eave'
             ? 'wood'
-            : 'plaster';
+            : k === 'board'
+              ? 'board' // 望板（屋面之下的铺板）必须单独一桶，不能糊成粉灰墙
+              : 'plaster';
       for (const g of list) {
         if (!g || !g.attributes?.position) continue; // roof.js 的 finial 桶里混有数组
         g.translate(cxx, 0.9, czz);
@@ -302,11 +318,14 @@ export function buildHarmonyHall(c, opts) {
     sp.rim.translate(spx, 0, spz);
     sp.floor.translate(spx, 0, spz);
     sp.water.translate(spx, 0, spz);
+    sp.coping.translate(spx, 0, spz);
     conformPool(sp, ground);
+    conformPoolCoping(sp, ground);
     c.add('stone', sp.rim);
     c.add('stone', sp.floor);
+    c.add('stone', sp.coping);
     c.add('water', sp.water);
-    c.add('water', waterJet(2.2, 0.05).translate(spx, 0, spz));
+    c.add('water', waterJet(2.2, 0.10).translate(spx, 0, spz));
 
     // 奏乐亭（五色琉璃顶八角亭）
     const pavX = cxx;
@@ -343,11 +362,14 @@ export function buildHarmonyHall(c, opts) {
     p.rim.translate(px, 0, pz);
     p.floor.translate(px, 0, pz);
     p.water.translate(px, 0, pz);
+    p.coping.translate(px, 0, pz);
     conformPool(p, ground);
+    conformPoolCoping(p, ground);
     c.add('stone', p.rim);
     c.add('stone', p.floor);
+    c.add('stone', p.coping);
     c.add('water', p.water);
-    c.add('water', waterJet(2.6, 0.055).translate(px, 0, pz));
+    c.add('water', waterJet(2.6, 0.10).translate(px, 0, pz));
   }
 
   c.clearTransform();
@@ -363,6 +385,7 @@ function rf2Buckets(roof) {
     else if (k === 'ridge' || k === 'finial') bucket = 'tile-wuse';
     else if (k === 'wood' || k === 'eave') bucket = 'wood';
     else if (k === 'wall' || k === 'shanhua') bucket = 'plaster';
+    else if (k === 'board') bucket = 'board'; // 望板
     if (!out.has(bucket)) out.set(bucket, []);
     out.get(bucket).push(...list);
   }

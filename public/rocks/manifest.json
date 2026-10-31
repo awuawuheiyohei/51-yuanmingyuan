@@ -1,8 +1,8 @@
 {
   "generator": "scripts/gen-rock.py",
   "seed": 20261030,
-  "resolution": 112,
-  "targetFaces": 6000,
+  "resolution": 72,
+  "targetFaces": 2200,
   "device": "MPS (Apple GPU)",
   "archetypes": {
     "spire": "瘦峰",
@@ -19,27 +19,27 @@
       "kindCN": "瘦峰",
       "seed": 20276379,
       "variant": 0,
-      "triangles": 5999,
-      "rawTriangles": 69616,
+      "triangles": 2199,
+      "rawTriangles": 15788,
       "decimated": true,
       "bbox": {
-        "width": 0.232,
+        "width": 0.3988,
         "height": 1.0,
-        "depth": 0.2034
+        "depth": 0.3917
       },
       "holes": 2,
       "topology": {
-        "components": 6,
-        "boundaryEdges": 63,
+        "components": 1,
+        "boundaryEdges": 3,
         "closed": false,
-        "euler": -8974,
+        "euler": -3302,
         "genus": null
       },
-      "bytes": 170328,
+      "bytes": 63040,
       "genSeconds": {
-        "field": 1.265,
-        "marchingCubes": 0.022,
-        "decimate": 0.031
+        "field": 0.443,
+        "marchingCubes": 0.007,
+        "decimate": 0.009
       }
     },
     {
@@ -48,27 +48,27 @@
       "kindCN": "瘦峰",
       "seed": 20276380,
       "variant": 1,
-      "triangles": 6000,
-      "rawTriangles": 110058,
+      "triangles": 2199,
+      "rawTriangles": 41352,
       "decimated": true,
       "bbox": {
-        "width": 0.2724,
+        "width": 0.2531,
         "height": 1.0,
-        "depth": 0.247
+        "depth": 0.2517
       },
       "holes": 3,
       "topology": {
         "components": 1,
-        "boundaryEdges": 0,
-        "closed": true,
-        "euler": -9003,
-        "genus": 4502
+        "boundaryEdges": 7,
+        "closed": false,
+        "euler": -3298,
+        "genus": null
       },
-      "bytes": 169508,
+      "bytes": 63200,
       "genSeconds": {
-        "field": 0.939,
-        "marchingCubes": 0.022,
-        "decimate": 0.037
+        "field": 0.202,
+        "marchingCubes": 0.006,
+        "decimate": 0.011
       }
     },
     {
@@ -77,27 +77,27 @@
       "kindCN": "瘦峰",
       "seed": 20276381,
       "variant": 2,
-      "triangles": 5999,
-      "rawTriangles": 93046,
+      "triangles": 2200,
+      "rawTriangles": 22798,
       "decimated": true,
       "bbox": {
-        "width": 0.4185,
+        "width": 0.439,
         "height": 1.0,
-        "depth": 0.2434
+        "depth": 0.2978
       },
       "holes": 2,
       "topology": {
         "components": 1,
-        "boundaryEdges": 47,
-        "closed": false,
-        "euler": -8996,
-        "genus": null
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -3301,
+        "genus": 1651
       },
-      "bytes": 169620,
+      "bytes": 63152,
       "genSeconds": {
-        "field": 0.924,
-        "marchingCubes": 0.018,
-        "decimate": 0.027
+        "field": 0.21,
+        "marchingCubes": 0.004,
+        "decimate": 0.006
       }
     },
     {
@@ -106,27 +106,27 @@
       "kindCN": "层叠",
       "seed": 20298069,
       "variant": 0,
-      "triangles": 5999,
-      "rawTriangles": 76380,
+      "triangles": 2200,
+      "rawTriangles": 20980,
       "decimated": true,
       "bbox": {
-        "width": 1.0823,
+        "width": 1.3806,
         "height": 1.0,
-        "depth": 0.9676
+        "depth": 1.2129
       },
       "holes": 3,
       "topology": {
-        "components": 9,
-        "boundaryEdges": 25,
+        "components": 3,
+        "boundaryEdges": 16,
         "closed": false,
-        "euler": -8987,
+        "euler": -3296,
         "genus": null
       },
-      "bytes": 169904,
+      "bytes": 63308,
       "genSeconds": {
-        "field": 0.912,
-        "marchingCubes": 0.015,
-        "decimate": 0.021
+        "field": 0.199,
+        "marchingCubes": 0.004,
+        "decimate": 0.007
       }
     },
     {
@@ -135,27 +135,27 @@
       "kindCN": "层叠",
       "seed": 20298070,
       "variant": 1,
-      "triangles": 6000,
-      "rawTriangles": 109754,
+      "triangles": 2198,
+      "rawTriangles": 54040,
       "decimated": true,
       "bbox": {
-        "width": 1.2882,
+        "width": 1.0839,
         "height": 1.0,
-        "depth": 1.1493
+        "depth": 0.9512
       },
       "holes": 3,
       "topology": {
-        "components": 8,
+        "components": 1,
         "boundaryEdges": 10,
         "closed": false,
-        "euler": -9061,
+        "euler": -3322,
         "genus": null
       },
-      "bytes": 167604,
+      "bytes": 62336,
       "genSeconds": {
-        "field": 0.911,
-        "marchingCubes": 0.019,
-        "decimate": 0.031
+        "field": 0.195,
+        "marchingCubes": 0.008,
+        "decimate": 0.016
       }
     },
     {
@@ -164,27 +164,27 @@
       "kindCN": "层叠",
       "seed": 20298071,
       "variant": 2,
-      "triangles": 6000,
-      "rawTriangles": 108166,
+      "triangles": 2200,
+      "rawTriangles": 33616,
       "decimated": true,
       "bbox": {
-        "width": 1.162,
+        "width": 1.2518,
         "height": 1.0,
-        "depth": 0.91
+        "depth": 0.7262
       },
       "holes": 2,
       "topology": {
         "components": 1,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -9027,
-        "genus": 4514
+        "euler": -3312,
+        "genus": 1657
       },
-      "bytes": 168736,
+      "bytes": 62792,
       "genSeconds": {
-        "field": 0.913,
-        "marchingCubes": 0.023,
-        "decimate": 0.033
+        "field": 0.21,
+        "marchingCubes": 0.006,
+        "decimate": 0.008
       }
     },
     {
@@ -193,27 +193,27 @@
       "kindCN": "洞穴",
       "seed": 20282265,
       "variant": 0,
-      "triangles": 6000,
-      "rawTriangles": 95230,
+      "triangles": 2200,
+      "rawTriangles": 34888,
       "decimated": true,
       "bbox": {
-        "width": 0.8797,
+        "width": 0.8146,
         "height": 1.0,
-        "depth": 0.7311
+        "depth": 0.727
       },
       "holes": 2,
       "topology": {
         "components": 1,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -9009,
-        "genus": 4505
+        "euler": -3311,
+        "genus": 1656
       },
-      "bytes": 169296,
+      "bytes": 62856,
       "genSeconds": {
-        "field": 0.902,
-        "marchingCubes": 0.018,
-        "decimate": 0.027
+        "field": 0.19,
+        "marchingCubes": 0.005,
+        "decimate": 0.009
       }
     },
     {
@@ -222,27 +222,27 @@
       "kindCN": "洞穴",
       "seed": 20282266,
       "variant": 1,
-      "triangles": 5999,
-      "rawTriangles": 120014,
+      "triangles": 2200,
+      "rawTriangles": 42630,
       "decimated": true,
       "bbox": {
-        "width": 0.9225,
+        "width": 0.8985,
         "height": 1.0,
-        "depth": 0.7644
+        "depth": 0.7623
       },
       "holes": 2,
       "topology": {
         "components": 1,
-        "boundaryEdges": 13,
-        "closed": false,
-        "euler": -9019,
-        "genus": null
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -3303,
+        "genus": 1652
       },
-      "bytes": 168892,
+      "bytes": 63096,
       "genSeconds": {
-        "field": 0.926,
-        "marchingCubes": 0.021,
-        "decimate": 0.04
+        "field": 0.189,
+        "marchingCubes": 0.007,
+        "decimate": 0.01
       }
     },
     {
@@ -251,27 +251,27 @@
       "kindCN": "洞穴",
       "seed": 20282267,
       "variant": 2,
-      "triangles": 6000,
-      "rawTriangles": 78000,
+      "triangles": 2200,
+      "rawTriangles": 30744,
       "decimated": true,
       "bbox": {
-        "width": 1.0588,
+        "width": 0.7475,
         "height": 1.0,
-        "depth": 0.8695
+        "depth": 0.6943
       },
       "holes": 1,
       "topology": {
-        "components": 3,
+        "components": 1,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -9016,
-        "genus": 4509
+        "euler": -3310,
+        "genus": 1656
       },
-      "bytes": 169044,
+      "bytes": 62860,
       "genSeconds": {
-        "field": 0.902,
-        "marchingCubes": 0.016,
-        "decimate": 0.026
+        "field": 0.185,
+        "marchingCubes": 0.005,
+        "decimate": 0.008
       }
     },
     {
@@ -280,27 +280,27 @@
       "kindCN": "卧牛",
       "seed": 20315801,
       "variant": 0,
-      "triangles": 5999,
-      "rawTriangles": 76482,
+      "triangles": 2200,
+      "rawTriangles": 29842,
       "decimated": true,
       "bbox": {
-        "width": 3.1793,
+        "width": 3.7077,
         "height": 1.0,
-        "depth": 2.4847
+        "depth": 2.4543
       },
       "holes": 3,
       "topology": {
-        "components": 2,
-        "boundaryEdges": 29,
-        "closed": false,
-        "euler": -8987,
-        "genus": null
+        "components": 1,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -3300,
+        "genus": 1651
       },
-      "bytes": 169916,
+      "bytes": 63188,
       "genSeconds": {
-        "field": 0.943,
-        "marchingCubes": 0.024,
-        "decimate": 0.034
+        "field": 0.19,
+        "marchingCubes": 0.005,
+        "decimate": 0.007
       }
     },
     {
@@ -309,27 +309,27 @@
       "kindCN": "卧牛",
       "seed": 20315802,
       "variant": 1,
-      "triangles": 5999,
-      "rawTriangles": 87982,
+      "triangles": 2200,
+      "rawTriangles": 35668,
       "decimated": true,
       "bbox": {
-        "width": 3.8639,
+        "width": 3.8968,
         "height": 1.0,
-        "depth": 2.204
+        "depth": 2.3066
       },
       "holes": 2,
       "topology": {
         "components": 2,
-        "boundaryEdges": 45,
-        "closed": false,
-        "euler": -8978,
-        "genus": null
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -3298,
+        "genus": 1650
       },
-      "bytes": 170180,
+      "bytes": 63268,
       "genSeconds": {
-        "field": 0.909,
-        "marchingCubes": 0.016,
-        "decimate": 0.023
+        "field": 0.188,
+        "marchingCubes": 0.006,
+        "decimate": 0.01
       }
     },
     {
@@ -338,27 +338,27 @@
       "kindCN": "卧牛",
       "seed": 20315803,
       "variant": 2,
-      "triangles": 6000,
-      "rawTriangles": 70880,
+      "triangles": 2200,
+      "rawTriangles": 26548,
       "decimated": true,
       "bbox": {
-        "width": 3.3813,
+        "width": 3.0667,
         "height": 1.0,
-        "depth": 1.9556
+        "depth": 1.6999
       },
       "holes": 3,
       "topology": {
         "components": 1,
-        "boundaryEdges": 0,
-        "closed": true,
-        "euler": -9008,
-        "genus": 4505
+        "boundaryEdges": 14,
+        "closed": false,
+        "euler": -3294,
+        "genus": null
       },
-      "bytes": 169292,
+      "bytes": 63388,
       "genSeconds": {
-        "field": 0.898,
-        "marchingCubes": 0.015,
-        "decimate": 0.02
+        "field": 0.188,
+        "marchingCubes": 0.005,
+        "decimate": 0.007
       }
     },
     {
@@ -367,27 +367,27 @@
       "kindCN": "笋状",
       "seed": 20349855,
       "variant": 0,
-      "triangles": 6000,
-      "rawTriangles": 86104,
+      "triangles": 2199,
+      "rawTriangles": 34524,
       "decimated": true,
       "bbox": {
-        "width": 0.2807,
+        "width": 0.3757,
         "height": 1.0,
-        "depth": 0.2924
+        "depth": 0.4388
       },
       "holes": 1,
       "topology": {
-        "components": 1,
-        "boundaryEdges": 0,
-        "closed": true,
-        "euler": -9004,
-        "genus": 4503
+        "components": 2,
+        "boundaryEdges": 41,
+        "closed": false,
+        "euler": -3280,
+        "genus": null
       },
-      "bytes": 169416,
+      "bytes": 63744,
       "genSeconds": {
-        "field": 0.886,
-        "marchingCubes": 0.016,
-        "decimate": 0.023
+        "field": 0.201,
+        "marchingCubes": 0.006,
+        "decimate": 0.008
       }
     },
     {
@@ -396,27 +396,27 @@
       "kindCN": "笋状",
       "seed": 20349856,
       "variant": 1,
-      "triangles": 6000,
-      "rawTriangles": 83132,
+      "triangles": 2200,
+      "rawTriangles": 27306,
       "decimated": true,
       "bbox": {
-        "width": 0.2874,
+        "width": 0.3868,
         "height": 1.0,
-        "depth": 0.2556
+        "depth": 0.3501
       },
       "holes": 1,
       "topology": {
-        "components": 1,
+        "components": 2,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -9020,
-        "genus": 4511
+        "euler": -3303,
+        "genus": 1652
       },
-      "bytes": 168932,
+      "bytes": 63100,
       "genSeconds": {
-        "field": 0.882,
-        "marchingCubes": 0.016,
-        "decimate": 0.026
+        "field": 0.2,
+        "marchingCubes": 0.005,
+        "decimate": 0.006
       }
     },
     {
@@ -425,27 +425,27 @@
       "kindCN": "笋状",
       "seed": 20349857,
       "variant": 2,
-      "triangles": 5999,
-      "rawTriangles": 86916,
+      "triangles": 2200,
+      "rawTriangles": 28024,
       "decimated": true,
       "bbox": {
-        "width": 0.2763,
+        "width": 0.2831,
         "height": 1.0,
-        "depth": 0.2724
+        "depth": 0.2713
       },
       "holes": 3,
       "topology": {
-        "components": 3,
-        "boundaryEdges": 45,
-        "closed": false,
-        "euler": -8985,
-        "genus": null
+        "components": 2,
+        "boundaryEdges": 0,
+        "closed": true,
+        "euler": -3301,
+        "genus": 1651
       },
-      "bytes": 169948,
+      "bytes": 63164,
       "genSeconds": {
-        "field": 0.918,
-        "marchingCubes": 0.018,
-        "decimate": 0.031
+        "field": 0.19,
+        "marchingCubes": 0.005,
+        "decimate": 0.007
       }
     },
     {
@@ -454,27 +454,27 @@
       "kindCN": "群峰",
       "seed": 20289086,
       "variant": 0,
-      "triangles": 6000,
-      "rawTriangles": 90172,
+      "triangles": 2200,
+      "rawTriangles": 36586,
       "decimated": true,
       "bbox": {
-        "width": 0.337,
+        "width": 0.3397,
         "height": 1.0,
-        "depth": 0.3406
+        "depth": 0.3116
       },
       "holes": 3,
       "topology": {
-        "components": 4,
+        "components": 2,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -8999,
-        "genus": 4500
+        "euler": -3300,
+        "genus": 1651
       },
-      "bytes": 169632,
+      "bytes": 63200,
       "genSeconds": {
-        "field": 0.945,
-        "marchingCubes": 0.017,
-        "decimate": 0.036
+        "field": 0.192,
+        "marchingCubes": 0.006,
+        "decimate": 0.009
       }
     },
     {
@@ -483,27 +483,27 @@
       "kindCN": "群峰",
       "seed": 20289087,
       "variant": 1,
-      "triangles": 6000,
-      "rawTriangles": 90896,
+      "triangles": 2199,
+      "rawTriangles": 33102,
       "decimated": true,
       "bbox": {
-        "width": 0.4009,
+        "width": 0.4951,
         "height": 1.0,
-        "depth": 0.4452
+        "depth": 0.4407
       },
       "holes": 1,
       "topology": {
-        "components": 2,
-        "boundaryEdges": 0,
-        "closed": true,
-        "euler": -9015,
-        "genus": 4508
+        "components": 1,
+        "boundaryEdges": 43,
+        "closed": false,
+        "euler": -3287,
+        "genus": null
       },
-      "bytes": 169080,
+      "bytes": 63540,
       "genSeconds": {
-        "field": 0.904,
-        "marchingCubes": 0.017,
-        "decimate": 0.032
+        "field": 0.19,
+        "marchingCubes": 0.005,
+        "decimate": 0.008
       }
     },
     {
@@ -512,29 +512,29 @@
       "kindCN": "群峰",
       "seed": 20289088,
       "variant": 2,
-      "triangles": 6000,
-      "rawTriangles": 91278,
+      "triangles": 2200,
+      "rawTriangles": 40036,
       "decimated": true,
       "bbox": {
-        "width": 0.489,
+        "width": 0.4986,
         "height": 1.0,
-        "depth": 0.3917
+        "depth": 0.4069
       },
       "holes": 2,
       "topology": {
-        "components": 2,
+        "components": 1,
         "boundaryEdges": 0,
         "closed": true,
-        "euler": -9011,
-        "genus": 4506
+        "euler": -3309,
+        "genus": 1655
       },
-      "bytes": 169220,
+      "bytes": 62892,
       "genSeconds": {
-        "field": 0.913,
-        "marchingCubes": 0.017,
-        "decimate": 0.033
+        "field": 0.189,
+        "marchingCubes": 0.006,
+        "decimate": 0.01
       }
     }
   ],
-  "totalSeconds": 20.09
+  "totalSeconds": 4.51
 }

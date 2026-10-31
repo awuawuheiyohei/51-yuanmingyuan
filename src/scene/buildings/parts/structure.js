@@ -52,9 +52,20 @@ function buildRoofFrame(opts) {
   const ridgeY = eaveY + rise;
   const purlinR = 0.11;
 
+  /**
+   * 金檩的落位余量（檩顶距屋面的距离）。
+   *
+   * ⚠ **必须容得下三架梁**。
+   *   原来只留 `purlinR * 1.6`（檩径的 1.6 倍 ≈ 0.18m），
+   *   而架在金檩上的**三架梁本身有 0.4m 深** ——
+   *   梁顶直接**戳出屋面 0.22m**，远看就是屋坡上浮着几块红木头。
+   *   余量改成「三架梁高 + 檩径余量」，整副梁架才真正藏在屋面之下。
+   */
+  const goldDrop = 0.5 * 0.8 + purlinR * 1.6;
+
   const zEave = halfD - 0.25;
   const zGold = halfD * 0.5;
-  const yGold = surfAt(zGold) - purlinR * 1.6;
+  const yGold = surfAt(zGold) - goldDrop;
   const yRidge = Math.min(ridgeY - purlinR * 1.8, surfAt(0) - purlinR * 2.2);
 
   const beamH = 0.5; // 五架梁高
@@ -83,26 +94,43 @@ function buildRoofFrame(opts) {
   const segmentedPurlin = (z, drop, r = purlinR, fallbackY = null) => {
     // 分段点：每根柱线一个节点
     const xs = [-width / 2, ...colXs, width / 2].sort((a, b) => a - b);
-    // 先算出每个节点的落位高度
-    const nodeY = xs.map((x) => {
+    /** 该 X 处的屋面高度（减去檩顶余量） */
+    const roofYAt = (x) => {
       if (surfAtXY) return surfAtXY(x, z) - drop;
       return fallbackY !== null ? fallbackY : surfAt(z) - drop;
-    });
+    };
+    const nodeY = xs.map(roofYAt);
     for (let i = 0; i < xs.length - 1; i++) {
       const x0 = xs[i];
       const x1 = xs[i + 1];
       if (x1 - x0 < 0.05) continue;
+      // ⚠ **檩必须落在这一跨屋面的最低处**，不能只取两端的连线。
+      //
+      // 原来 `midY = (nodeY[i] + nodeY[i+1]) / 2` —— 檩按两端的连线走。
+      // 但卷棚歇山的山面在 |x| > xh 处**圆缓卷落**，屋面在这一跨里
+      // 是**先降后平**（smoothstep）的凹曲线：连线会高于屋面 ⇒
+      // **檩从屋面里穿出来**，远看就是屋坡上浮着几根红木条。
+      //
+      // 真实营造里檩是直的、坐在它所托屋面的**最低点**上，
+      // 所以这里取整跨的最小值 —— 与真实做法一致，也不会穿模。
+      let yMin = Infinity;
+      const SAMPLES = 6;
+      for (let k = 0; k <= SAMPLES; k++) {
+        const x = x0 + ((x1 - x0) * k) / SAMPLES;
+        const y = roofYAt(x);
+        if (y < yMin) yMin = y;
+      }
       const y0 = nodeY[i];
       const y1 = nodeY[i + 1];
       const midX = (x0 + x1) / 2;
-      const midY = (y0 + y1) / 2;
+      const midY = yMin;
       const len = x1 - x0 + 0.02;
       const g = new THREE.CylinderGeometry(r, r, len, 7);
       g.rotateZ(Math.PI / 2);
       // 两端高度不同时，沿 X 略微倾斜，贴合屋面的走势（真实檩是直的，
       // 但屋面本身有转折；这里用微倾避免出现台阶状断裂）
       const dy = y1 - y0;
-      if (Math.abs(dy) > 0.001) {
+      if (Math.abs(dy) > 0.001 && Math.abs(y1 - y0) < 0.02) {
         g.rotateY(-Math.atan2(dy, x1 - x0));
       }
       g.translate(midX, midY, z);
@@ -115,9 +143,8 @@ function buildRoofFrame(opts) {
   purlin(yEave, zEave);
   purlin(yEave, -zEave);
   // 金檩：按各段屋面高度下沉，角部不穿出
-  const dropGold = purlinR * 1.6;
-  segmentedPurlin(zGold, dropGold, purlinR, surfAt(zGold) - dropGold);
-  segmentedPurlin(-zGold, dropGold, purlinR, surfAt(-zGold) - dropGold);
+    segmentedPurlin(zGold, goldDrop, purlinR, surfAt(zGold) - goldDrop);
+  segmentedPurlin(-zGold, goldDrop, purlinR, surfAt(-zGold) - goldDrop);
   // 脊檩：在屋脊轴线上。**只铺屋脊真正存在的那一段**——
   // 歇山/卷棚歇山的屋脊到山花边（|x| = xh）为止，两端是山花竖面，
   // 没有脊檩。若通长铺（或按山花处的低屋面下沉），
@@ -149,8 +176,22 @@ function buildRoofFrame(opts) {
 
     // 该柱位处的金檩高度：分段檩在角部下沉，瓜柱必须跟着落位，
     // 否则瓜柱会从下沉的金檩旁边穿出去。
+    //
+    // ⚠ **要取瓜柱自身宽度范围内屋面的最低值**，不能只取柱心的值。
+    //   屋面在卷棚歇山的山面处圆缓卷落（|x| > xh 之后开始降），
+    //   柱心处屋面高、柱的外缘处屋面低 —— 按柱心取值，
+    //   瓜柱的**外侧角**就会戳出屋面 20cm（远看屋坡上浮着一块红木）。
     const goldY = surfAtXY
-      ? surfAtXY(x, zGold) - purlinR * 1.6
+      ? (() => {
+          const half = beamW * 0.4;
+          let lo = Infinity;
+          for (let k = 0; k <= 4; k++) {
+            const sx = x - half + ((2 * half) * k) / 4;
+            const y = surfAtXY(sx, zGold) - goldDrop;
+            if (y < lo) lo = y;
+          }
+          return lo;
+        })()
       : yGold;
 
     // 瓜柱：五架梁背 → 金檩
@@ -197,7 +238,7 @@ function buildRoofFrame(opts) {
   const midXs = colXs.filter((x) => Math.abs(x) < width * 0.26);
   for (const x of midXs.length ? midXs : [0]) {
     // 三架梁架在金檩上：金檩在哪，这根梁就在哪
-    const y0 = surfAtXY ? surfAtXY(x, zGold) - purlinR * 1.6 : yGold;
+    const y0 = surfAtXY ? surfAtXY(x, zGold) - goldDrop : yGold;
     const g = new THREE.BoxGeometry(beamW * 0.9, beamH * 0.8, zGold * 2);
     g.translate(x, y0 + beamH * 0.4, 0);
     pushWood(g);
@@ -225,7 +266,8 @@ function buildRoofFrame(opts) {
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { buildDougongSet, dougongProjection } from './dougong.js';
+import { buildDougongSet, dougongProjection, dougongHeight } from './dougong.js';
+import { DK } from '../modular.js';
 import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
 import { buildShanGeParts } from './lattice.js';
 import { buildColumnBase } from './details.js';
@@ -243,6 +285,13 @@ const KEY = {
   dark: 'dark',
   finial: 'finial',
   plaque: 'plaque',
+  // ⚠ 楹联必须有自己的桶键。原来 KEY 里**没有** couplet/couplet2，
+  //   `bucket(geoms, KEY.couplet)` 拿到的是 undefined ⇒ 几何进了
+  //   一个名为 undefined 的桶 ⇒ `materialFor(undefined)` 落到
+  //   default 分支 ⇒ **一块 0x999999 的灰板子**。
+  //   近看每座殿的柱子上都挂着一块惨白的板，没有黑漆金字。
+  couplet: 'couplet',
+  couplet2: 'couplet2',
 };
 
 function bucket(map, key) {
@@ -278,10 +327,14 @@ export function buildStructure(spec) {
     platform = 'xumizuo',
     caihua = 'xuanzi',
     wallType = 'brick',
-    hasDougong = true,
+    hasDougong = spec.hasDougong ?? true,
     doors = [],
     caojing = false,
     wallThick = 0.5,
+    /** 柱径：由斗口制模数推导（layout.js 传入）；没给就自己兜一个 */
+    colDia: colDiaSpec = null,
+    /** 斗栱出跳数：由模数推导（layout.js 传入） */
+    dougongJumps = null,
     couplet = null,
     /**
      * 屋面表面高度函数 `(z) => y`（由 buildRoof 提供）。
@@ -295,7 +348,9 @@ export function buildStructure(spec) {
   } = spec;
 
   const geoms = new Map();
-  const colDia = Math.max(0.28, Math.min(0.62, bayW / 10));
+  // 柱径 / 墙厚 / 斗栱跳数：由**斗口制模数**推导（layout.js 传入）。
+  // 原来这里是 `clamp(bayW/10)` 自己猜的 —— 与等级、斗栱规格都无关。
+  const colDia = colDiaSpec ?? Math.max(0.28, Math.min(0.62, bayW / 10));
   const bayD = depth / jin;
   const plinthOut = 1.1;
 
@@ -336,17 +391,49 @@ export function buildStructure(spec) {
 
 
   /* ------------------------------------------------------------- 柱网 */
+  /**
+   * 柱位 **不均匀**：明间居中最大，向两翼逐间递减。
+   *
+   * ⚠ 原来这里是 `colXs.push(-width/2 + i * bayW)` —— **所有开间等宽**。
+   *   那是西式建筑的做法。中式建筑是"明间大、次间小、尽间更小"，
+   *   等宽柱网一眼就假，而且柱距与斗栱攒当也对不上。
+   *
+   * 现在柱位由 `modular.js` 按**攒当法**算好，直接传入。
+   */
   const colXs = [];
-  for (let i = 0; i <= mian; i++) colXs.push(-width / 2 + i * bayW);
+  if (Array.isArray(spec.colXs) && spec.colXs.length === mian + 1) {
+    colXs.push(...spec.colXs);
+  } else {
+    // 兜底：无 colXs 时才退回等分
+    for (let i = 0; i <= mian; i++) colXs.push(-width / 2 + i * bayW);
+  }
+  // 各开间宽度（用于额枋、门扇、隔扇的分间尺寸）
+  const bayWidths = Array.isArray(spec.bayWidths) && spec.bayWidths.length === mian
+    ? spec.bayWidths
+    : Array.from({ length: mian }, () => bayW);
   const colZs = [];
   for (let j = 0; j <= jin; j++) colZs.push(-depth / 2 + j * bayD);
 
   // 构造次序：檐柱 → 额枋 → 斗栱 → 屋面
-  // eaveY 是屋面起坡高度，斗栱与额枋都要在它下面
-  const beamH = 0.62;
+  //
+  // ⚠ **柱高不再从檐高倒推**。
+  // 原来 `colH = eaveY - floorY - beamH - dgHeight` 是"倒着算"：
+  // 给定檐高，柱高是剩余量。这样一来，斗口制推导出的柱高比例
+  // 全被覆盖掉了 —— 柱高只是檐高的残数，与模数无关。
+  //
+  // 现在：**柱高由模数给定**（layout.js 传入 colH），
+  // 檐高 = 台基 + 柱高 + 额枋 + 斗栱（自下而上累加）。
+  // 若调用方没给 colH，才回退到倒推（兼容旧调用）。
+  const beamH = spec.beamH ?? 0.62;
   const beamD = colDia * 1.05;
-  const dgHeight = hasDougong ? 1.25 * (spec.dougongScale ?? 1) : 0;
-  const colH = eaveY - floorY - beamH - dgHeight;
+  const dgScale = spec.dougongScale ?? (colDia / 0.3);
+  // 斗栱通高：由模数给出（10 斗口），与 modular.js 的推导一致。
+  // 原来写死 1.25 × dgScale（≈ 12.5 斗口），与檐高公式对不上。
+  const dgHeight = hasDougong ? (spec.dougongHeight ?? dougongHeight(dgScale)) : 0;
+  const colH =
+    spec.colH != null
+      ? spec.colH
+      : eaveY - floorY - beamH - dgHeight;
   const isPerimeter = (i, j) => i === 0 || i === mian || j === 0 || j === jin;
 
   const addColumn = (x, z, h) => {
@@ -384,10 +471,10 @@ export function buildStructure(spec) {
     g.translate(x, beamY, z);
     bucket(geoms, KEY.caihua).push(g);
   };
-  // 前后檐枋（沿 X）
+  // 前后檐枋（沿 X）—— 每开间**按各自宽度**分段，明间枋自然最长
   for (const j of [0, jin]) {
     for (let i = 0; i < mian; i++) {
-      addBeam(bayW, (colXs[i] + colXs[i + 1]) / 2, colZs[j], true);
+      addBeam(bayWidths[i], (colXs[i] + colXs[i + 1]) / 2, colZs[j], true);
     }
   }
   // 两山檐枋（沿 Z）
@@ -401,7 +488,7 @@ export function buildStructure(spec) {
   const banY = beamY - beamH / 2 - banH / 2;
   for (const j of [0, jin]) {
     for (let i = 0; i < mian; i++) {
-      const g = new THREE.BoxGeometry(bayW - 0.02, banH, beamD * 0.8);
+      const g = new THREE.BoxGeometry(bayWidths[i] - 0.02, banH, beamD * 0.8);
       g.translate((colXs[i] + colXs[i + 1]) / 2, banY, colZs[j]);
       bucket(geoms, KEY.wall).push(g);
     }
@@ -409,10 +496,29 @@ export function buildStructure(spec) {
 
   /* ----------------------------------------------------------- 斗栱 */
   if (hasDougong) {
-    // 斗栱按清式真尺：坐斗 0.30 见方、三跳总出挑 1.80、通高约 1.25
-    const dgScale = spec.dougongScale ?? 1;
+    /**
+     * 斗栱按**斗口制**排布：
+     *   - **柱头科**：坐在柱头上（每个柱位一攒）
+     *   - **平身科**：两柱之间按**攒当**（11 斗口）等距布置
+     *
+     * ⚠ 原来只在柱头上放斗栱，两柱之间是**空的** ——
+     *   檐下于是"稀稀拉拉几根木头"，一眼假。
+     *   清式官式建筑的檐下是**密排斗栱**（故宫太和殿一明间就有六攒平身科），
+     *   正是这种密实感撑起了中国建筑的轮廓。
+     *
+     * 攒距 = 攒当 = 11 斗口（`modular.js` 的 DK.zanDang）。
+     * 斗栱的模数就是斗口，与柱子同一模数（斗口制的核心）。
+     */
+    const dgScale = spec.dougongScale ?? (colDia / 0.3);
     const unit = buildDougongSet(dgScale, 'x');
+    /** 攒距（相邻斗栱中心距）= 11 斗口 */
+    // ⚠ 必须防住 0：小式建筑没有斗口（doukou = 0），
+    //   `span / 0` = Infinity → `Math.round(Infinity)` = Infinity
+    //   → for 循环永不结束 ⇒ **整个场景构建挂死**（浏览器白屏）。
+    const zanDang = DK.zanDang * (spec.doukou || colDia / 6);
+
     const placements = [];
+    // 柱头科：每个柱位一攒
     for (let i = 0; i <= mian; i++) {
       placements.push([colXs[i], colZs[0], 0]);
       placements.push([colXs[i], colZs[jin], 0]);
@@ -421,6 +527,29 @@ export function buildStructure(spec) {
       placements.push([colXs[0], colZs[j], Math.PI / 2]);
       placements.push([colXs[mian], colZs[j], Math.PI / 2]);
     }
+    // 平身科：两柱之间按攒当等距插入
+    const maxPerBay = 12; // 单跨最多 12 攒，超了就不是攒当法了
+    if (zanDang > 1e-6) {
+      for (let i = 0; i < mian; i++) {
+        const span = colXs[i + 1] - colXs[i];
+        const n = Math.max(0, Math.min(maxPerBay, Math.round(span / zanDang) - 1));
+        for (let k = 1; k <= n; k++) {
+          const x = colXs[i] + (span * k) / (n + 1);
+          placements.push([x, colZs[0], 0]);
+          placements.push([x, colZs[jin], 0]);
+        }
+      }
+      for (let j = 0; j < jin; j++) {
+        const span = colZs[j + 1] - colZs[j];
+        const n = Math.max(0, Math.min(maxPerBay, Math.round(span / zanDang) - 1));
+        for (let k = 1; k <= n; k++) {
+          const z = colZs[j] + (span * k) / (n + 1);
+          placements.push([colXs[0], z, Math.PI / 2]);
+          placements.push([colXs[mian], z, Math.PI / 2]);
+        }
+      }
+    }
+
     for (const [x, z, rot] of placements) {
       const g = unit.clone();
       // 斗栱坐在柱头，略微出柱心才看得见
@@ -520,16 +649,17 @@ export function buildStructure(spec) {
     const doorSet = new Set(doors);
     for (let i = 0; i < mian; i++) {
       const cx = (colXs[i] + colXs[i + 1]) / 2;
+      const bw = bayWidths[i]; // 本开间实际宽（各间不等宽）
       if (doorSet.has(i)) {
         // 门洞内的暗底：殿内是暗的，用墙材质会变成一块红板，
         // 隔扇就贴在红墙上，读不出"开口"
-        const back = new THREE.BoxGeometry(bayW - colDia, wallH, 0.1);
+        const back = new THREE.BoxGeometry(bw - colDia, wallH, 0.1);
         back.translate(cx, floorY + wallH / 2, frontZ - wallThick * 0.42);
         bucket(geoms, KEY.dark).push(back);
         // 隔扇门（四扇槅扇）—— 框料/绦环板/步步锦格心/裙板，全是实体
-        const leafW = (bayW - colDia * 1.2) / 4;
+        const leafW = (bw - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
-          const lx = cx - (bayW - colDia * 1.2) / 2 + leafW * (k + 0.5);
+          const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
           const { frame, lattice } = buildShanGeParts(leafW * 0.94, wallH * 0.96);
           frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
@@ -538,7 +668,7 @@ export function buildStructure(spec) {
           bucket(geoms, KEY.lattice).push(lattice);
         }
         // 门楣
-        const lintel = new THREE.BoxGeometry(bayW - colDia * 0.6, 0.22, wallThick * 1.1);
+        const lintel = new THREE.BoxGeometry(bw - colDia * 0.6, 0.22, wallThick * 1.1);
         lintel.translate(cx, floorY + wallH - 0.11, frontZ + wallThick * 0.1);
         bucket(geoms, KEY.wood).push(lintel);
 
@@ -547,7 +677,7 @@ export function buildStructure(spec) {
           const cw = 0.42;
           const ch = 2.24;
           const cxDoor = cx;
-          const flank = bayW / 2 + colDia * 0.55;
+          const flank = bw / 2 + colDia * 0.55;
           const up = new THREE.BoxGeometry(cw, ch, 0.08);
           up.translate(cxDoor + flank, floorY + wallH * 0.56, frontZ + wallThick * 0.45);
           bucket(geoms, KEY.couplet).push(up);
@@ -557,18 +687,30 @@ export function buildStructure(spec) {
         }
 
         // 匾额：门楣之上的黑漆金字横匾（金边框 + 漆底）
+        //
+        // ⚠ 匾额必须**留在檐口之下**。
+        //   原来按「墙高」定位：`floorY + wallH - 0.2 + ph*0.6`。
+        //   对**大式**（有斗栱）刚好在檐口之下，但**小式没有斗栱**，
+        //   檐口就压在墙顶附近 —— 匾额会**戳出屋面**，
+        //   远看就是屋坡上悬着一个红方块。
+        //   这里把匾额顶面钉死在檐口之下 0.12m。
         if (i === Math.floor(mian / 2)) {
-          const pw = Math.min(bayW * 0.62, 3.2);
+          const pw = Math.min(bw * 0.62, 3.2);
           const ph = Math.min(wallH * 0.2, 0.95);
+          const plateTop = Math.min(
+            floorY + wallH - 0.2 + ph * 0.6,
+            eaveY - 0.12
+          );
+          const plateY = plateTop - ph * 0.6;
           const frame = new THREE.BoxGeometry(pw, ph, 0.1);
-          frame.translate(cx, floorY + wallH - 0.2 + ph * 0.6, frontZ + wallThick * 0.55);
+          frame.translate(cx, plateY, frontZ + wallThick * 0.55);
           bucket(geoms, KEY.finial).push(frame);
           const board = new THREE.BoxGeometry(pw * 0.92, ph * 0.8, 0.13);
-          board.translate(cx, floorY + wallH - 0.2 + ph * 0.6, frontZ + wallThick * 0.58);
+          board.translate(cx, plateY, frontZ + wallThick * 0.58);
           bucket(geoms, KEY.plaque).push(board);
         }
       } else {
-        const panel = new THREE.BoxGeometry(bayW - colDia, wallH, wallThick);
+        const panel = new THREE.BoxGeometry(bw - colDia, wallH, wallThick);
         panel.translate(cx, floorY + wallH / 2, frontZ);
         bucket(geoms, KEY.wall).push(panel);
       }

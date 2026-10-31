@@ -32,7 +32,9 @@ export function makeGroundTexture() {
   const g = c.getContext('2d');
   const rnd = mulberry32(20261029);
 
-  g.fillStyle = '#8f9463';
+  // 底色：园内草地是**偏冷**的绿（不是干草黄）。
+  // 原来 #8f9463 偏黄，在太阳下整园看着像晒干的草场。
+  g.fillStyle = '#79805a';
   g.fillRect(0, 0, S, S);
 
   // 大块色斑：枯草 / 湿草 / 裸土 —— 对比必须够大，否则远看还是死平一块
@@ -68,20 +70,26 @@ export function makeGroundTexture() {
   }
 
   // 草叶笔触（同样环绕画，保证无缝）
-  for (let i = 0; i < 7000; i++) {
+  //
+  // ⚠ 笔触长度必须按**真实草高**折算成贴图像素：
+  // 512px 贴图铺 18m → 1px ≈ 3.5cm。
+  // 真实草叶高 5~15cm ≈ 1.5~4px。
+  // 原来画到 2~8px（7~28cm），近景看就是**一地 30cm 的绿色色块**，
+  // 像铺了草皮地毯，完全不像草地。
+  for (let i = 0; i < 9000; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
-    const len = 2 + rnd() * 7;
+    const len = 1.2 + rnd() * 2.6; // ≈ 4~13cm
     const ang = -Math.PI / 2 + (rnd() - 0.5) * 1.4;
     const v = rnd();
     const col =
-      v < 0.3
-        ? 'rgba(196,202,138,0.75)'
+      v < 0.22
+        ? 'rgba(146,152,104,0.62)' // 枯草高光（压暗）
         : v < 0.62
-          ? 'rgba(62,74,42,0.7)'
-          : 'rgba(158,152,104,0.6)';
+          ? 'rgba(62,74,42,0.66)' // 深湿草
+          : 'rgba(118,114,82,0.55)'; // 枯草
     g.strokeStyle = col;
-    g.lineWidth = 1 + rnd() * 1.4;
+    g.lineWidth = 0.8 + rnd() * 0.9;
     for (const ox of [-S, 0, S]) {
       for (const oy of [-S, 0, S]) {
         g.beginPath();
@@ -213,6 +221,9 @@ export function buildPaths(sceneData, heightAt) {
   group.name = 'paths';
   const parts = [];
 
+  // 园界多边形：园外的路不铺（见下方过滤）
+  const parkRing = sceneData.park || [];
+
   // 水面占用判定
   const waters = (sceneData.water || []).filter((w) => w.ring && w.ring.length > 2);
   const isWater = (x, z) => {
@@ -231,6 +242,14 @@ export function buildPaths(sceneData, heightAt) {
     else if (kind === 'path') width = 2.0;
     else if (kind === 'pedestrian') width = 2.6;
     else continue; // track/landuse 不铺面
+    // ⚠ **园外的路不铺**：OSM 路网是连续的，园外还有一大片，
+    // 铺出来就是俯视时园子西南/东南方向伸出的一堆**白线**。
+    // 圆明园的园墙与水系圈定了范围，园外的路不属于本园。
+    const line = p.line || [];
+    if (!line.length) continue;
+    if (parkRing.length > 2 && !line.some((q) => pointInRing(q[0], q[1], parkRing))) {
+      continue;
+    }
     const g = ribbon(p.line, width, heightAt, isWater);
     if (g) parts.push(g);
   }

@@ -30,40 +30,80 @@ function mulberry32(seed) {
 
 /** 画一个不规则叶簇（很多小叶/针束叠在一起） */
 function drawCluster(g, cx, cy, r, rnd, palette, kind) {
-  // 叶子数量少而大 —— 早前 120 片小叶挤在 256px 里，
-  // 放大到近景就是一团糊；改成可辨认的单叶
-  // 数量按 512px 画布重算：单叶只占十几像素，必须多画才密
+  // 叶子数量与大小。
   //
-  // ⚠ 叶子的 alpha 要**高**（0.85~1.0）：早前用 0.5~1.0 随机，
-  // 半透明的叶叠起来 alpha 累积不足，树冠看着稀疏透光，
-  // 能一眼看穿到枝干——不像真的树。
+  // ⚠ **踩过的坑（树冠像"一团乱麻"）**：
+  // 原来单叶长度只有 `r * 0.05~0.1`（簇半径的 5~10%），
+  // 一簇只画 330 片 —— 整张 512px 贴图的**覆盖面积不到 5%**，
+  // alpha 均值只有 4~23（几乎全透明）。
+  // 叠到树上就是：只看得见几根稀疏的线，透光、透背景，完全不像叶。
   //
-  // 但数量也不能无限加：叶片一多、彼此叠满，
-  // 远看就成了一团**绿色糊**（看不清单叶，像喷漆），
-  // 近看又只是密密的叶子没有枝干穿插。
-  // 平衡点：单叶画得够大够清楚，数量够盖住枝干但留出空隙。
-  const n = kind === 'needle' ? 520 : kind === 'flower' ? 200 : 330;
+  // 正确做法（两条一起改，缺一不可）：
+  //   1. 数量按**目标覆盖率**反算 —— 覆盖率不够就加叶子
+  //   2. 单叶尺寸按**真实叶长**定 —— 不能为了覆盖率把叶画成手掌大
+  //
+  // 叶长与卡片尺寸的关系：树冠卡片世界尺度约 1.7m，
+  // 512px 贴图上 1px ≈ 3.3mm，所以单叶**全** 40px ≈ 13cm。
+  // 单叶面积 ≈ π·s·0.62s ≈ 1.95s²（s 为半长）。
+  const LEAF_LEN_PX = 20; // 单叶半长（px）
+  const leafArea = Math.PI * LEAF_LEN_PX * LEAF_LEN_PX * 0.62;
+  // 目标覆盖率 0.92：树冠要"密到不透光"才像真的树。
+  // 留 8% 缝隙刚好能看见枝干穿插 —— 再密就成了一坨绿色喷漆。
+  const targetCover = 0.92;
+  const n = Math.min(
+    3200, // 上限：柳树簇半径大，按覆盖率反算能上万片 —— 会把构建拖死
+    Math.max(
+      kind === 'needle' ? 900 : kind === 'flower' ? 420 : 700,
+      Math.round((Math.PI * r * r * targetCover) / leafArea)
+    )
+  );
+
+  // 外轮廓不能是**正圆**。
+  //
+  // ⚠ 之前叶团是一个标准圆盘，而一张卡片只显示这张贴图 ——
+  // 于是每张卡片在树上就是一枚"剪出来的圆片"，远看整棵树像一叠圆饼。
+  // 这里让半径随角度起伏（几瓣正弦叠加），轮廓碎开，才像一把散开的叶子。
+  const lobes = [];
+  const nLobe = 2 + Math.floor(rnd() * 3);
+  for (let i = 0; i < nLobe; i++) {
+    lobes.push({
+      k: 2 + Math.floor(rnd() * 3), // 角频率
+      a: 0.09 + rnd() * 0.15, // 起伏幅度
+      p: rnd() * Math.PI * 2,
+    });
+  }
+  const rAt = (ang) => {
+    let k = 1;
+    for (const L of lobes) k += L.a * Math.sin(L.k * ang + L.p);
+    return r * k;
+  };
+
   for (let i = 0; i < n; i++) {
     const a = rnd() * Math.PI * 2;
-    const rr = Math.pow(rnd(), 0.62) * r;
+    // 撒布半径：略微外扩，让叶丛填满卡片（衰减只砍最外 8%）
+    // 注意 drawCluster 里没有画布尺寸 S，用簇半径 r 折算：
+    // 簇半径最大到 S*0.40，所以外扩上限取 r*1.12。
+    const rr = Math.pow(rnd(), 0.62) * rAt(a) * 1.12;
     const x = cx + Math.cos(a) * rr;
     const y = cy + Math.sin(a) * rr * 0.86;
     const c = palette[Math.floor(rnd() * palette.length)];
-    g.globalAlpha = 0.88 + rnd() * 0.12;
+    g.globalAlpha = 0.9 + rnd() * 0.1;
     g.fillStyle = c;
     if (kind === 'needle') {
       // 针叶束：一撮细线（稍长，近看能分出针）
-      const len = r * (0.05 + rnd() * 0.09);
+      // 长度按**绝对像素**给：卡片 2m / 512px → 1px ≈ 4mm，
+      // 松针真实 3~8cm，所以 8~20px。
+      const len = r * (0.032 + rnd() * 0.062);
       const ang = rnd() * Math.PI * 2;
       g.strokeStyle = c;
-      g.lineWidth = 0.8 + rnd() * 0.9;
+      g.lineWidth = 1.6 + rnd() * 1.8;
       g.beginPath();
       g.moveTo(x, y);
       g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
       g.stroke();
     } else if (kind === 'flower') {
-      // 五瓣花
-      const s = r * (0.022 + rnd() * 0.026);
+      // 五瓣花：花径 3~5cm（半长 3~6px），同样是绝对尺寸而非簇的百分比
+      const s = LEAF_LEN_PX * (0.22 + rnd() * 0.2);
       g.beginPath();
       for (let p = 0; p < 5; p++) {
         const pa = (p / 5) * Math.PI * 2 + rnd() * 0.4;
@@ -81,21 +121,24 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
         g.fill();
       }
     } else {
-      // 单片叶子：带尖端的卵形，能看出叶脉（10~22cm，与真实树叶同尺）
-      const s = r * (0.05 + rnd() * 0.05);
+      // 单片叶子：带尖端的卵形，能看出叶脉。
+      // 尺寸按**真实叶长**定：512px 贴图上 1px ≈ 1cm，
+      // 单叶半长 8~16px ≈ 8~16cm，与真实阔叶树一致。
+      // 不用簇半径的百分比 —— 簇大不代表叶大，那样会画出"手掌叶"。
+      const s = LEAF_LEN_PX * (0.68 + rnd() * 0.64);
       const ang = rnd() * Math.PI * 2;
       g.save();
       g.translate(x, y);
       g.rotate(ang);
       g.beginPath();
       g.moveTo(-s, 0);
-      g.quadraticCurveTo(0, -s * 0.72, s, 0);
-      g.quadraticCurveTo(0, s * 0.72, -s, 0);
+      g.quadraticCurveTo(0, -s * 0.62, s, 0);
+      g.quadraticCurveTo(0, s * 0.62, -s, 0);
       g.closePath();
       g.fill();
       // 叶脉
-      g.strokeStyle = 'rgba(30,44,24,0.45)';
-      g.lineWidth = Math.max(0.6, s * 0.09);
+      g.strokeStyle = 'rgba(30,44,24,0.4)';
+      g.lineWidth = Math.max(0.8, s * 0.075);
       g.beginPath();
       g.moveTo(-s * 0.9, 0);
       g.lineTo(s * 0.9, 0);
@@ -106,40 +149,49 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   g.globalAlpha = 1;
 }
 
+// 树冠贴图里叶团的位置与半径。
+//
+// ⚠ 簇半径是**叶团占画布的比例**，直接决定"卡片上看得见多大一片叶子"。
+// 原来簇半径只有 0.30~0.42，叶团缩在画布中央 —— 一张 2m 的卡片上
+// 真正看得见的只有 0.9m 的一坨，远看就是"一叠剪纸圆饼"。
+// 现在簇半径放大到 0.32~0.38（叶团横跨画布 64~76%），
+// 加上 drawCluster 里随角度起伏的轮廓，整团不再是圆饼。
 const SPECIES_TEX = {
   pine: {
     kind: 'needle',
     palette: ['#2c4a33', '#3a5c40', '#25402c', '#456b4a'],
+    // 松冠分作数团（塔形），不并成一团
     clusters: [
-      { x: 0.5, y: 0.42, r: 0.30 },
-      { x: 0.22, y: 0.62, r: 0.20 },
-      { x: 0.78, y: 0.60, r: 0.20 },
+      { x: 0.5, y: 0.38, r: 0.34 },
+      { x: 0.17, y: 0.64, r: 0.24 },
+      { x: 0.82, y: 0.58, r: 0.24 },
     ],
   },
   willow: {
     kind: 'leaf',
     palette: ['#5d7a3f', '#6d8b4b', '#4e6a35', '#7d9955'],
-    clusters: [{ x: 0.5, y: 0.5, r: 0.42 }],
+    // 叶团压在上部，垂丝从叶团里挂下来
+    clusters: [{ x: 0.5, y: 0.33, r: 0.36 }],
     strands: true,
   },
   blossom: {
     kind: 'flower',
     palette: ['#e8a8bd', '#f0c0cf', '#d98aa4', '#f6d5de'],
     clusters: [
-      { x: 0.42, y: 0.44, r: 0.30 },
-      { x: 0.70, y: 0.62, r: 0.24 },
+      { x: 0.40, y: 0.42, r: 0.32 },
+      { x: 0.70, y: 0.60, r: 0.25 },
     ],
     leaves: ['#6d8b4b', '#5d7a3f'],
   },
   poplar: {
     kind: 'leaf',
     palette: ['#5b7a42', '#6a8a4e', '#4e6a35', '#75935a'],
-    clusters: [{ x: 0.5, y: 0.5, r: 0.40 }],
+    clusters: [{ x: 0.5, y: 0.5, r: 0.38 }],
   },
   maple: {
     kind: 'leaf',
     palette: ['#9c6238', '#b5743f', '#8a5330', '#c68a4e'],
-    clusters: [{ x: 0.5, y: 0.48, r: 0.36 }],
+    clusters: [{ x: 0.5, y: 0.47, r: 0.37 }],
   },
 };
 
@@ -164,14 +216,20 @@ function makeFoliageTexture(species, seed) {
       spec.palette,
       'leaf'
     );
-    for (let i = 0; i < 520; i++) {
+    // ⚠ 柳条的**数量**也要够：520 条垂丝铺不满 512px 的树冠，
+    // 柳树因此看着稀疏透光。加密到 900 条。
+    for (let i = 0; i < 900; i++) {
       const x = S * 0.12 + rnd() * S * 0.76;
       const y0 = S * (0.18 + rnd() * 0.32);
-      const len = S * (0.18 + rnd() * 0.58);
+      // 垂条长度收短：原来最长 S*0.76（占画布 3/4），柳树成了"绿帘子"。
+      // 真实柳条垂 30~80cm，512px 上 ≈ S*0.12~0.30。
+      const len = S * (0.12 + rnd() * 0.2);
       const sway = (rnd() - 0.5) * 38;
       g.strokeStyle = spec.palette[Math.floor(rnd() * spec.palette.length)];
-      g.globalAlpha = 0.3 + rnd() * 0.45;
-      g.lineWidth = 0.5 + rnd() * 1.4;
+      g.globalAlpha = 0.55 + rnd() * 0.42;
+      // ⚠ 原来 lineWidth 只有 0.5~1.4px —— 512px 贴图上细到几乎看不见，
+      // 柳树因此只剩几根飘丝。加密到 1.6~3.4px 才成"柳条"。
+      g.lineWidth = 1.6 + rnd() * 1.8;
       g.beginPath();
       g.moveTo(x, y0);
       g.bezierCurveTo(
@@ -184,16 +242,17 @@ function makeFoliageTexture(species, seed) {
       );
       g.stroke();
       // 柳叶点缀：每条垂枝上挂若干小叶，柳条才不是光杆
-      const leaves = 4 + Math.floor(rnd() * 7);
+      const leaves = 6 + Math.floor(rnd() * 9);
       for (let k = 0; k < leaves; k++) {
         const t = 0.25 + (k / leaves) * 0.72 + rnd() * 0.08;
-        g.globalAlpha = 0.55 + rnd() * 0.4;
+        g.globalAlpha = 0.72 + rnd() * 0.28;
         g.fillStyle = spec.palette[Math.floor(rnd() * spec.palette.length)];
         g.save();
         g.translate(x + sway * t, y0 + len * t);
         g.rotate((rnd() - 0.5) * 1.2 + Math.PI * 0.15);
         g.beginPath();
-        g.ellipse(0, 0, 5 + rnd() * 5, 1.4 + rnd() * 1.6, 0, 0, Math.PI * 2);
+        // 柳叶长 5~10cm：512px 贴图上 ≈ 11~21px（全长），半长 5~10px
+        g.ellipse(0, 0, 5.4 + rnd() * 5.2, 1.9 + rnd() * 2.4, 0, 0, Math.PI * 2);
         g.fill();
         g.restore();
       }
@@ -218,7 +277,8 @@ function makeFoliageTexture(species, seed) {
       g.translate(x, y);
       g.rotate(rnd() * Math.PI * 2);
       g.beginPath();
-      g.ellipse(0, 0, S * 0.016, S * 0.009, 0, 0, Math.PI * 2);
+      // 桃叶长 10~15cm：512px 贴图上 ≈ 25px（半长 13px）
+      g.ellipse(0, 0, S * 0.026, S * 0.014, 0, 0, Math.PI * 2);
       g.fill();
       g.restore();
     }
@@ -257,16 +317,20 @@ function applyEdgeFalloff(c) {
       const dx = (x - cx) / maxR;
       const dy = (y - cy) / maxR;
       const r = Math.sqrt(dx * dx + dy * dy);
-      // 半径 0.04→0.5 的平滑衰减。
-      // 中心保持较高 alpha（0.95），让叶丛实体感足；
-      // 衰减只作用在**外圈**（r>0.22），中间的叶丛基本不透明，
-      // 但仍不是"一整块实心矩形"——四角与边缘是透明的。
+      // 衰减只作用在**贴图最外圈**（r > 0.42）。
+      //
+      // ⚠ 之前是 r>0.22 就开始衰减，而叶片撒在半径 0.3×S 的圆里 ——
+      // 外圈的叶子正好落在衰减最强的区域，被砍掉一大半。
+      // 近处看树就是"几根光杆 + 一点点叶"，远看才成团。
+      //
+      // 现在：r ≤ 0.42 全实心（0.97），最外 16% 平滑归零。
+      // 卡片边缘不会切出硬直边，但叶丛完整保留。
       let f;
-      if (r <= 0.22) f = 0.95;
+      if (r <= 0.42) f = 0.97;
       else if (r >= 0.5) f = 0;
       else {
-        const t = (r - 0.22) / (0.5 - 0.22);
-        f = 0.95 * (1 - t) * (1 - t) * (1 + 2 * t); // smoothstep 反向
+        const t = (r - 0.42) / (0.5 - 0.42);
+        f = 0.97 * (1 - t) * (1 - t) * (1 + 2 * t); // smoothstep 反向
       }
       d[i + 3] = Math.round(d[i + 3] * f);
     }
@@ -298,7 +362,9 @@ function growBranches(opts) {
     spread,
     out,
     foliageOut,
-    leafSize,
+    crownR,
+    aspect,
+    crownCfg,
     species,
   } = opts;
 
@@ -318,29 +384,12 @@ function growBranches(opts) {
   out.push(seg);
 
   if (depth >= maxDepth) {
-    // 末端挂一簇树冠。
+    // 末端挂一簇树冠（内芯 + 外壳，见 crownCluster）。
     //
-    // 近景最忌讳"一大片贴图叶子"——人眼贴近看，4~6m 宽的卡片就是一块
-    // 平板。改成**小卡片多片**：每片 1/2.5 大小、围着枝端散开 4 片，
-    // 树冠就从"几张大板"变成一团有体积的细叶。
-    const N = 4;
-    for (let i = 0; i < N; i++) {
-      const off = new THREE.Vector3(
-        (rnd() - 0.5) * leafSize * 1.35,
-        (rnd() - 0.3) * leafSize * 0.85,
-        (rnd() - 0.5) * leafSize * 1.35
-      );
-      foliageOut.push(
-        makeCard(
-          end.clone().add(off),
-          // 卡片尺寸：四片合计的投影面积要接近旧版的两张大卡，
-          // 否则树冠会明显变稀（三角面数不变，只调尺寸）。
-          leafSize * (0.62 + rnd() * 0.2),
-          rnd,
-          species
-        )
-      );
-    }
+    // 旧做法是"4 张大卡叠在枝端"：每张卡又是 6 片同心的面片，
+    // 等于在一个点上糊了几十张**共面的大平板** ——
+    // 侧影是一个剪出来的圆饼，整冠受光均匀，一眼看穿是贴图。
+    crownCluster(end, crownR, aspect, crownCfg, rnd, foliageOut);
     return;
   }
 
@@ -365,31 +414,140 @@ function growBranches(opts) {
   }
 }
 
-/** 一片树冠卡片：三片交叉面片 */
-function makeCard(pos, size, rnd, species) {
-  const parts = [];
-  // 六片、朝向全错开：轮廓才碎得开，不会看成一块板
-  for (let k = 0; k < 6; k++) {
-    const p = new THREE.PlaneGeometry(size * 2, size * 2);
-    p.rotateZ(rnd() * Math.PI);
-    p.rotateY(rnd() * Math.PI);
-    p.rotateX((rnd() - 0.5) * 0.8);
-    // 每片略偏一点，避免五片完全重合
-    p.translate(
-      (rnd() - 0.5) * size * 0.7,
-      (rnd() - 0.5) * size * 0.5,
-      (rnd() - 0.5) * size * 0.7
-    );
-    p.translate(pos.x, pos.y, pos.z);
-    parts.push(p);
+/* ------------------------------------------------------- 树冠几何 */
+
+/**
+ * 球面上均匀取一个方向。
+ *
+ * 树冠卡片法线用它取 —— 只在一个圆盘里取方向，整冠就是"一块板"，
+ * 近看全是同一个高光；铺满整个球面，每片叶子的受光才各不相同。
+ */
+function sphereDir(rnd) {
+  const z = rnd() * 2 - 1;
+  const a = rnd() * Math.PI * 2;
+  const r = Math.sqrt(Math.max(0, 1 - z * z));
+  return new THREE.Vector3(r * Math.cos(a), z, r * Math.sin(a));
+}
+
+/**
+ * 一张**带弧度**的树冠卡片。
+ *
+ * 为什么不直接用 PlaneGeometry：
+ *   平卡片在整簇里会连成一整块硬边板 —— 远看像剪纸，近看是一张平板。
+ *   沿横向弯一点（柱面弧 z = x²/2R）之后：
+ *     · 同一张卡上有几个不同法线，高光沿卡面扫过去；
+ *     · 卡的侧影不再是直的，边缘碎得开；
+ *     · 卡片侧对镜头时还有一个斜面接着，不会整片消失。
+ *
+ * 段数只给 3（6 三角面）—— 卡片数以万计，段数是这里最敏感的乘数。
+ */
+function bowCard(w, h, rArc, segs = 3) {
+  const nx = segs + 1;
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  for (let j = 0; j < 2; j++) {
+    for (let i = 0; i < nx; i++) {
+      const u = i / segs;
+      const x = (u - 0.5) * w;
+      // 柱面弧：中间鼓、两端落，整体沿法线方向鼓出
+      const z = (x * x) / (2 * rArc) - (w * w) / (8 * rArc);
+      pos.push(x, (j - 0.5) * h, z);
+      uv.push(u, j);
+    }
   }
-  const g = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
+  for (let i = 0; i < segs; i++) {
+    const a = i;
+    const b = i + 1;
+    idx.push(a, b, a + nx, b, b + nx, a + nx);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
   return g;
+}
+
+/**
+ * 把一张卡片摆到指定位置、绕指定法线。
+ * 卡片自身的平面法线对齐 normal，再绕 normal 随机自转（叶序不重样）。
+ */
+function orientedCard(pos, normal, size, rnd, rArc, segs = 3) {
+  const w = size * (0.82 + rnd() * 0.42);
+  const h = w * (0.7 + rnd() * 0.55);
+  const g = bowCard(w, h, Math.max(0.3, rArc * (0.8 + rnd() * 0.5)), segs);
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    normal
+  );
+  // 绕法线自转：同一簇里叶序也要错开
+  const spin = new THREE.Quaternion().setFromAxisAngle(normal, rnd() * Math.PI * 2);
+  q.premultiply(spin);
+  g.applyQuaternion(q);
+  g.translate(pos.x, pos.y, pos.z);
+  return g;
+}
+
+/**
+ * 一簇树冠：**内芯 + 外壳**。
+ *
+ * 旧做法是"4 张大卡叠在枝端"，等于在一堆点上糊了几十张大平板：
+ *   · 簇内没有纵深 → 侧面看是一张剪纸；
+ *   · 中间是空的 → 阳光一打就是一颗气泡；
+ *   · 卡片太大 → 近景能看到整块平板的边界。
+ *
+ * 现在分成两层：
+ *   外壳 shell —— 半径带随机起伏的球面层，侧影碎、不规则；
+ *   内芯 core  —— 半径小的密集层，把中间填实，不透光。
+ * 每张卡片的法线在整个球面上取（sphereDir），不再是一个圆盘，
+ * 所以同一簇里不同卡片的受光完全不同，整冠不再是一个调子。
+ */
+function crownCluster(center, R, aspect, cfg, rnd, out) {
+  // ---- 外壳：破边
+  for (let i = 0; i < cfg.shell; i++) {
+    const d = sphereDir(rnd);
+    const rr = R * (0.62 + rnd() * 0.62);
+    const p = new THREE.Vector3(
+      center.x + d.x * rr,
+      center.y + d.y * rr * aspect,
+      center.z + d.z * rr
+    );
+    // 法线：整球面随机 + 一点朝外偏置（外壳那一片要"朝着外长"）
+    const radial = new THREE.Vector3(d.x, d.y * aspect, d.z).normalize();
+    const n = sphereDir(rnd).addScaledVector(radial, 0.5).normalize();
+    out.push(orientedCard(p, n, cfg.card * (0.85 + rnd() * 0.4), rnd, cfg.arc));
+  }
+  // ---- 内芯：填实中间，不让树冠透光 ----
+  //
+  // 内芯卡片只透过缝隙露出一点，**用平面（1 段 = 2 三角面）**即可 ——
+  // 给它做弧度是白费三角面。卡片数以万计时，这个乘数很敏感。
+  for (let i = 0; i < cfg.core; i++) {
+    const d = sphereDir(rnd);
+    const rr = R * 0.45 * Math.cbrt(rnd());
+    const p = new THREE.Vector3(
+      center.x + d.x * rr,
+      center.y + d.y * rr * aspect,
+      center.z + d.z * rr
+    );
+    out.push(
+      orientedCard(p, sphereDir(rnd), cfg.card * (0.75 + rnd() * 0.25), rnd, cfg.arc * 0.8, 1)
+    );
+  }
 }
 
 /* -------------------------------------------------------- 树种参数 */
 
+/**
+ * 树冠参数 `crown`：
+ *   r      —— 冠半径区间（m），外壳球壳的半径
+ *   aspect —— 竖向压扁/拉长系数（松冠扁、白杨高）
+ *   shell  —— 外壳卡片数（破边的那层）
+ *   core   —— 内芯卡片数（填实中间的那层）
+ *   card   —— 卡片宽度（m）。512px 贴图铺在 2m 上 → 1px ≈ 4mm，
+ *             单叶全长 30px ≈ 12cm（真实阔叶的量级）
+ *   arc    —— 卡片柱面弧的半径（m）。越小弯得越狠，卡面高光越明显
+ */
 const SPECIES = {
   pine: {
     trunkH: [3.2, 5.0],
@@ -400,7 +558,8 @@ const SPECIES = {
     spread: 1.15, // 近水平
     lenScale: 1.0,
     leaf: 1.5,
-    leafSize: [1.5, 2.6],
+    // 松冠：扁、平顶、分层
+    crown: { r: [1.5, 2.2], aspect: [0.40, 0.55], shell: 13, core: 6, card: 2.2, arc: 1.3 },
     bark: 0x4a3d2e,
   },
   willow: {
@@ -412,7 +571,8 @@ const SPECIES = {
     spread: 0.85,
     lenScale: 1.15,
     leaf: 1.9,
-    leafSize: [2.0, 3.2],
+    // 垂柳：冠略垂、叶片细碎
+    crown: { r: [1.4, 2.1], aspect: [0.62, 0.85], shell: 13, core: 6, card: 2.2, arc: 1.2 },
     bark: 0x544431,
   },
   blossom: {
@@ -424,7 +584,8 @@ const SPECIES = {
     spread: 0.95,
     lenScale: 0.9,
     leaf: 1.4,
-    leafSize: [1.5, 2.4],
+    // 桃杏：冠矮而圆
+    crown: { r: [1.2, 1.8], aspect: [0.80, 1.00], shell: 12, core: 6, card: 2.0, arc: 1.0 },
     bark: 0x4e3f30,
   },
   poplar: {
@@ -436,7 +597,8 @@ const SPECIES = {
     spread: 0.5,
     lenScale: 0.85,
     leaf: 1.1,
-    leafSize: [1.0, 1.7],
+    // 白杨：窄高（钻天杨）
+    crown: { r: [1.0, 1.6], aspect: [1.45, 1.95], shell: 12, core: 6, card: 2.0, arc: 1.0 },
     bark: 0x5c4c38,
   },
   maple: {
@@ -448,7 +610,8 @@ const SPECIES = {
     spread: 1.0,
     lenScale: 0.85,
     leaf: 1.5,
-    leafSize: [1.6, 2.6],
+    // 枫/皂荚：冠圆而略宽
+    crown: { r: [1.4, 2.1], aspect: [0.80, 1.00], shell: 13, core: 6, card: 2.2, arc: 1.2 },
     bark: 0x4b3d2f,
   },
 };
@@ -495,6 +658,16 @@ function buildTemplate(species, variant) {
 
   // 主枝
   const nb = spec.branches[0] + Math.floor(rnd() * (spec.branches[1] - spec.branches[0] + 1));
+  // 树冠参数：整棵树共用一套（冠是整体，不是每枝各长各的）
+  const crown = spec.crown;
+  const crownR = crown.r[0] + rnd() * (crown.r[1] - crown.r[0]);
+  const aspect = crown.aspect[0] + rnd() * (crown.aspect[1] - crown.aspect[0]);
+  const crownCfg = {
+    shell: crown.shell,
+    core: crown.core,
+    card: crown.card,
+    arc: crown.arc,
+  };
   for (let i = 0; i < nb; i++) {
     const az = (i / nb) * Math.PI * 2 + rnd() * 0.9;
     const up = species === 'poplar' ? 0.45 + rnd() * 0.3 : 0.1 + rnd() * 0.45;
@@ -514,7 +687,9 @@ function buildTemplate(species, variant) {
       spread: spec.spread,
       out: trunkParts,
       foliageOut: foliageParts,
-      leafSize: spec.leafSize[0] + rnd() * (spec.leafSize[1] - spec.leafSize[0]),
+      crownR,
+      aspect,
+      crownCfg,
       species,
     });
   }
@@ -606,12 +781,17 @@ export function buildTrees(sceneData, heightAt) {
 
       const m = new THREE.Matrix4();
       const q = new THREE.Quaternion();
+      const qLeaf = new THREE.Quaternion();
       const pos = new THREE.Vector3();
       const scl = new THREE.Vector3();
       const eul = new THREE.Euler();
+      const eulLeaf = new THREE.Euler();
       const col = new THREE.Color();
       const barkCol = new THREE.Color(SPECIES[species].bark);
       const leafTint = new THREE.Color(0xffffff);
+
+      trunkMesh.name = `tree_${species}_${v}_trunk`;
+      leafMesh.name = `tree_${species}_${v}_foliage`;
 
       bucket.forEach((t, i) => {
         const rnd = mulberry32(t.seed);
@@ -623,15 +803,27 @@ export function buildTrees(sceneData, heightAt) {
         eul.set(tilt, yaw, (rnd() - 0.5) * 0.16);
         q.setFromEuler(eul);
 
+        // 树干与树冠必须用**同一套缩放**。
+        //
+        // 原来两者的缩放是各抽各的随机数（x/z 差 20%、y 差 25%），
+        // 于是冠会从枝上飘开半米、枝又从冠里横穿出来 ——
+        // 这正是"树枝看不见、冠像贴上去的"原因之一。
+        // 现在统一一套，并让竖向比例逐株不同：
+        // 同一树种的树也不重样（有的冠偏圆、有的偏扁）。
+        const sx = s * (0.92 + rnd() * 0.18);
+        const sy = s * (0.88 + rnd() * 0.26);
+        const sz = s * (0.92 + rnd() * 0.18);
+        scl.set(sx, sy, sz);
+
         pos.set(t.x, y - 0.12, t.z);
-        scl.set(s * (0.9 + rnd() * 0.2), s, s * (0.9 + rnd() * 0.2));
         m.compose(pos, q, scl);
         trunkMesh.setMatrixAt(i, m);
 
-        // 树冠：略微上浮，贴在枝端
-        pos.set(t.x, y - 0.12, t.z);
-        scl.set(s * (0.92 + rnd() * 0.22), s * (0.9 + rnd() * 0.25), s);
-        m.compose(pos, q, scl);
+        // 树冠：同一套缩放，但多转一点点（±0.18rad）——
+        // 冠不是死板地正对主干，轮廓才不重样。
+        eulLeaf.set(tilt * 0.6, yaw + (rnd() - 0.5) * 0.36, (rnd() - 0.5) * 0.16);
+        qLeaf.setFromEuler(eulLeaf);
+        m.compose(pos, qLeaf, scl);
         leafMesh.setMatrixAt(i, m);
 
         // 每株色相微差，避免"复制粘贴"

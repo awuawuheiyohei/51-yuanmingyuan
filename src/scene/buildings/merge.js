@@ -20,20 +20,47 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 export function mergeGroupByMaterial(group) {
   const buckets = new Map();
   const others = [];
+  // 材质实例 → 桶 key。用材质实例本身当 key（Map 支持对象键），
+  // 天然保证"同名不同实例"不会被混进同一桶。
+  const matToKey = new Map();
   group.updateMatrixWorld(true);
 
-  for (const child of [...group.children]) {
-    if (!child.isMesh || !child.geometry) {
-      others.push(child);
-      continue;
+  /**
+   * **递归**收集 Mesh。
+   *
+   * ⚠ 之前只处理 `group.children` 里的直接 Mesh ——
+   *   而 buildBuilding() 返回的是**嵌套 Group**（建筑 → 构件组 → Mesh），
+   *   嵌套里的 Mesh 一个都没被合并。
+   *   现状建筑 369 座就这么变成了 369 个 draw call。
+   */
+  const collect = (node) => {
+    for (const child of node.children) {
+      if (child.isMesh && child.geometry) {
+        // 合并的 key 必须是**材质**，不能是 Mesh 的 name。
+        //
+        // 原来用 `child.name || ...`：现状建筑每座都带自己的名字
+        // （layout.js 里 `g.name = b.tags?.name || 'existing'`），
+        // 于是每座建筑自成一桶 —— 合并等于没做。
+        const mat = child.material;
+        let key = matToKey.get(mat);
+        if (key === undefined) {
+          key = mat;
+          matToKey.set(mat, key);
+        }
+        if (!buckets.has(key)) buckets.set(key, { mat, geos: [] });
+        const g = child.geometry.clone();
+        g.applyMatrix4(child.matrixWorld);
+        buckets.get(key).geos.push(g);
+      } else if (child.isGroup || child.children?.length) {
+        collect(child);
+      } else {
+        others.push(child);
+      }
     }
-    const key = child.name || child.material?.name || 'misc';
-    if (!buckets.has(key)) buckets.set(key, { mat: child.material, geos: [] });
-    const g = child.geometry.clone();
-    g.applyMatrix4(child.matrixWorld);
-    buckets.get(key).geos.push(g);
-  }
+  };
+  collect(group);
 
+  // 清空原 group 的内容（保留非 Mesh 的顶层子节点）
   for (const child of [...group.children]) group.remove(child);
   for (const child of others) group.add(child);
 
@@ -49,7 +76,10 @@ export function mergeGroupByMaterial(group) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.name = key;
+    // 名字给人看（调试探针按名字分组），用材质类型+色值
+    mesh.name =
+      mat?.name ||
+      `${mat?.type || 'Mesh'}-${mat?.color?.getHexString?.() ?? '0'}`;
     group.add(mesh);
     for (const g of geos) if (g !== geo) g.dispose();
   }

@@ -34,21 +34,27 @@ import { materialFor } from './materials.js';
 /** 依据等级给出默认形制（清式官式建筑等级序列） */
 export function defaultForm(rank = 'hall') {
   const table = {
-    // 大殿：九间五间、重檐庑殿
+    // 大殿：九间五间、重檐庑殿（大式，有斗栱）
     grand: { mian: 9, jin: 5, roof: 'xieshan', caihua: 'hexi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
-    // 正殿：七间、歇山
+    // 正殿：七间、歇山（大式）
     hall: { mian: 7, jin: 5, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
-    // 配殿：五间、硬山/悬山
+    // 配殿：五间、悬山（大式，一斗三升）
     side: { mian: 5, jin: 3, roof: 'yingshan', caihua: 'xuanzi', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
-    // 馆：五间、卷棚
+    // 馆：五间、卷棚 —— **小式**（无斗栱，故不用歇山）
     house: { mian: 5, jin: 3, roof: 'juanpeng', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
-    // 轩：面阔较小、单檐
-    xuan: { mian: 3, jin: 3, roof: 'xieshan', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
-    // 亭：攒尖
+    // 轩：三间、悬山 —— **小式**
+    //
+    // ⚠ 原来这里给的是「歇山」。歇山是**大式**做法：有山花、有斗栱、有垂脊走兽。
+    //   小式建筑（无斗栱）不该用歇山；而屋面生成器在歇山分支里要同时处理
+    //   山花竖面与翼角起翘，体量一小，两套几何互相打架 ——
+    //   远看就是屋角翘出一片"破翅膀"。
+    //   小式轩用**悬山**（正脊通长、山面垂直封闭），与制度相符，也不打架。
+    xuan: { mian: 3, jin: 3, roof: 'yingshan', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#8f2820' },
+    // 亭：攒尖（小式）
     pavilion: { mian: 1, jin: 1, roof: 'zanjiandian', caihua: 'su', wallType: 'brick', platform: 'simple', columnColor: '#2f7a4a' },
-    // 楼：两层
+    // 楼：两层（大式）
     tower: { mian: 5, jin: 3, roof: 'xieshan', caihua: 'xuanzi', wallType: 'brick', platform: 'xumizuo', columnColor: '#8f2820' },
-    // 门
+    // 门（大式，歇山门楼）
     gate: { mian: 3, jin: 2, roof: 'xieshan', caihua: 'xuanzi', wallType: 'red', platform: 'xumizuo', columnColor: '#8f2820' },
     // 游廊
     corridor: { mian: 1, jin: 1, roof: 'yingshan', caihua: 'su', wallType: 'brick', platform: 'none', columnColor: '#8f2820' },
@@ -71,9 +77,13 @@ export function buildBuilding(spec) {
 
   // 斗栱尺度与出檐必须联动：清式是"出檐 = 斗栱出挑 + 飞椽"，
   // 两者脱节会一眼看穿比例不对。
+  //
+  // ⚠ 斗栱的模数是**斗口**（= 柱径 ÷ 6），不是柱径本身。
+  //   dgScale = 实际斗口 ÷ 0.1m 基准（dougong.js 以 1 斗口 = 0.1m 建模）。
   const bayW = form.width / (form.mian || 1);
-  const colDia = Math.max(0.28, Math.min(0.62, bayW / 10));
-  const dgScale = form.dougongScale ?? Math.min(1.15, Math.max(0.72, colDia / 0.45));
+  const colDia = form.colDia ?? Math.max(0.28, Math.min(0.62, bayW / 10));
+  const doukou = form.doukou ?? colDia / 6;
+  const dgScale = form.dougongScale ?? doukou / 0.1;
   const overhang = form.overhang ?? dougongProjection(dgScale) + 0.35;
   const rise = form.rise ?? Math.max(1.8, form.width * 0.26);
 

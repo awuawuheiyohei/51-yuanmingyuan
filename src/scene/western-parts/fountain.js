@@ -23,6 +23,7 @@ import {
   worldUV,
   volute,
   leaf,
+  pilaster,
   archVoussoirs,
   archTrim,
 } from './kit.js';
@@ -92,6 +93,64 @@ function meterUV(geo) {
   return geo;
 }
 
+/** 把几何体贴到起伏的地面上（**只平移不缩放**） */
+function conformOffset(geo, groundAt, baseY) {
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const lx = pos.getX(i);
+    const lz = pos.getZ(i);
+    const g = groundAt ? groundAt(lx, lz) : 0;
+    pos.setY(i, g + baseY + pos.getY(i));
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** 取 shape 的轮廓点（去掉闭合时的重复末点） */
+function outlineOf(shape, div = 8) {
+  const pts = shape.getPoints(div);
+  if (pts.length > 2) {
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-4) pts.pop();
+  }
+  return pts;
+}
+
+/**
+ * 池岸**压顶线脚**（coping）：沿池的外轮廓排一圈实体线脚。
+ *
+ * ⚠ 为什么必须做：池壁原先只是一块 1 m 宽的挤出体，顶面是一刀切 ——
+ * 近看池边没有厚度，像一张纸片立着。现在给池沿两道线脚
+ * （下层宽 0.8 m + 上层窄 0.54 m），并随地形起伏。
+ *
+ * @param {THREE.Vector2[]} outline 池的外轮廓（XY 平面，y → 世界 +Z）
+ * @param {number} topY 压顶底面相对地面的高度（此处只用于生成，几何随池子一起摆放）
+ */
+function poolCoping(outline, topY) {
+  const parts = [];
+  const band = (width, height, base) => {
+    const n = outline.length;
+    for (let i = 0; i < n; i++) {
+      const p = outline[i];
+      const q = outline[(i + 1) % n];
+      const dx = q.x - p.x;
+      const dz = q.y - p.y;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-3) continue;
+      const seg = box(len * 1.12, height, width);
+      seg.rotateY(-Math.atan2(dz, dx));
+      seg.translate((p.x + q.x) / 2, base - height / 2, (p.y + q.y) / 2);
+      parts.push(seg);
+    }
+  };
+  band(0.8, 0.16, 0); // 下层压顶
+  band(0.54, 0.11, 0.16); // 上层压顶（收进）
+  const g = mergeAll(parts);
+  g.translate(0, topY, 0);
+  return g;
+}
+
 /**
  * 海棠形半圆石池。
  * @param {number} R 半径
@@ -125,8 +184,14 @@ export function begoniaPool(R, depth = 1.2, wall = 1.0) {
   const water = flatten(new THREE.ShapeGeometry(inner, 8));
   // 池面刷深青（与白色水柱区分，同一个 water 桶）
   tint(water, 0x123f49);
+  // ⚠ 池面抬高 6cm：**与地形共面会 z-fighting**，
+  //   远看池子变成蓝绿相间的棋盘格（一半水面一半草皮）。
+  water.translate(0, 0.06, 0);
 
-  return { rim, floor, water };
+  // 池岸压顶线脚（随地形起伏 —— 摆放到位后调 `conformPoolCoping`）
+  const coping = poolCoping(outlineOf(outer, 8), 0.5);
+
+  return { rim, floor, water, coping };
 }
 
 /** 八角喷水池（海晏堂后楼南北各二座、观水法） */
@@ -162,12 +227,23 @@ export function octagonalPool(R, depth = 0.9, wall = 0.55) {
   const water = flatten(new THREE.ShapeGeometry(inner, 1));
   // 池面刷深青（与白色水柱区分，同一个 water 桶）
   tint(water, 0x123f49);
-  return { rim, floor, water };
+  // ⚠ 池面抬高 6cm：**与地形共面会 z-fighting**，
+  //   远看池子变成蓝绿相间的棋盘格（一半水面一半草皮）。
+  water.translate(0, 0.06, 0);
+  // 池岸压顶线脚（随地形起伏 —— 摆放到位后调 `conformPoolCoping`）
+  const coping = poolCoping(outlineOf(outer, 1), 0.5);
+  return { rim, floor, water, coping };
 }
 
 /**
  * 半圆形七级水台：层层收进，每层台面外沿喷水入泄水沟。
  * 形状用旋成体一次成型（不是一摞锥体）。
+ *
+ * ⚠ 2026-10-31 验收补：原来每层只有一道直角台阶，**近看是七块光板叠起来**，
+ * 而且台面上**没有水**——喷泉的"分层"读不出来。现在：
+ *   ① 每层台口加一道**圆珠线脚**（真几何，旋成体剖面里多几个点）
+ *   ② 底部加**基座线脚**、顶部加**承水盘口沿**
+ *   ③ 另出一份**逐层水膜**（环状薄片），喷水从层口落到下一层的水膜上
  */
 export function waterTable(R = 8, tiers = 7, tierH = 0.62, dr = 0.92) {
   const prof = [new THREE.Vector2(0, 0)];
@@ -175,23 +251,56 @@ export function waterTable(R = 8, tiers = 7, tierH = 0.62, dr = 0.92) {
   let r = R;
   for (let i = 0; i < tiers; i++) {
     prof.push(new THREE.Vector2(r, y));
-    prof.push(new THREE.Vector2(r, y + tierH));
+    prof.push(new THREE.Vector2(r, y + tierH - 0.15));
+    // 层口圆珠线脚（凸出 0.11 m 的圆珠 + 上下的收分）
+    prof.push(new THREE.Vector2(r + 0.08, y + tierH - 0.09));
+    prof.push(new THREE.Vector2(r + 0.11, y + tierH - 0.02));
+    prof.push(new THREE.Vector2(r + 0.08, y + tierH + 0.03));
+    prof.push(new THREE.Vector2(r - 0.02, y + tierH + 0.05));
     y += tierH;
     r -= dr;
     prof.push(new THREE.Vector2(r, y));
   }
-  prof.push(new THREE.Vector2(0, y));
+  // 顶部承水盘：盘底 + 一圈口沿
+  prof.push(new THREE.Vector2(r, y + 0.16));
+  prof.push(new THREE.Vector2(r + 0.13, y + 0.2));
+  prof.push(new THREE.Vector2(r + 0.13, y + 0.28));
+  prof.push(new THREE.Vector2(r - 0.05, y + 0.3));
+  prof.push(new THREE.Vector2(0, y + 0.3));
   const g = new THREE.LatheGeometry(prof, 40, -Math.PI / 2, Math.PI);
   g.computeVertexNormals();
   worldUV(g);
-  return { geometry: g, topY: y, topR: r };
+
+  // 逐层水膜：每级台阶上一圈薄水（环状），喷水落到下一层的水膜上
+  const films = [];
+  let fy = 0;
+  let fr = R;
+  for (let i = 0; i < tiers; i++) {
+    const inner = Math.max(0.05, fr - dr);
+    const ring = new THREE.RingGeometry(inner, fr - 0.02, 36, 1, -Math.PI / 2, Math.PI);
+    ring.rotateX(-Math.PI / 2);
+    ring.computeVertexNormals();
+    ring.translate(0, fy + 0.02, 0);
+    films.push(ring);
+    fy += tierH;
+    fr = inner;
+  }
+  const water = mergeAll(films);
+  if (water) {
+    meterUV(water);
+    tint(water, 0xbcd6dc);
+  }
+  return { geometry: g, water, topY: y, topR: r };
 }
 
-/** 泄水沟：两条低石墙夹一道槽 */
+/** 泄水沟：两条低石墙夹一道槽（墙上加一道压顶线脚） */
 export function waterChannel(len, w = 1.4, h = 0.5) {
   const parts = [];
   for (const sx of [-1, 1]) {
     parts.push(boxAt(len, h, 0.42, 0, h / 2, sx * (w / 2)));
+    // 墙顶压顶（圆珠线脚）——原来墙顶是一刀切，近看沟壁像两张纸片
+    parts.push(boxAt(len, 0.07, 0.54, 0, h + 0.035, sx * (w / 2)));
+    parts.push(boxAt(len, 0.05, 0.46, 0, h + 0.095, sx * (w / 2)));
   }
   parts.push(boxAt(len, 0.16, w, 0, 0.08, 0));
   return mergeAll(parts);
@@ -264,16 +373,19 @@ export function stoneNiche(w = 19, h = 16, d = 2.2) {
   }
 
   // 两侧壁柱
+  //
+  // ⚠ 2026-10-30 验收改：原先是「一块方板 + 两块方板柱头 + 一枚卷涡」，
+  // 近看就是墙根贴了张纸片。现在改用 `kit.pilaster` 的西洋三段式柱式
+  // （方座 + 圆转收分 + 束腰 + 柱身 + 颈线脚 + 柱头盘 + 卷涡 + 顶板），
+  // 柱下另加一道柱础台座。
   for (const sx of [-1, 1]) {
-    const p = boxAt(1.7, h - 1.2, d * 1.15, sx * (w / 2 - 1.0), (h - 1.2) / 2, 0);
+    const px = sx * (w / 2 - 1.0);
+    // 柱础台座（把壁柱抬离地面，免得柱础埋进土里）
+    parts.push(boxAt(2.3, 0.9, d * 1.5, px, 0.45, 0));
+    parts.push(boxAt(2.12, 0.18, d * 1.38, px, 0.99, 0));
+    const p = pilaster(h - 1.3, 1.7, d * 1.1);
+    p.translate(px, 1.08, 0);
     parts.push(p);
-    parts.push(boxAt(2.2, 0.4, d * 1.4, sx * (w / 2 - 1.0), 0.2, 0));
-    parts.push(boxAt(2.1, 0.34, d * 1.35, sx * (w / 2 - 1.0), h - 1.2, 0));
-    // 柱头卷涡
-    const v = volute(0.7, 0.14, 1.5);
-    v.rotateY(Math.PI / 2);
-    v.translate(sx * (w / 2 - 1.0), h - 1.55, d * 0.7);
-    parts.push(v);
   }
 
   // 檐部 + 断山花
@@ -304,6 +416,55 @@ export function stoneNiche(w = 19, h = 16, d = 2.2) {
 }
 
 /**
+ * 喷水塔的尺寸常量（塔身几何与喷水口水柱共用，保证两者严格对位）。
+ *
+ * 考据：大水法「大水池外，东西各有**十三层方形喷水塔**一座：
+ *       塔在水池中，池底有大喷水管八根，塔身上有小喷水管**八十根**，
+ *       水射高六尺；塔顶有铜蒺藜十六角，喷水十六道」。
+ */
+export const TOWER_SPEC = {
+  baseW: 3.8,
+  gap: 0.62,
+  inset: 0.055,
+  // 每层每面的喷水管数：合计 20 根/面 × 4 面 = 80 根
+  noz: [2, 2, 2, 1, 1, 1, 2, 2, 2, 1, 1, 1, 2],
+};
+
+/**
+ * 塔身小喷水管的出水口（塔的局部坐标）。
+ *
+ * 有了它才能把「八十根小喷水管」画成真的喷水柱：
+ * 原来塔身上只有管口几何，一根水都没有（只画了塔底那八根大管）。
+ */
+export function fountainTowerNozzles(tiers = 13) {
+  const { baseW, gap, inset, noz } = TOWER_SPEC;
+  const out = [];
+  for (let i = 0; i < tiers; i++) {
+    const y0 = 0.75 + i * gap;
+    const w = baseW - i * inset;
+    const cnt = noz[i % noz.length];
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      for (let k = 0; k < cnt; k++) {
+        const off = cnt === 1 ? 0 : (k - 0.5) * 1.15;
+        out.push({
+          x: dx ? dx * (w / 2 + 0.1) : off,
+          y: y0 + gap * 0.42,
+          z: dz ? dz * (w / 2 + 0.1) : off,
+          dx,
+          dz,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * 十三层方形喷水塔：大池外东西各一座。
  *
  * 考据：大水法「大水池外，东西各有**十三层方形喷水塔**一座：塔在水池中，
@@ -313,20 +474,25 @@ export function stoneNiche(w = 19, h = 16, d = 2.2) {
  * 做法：十三层塔身**逐层收分**（每层收 5.5 cm），每层一道叠涩线脚；
  *       每层四面开**喷水孔**（凸起的口圈 + 伸出的短管）；
  *       八十根小管按"每面 20 根"分配（各层 2/1 根相间）。
- *
- * 形制简化：管口不做水花（水花在 dawuifa.js 里用锥体水柱表示）。
  */
 export function fountainTower(tiers = 13) {
   const parts = [];
-  const baseW = 3.8;
-  const gap = 0.62;
-  const inset = 0.055;
-  // 每层的喷水管数（每面）：合计 20 根/面 → 80 根
-  const NOZ = [2, 2, 2, 1, 1, 1, 2, 2, 2, 1, 1, 1, 2];
+  const { baseW, gap, inset } = TOWER_SPEC;
 
   // 池底座
   parts.push(boxAt(baseW + 1.6, 0.5, baseW + 1.6, 0, 0.25, 0));
   parts.push(boxAt(baseW + 0.7, 0.3, baseW + 0.7, 0, 0.62, 0));
+  // 底座的**叠涩线脚**（原来塔直接从一块方板上长出来）
+  parts.push(boxAt(baseW + 2.0, 0.12, baseW + 2.0, 0, 0.06, 0));
+  parts.push(boxAt(baseW + 1.8, 0.1, baseW + 1.8, 0, 0.55, 0));
+  // 塔身四角的**壁柱**（每层带一道柱头线脚）——原来看不出塔是方的
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      parts.push(
+        boxAt(0.34, 0.75 + tiers * gap - 0.2, 0.34, sx * (baseW / 2 - 0.17), (0.75 + tiers * gap - 0.2) / 2 + 0.5, sz * (baseW / 2 - 0.17))
+      );
+    }
+  }
 
   for (let i = 0; i < tiers; i++) {
     const y0 = 0.75 + i * gap;
@@ -336,33 +502,23 @@ export function fountainTower(tiers = 13) {
     // 层顶叠涩线脚
     parts.push(boxAt(w + 0.5, 0.14, w + 0.5, 0, y0 + gap * 0.78, 0));
     parts.push(boxAt(w + 0.24, 0.09, w + 0.24, 0, y0 + gap * 0.78 + 0.11, 0));
-    // 每层的喷水孔（四面）
-    const cnt = NOZ[i % NOZ.length];
-    for (const [dx, dz] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
-      for (let k = 0; k < cnt; k++) {
-        const off = cnt === 1 ? 0 : (k - 0.5) * 1.15;
-        const px = dx ? dx * (w / 2 + 0.1) : off;
-        const pz = dz ? dz * (w / 2 + 0.1) : off;
-        const ny = y0 + gap * 0.42;
-        // 孔口（凸起的圆圈）
-        const ring = cyl(0.11, 0.11, 0.07, 6);
-        if (dx) ring.rotateZ(-dx * Math.PI / 2);
-        else ring.rotateX(dz * Math.PI / 2);
-        ring.translate(px, ny, pz);
-        parts.push(ring);
-        // 短管（喷水嘴）
-        const n = cyl(0.055, 0.075, 0.32, 5);
-        if (dx) n.rotateZ(-dx * Math.PI / 2);
-        else n.rotateX(dz * Math.PI / 2);
-        n.translate(px + (dx ? dx * 0.15 : 0), ny, pz + (dz ? dz * 0.15 : 0));
-        parts.push(n);
-      }
-    }
+  }
+
+  // 每层的喷水孔（四面）
+  for (const n of fountainTowerNozzles(tiers)) {
+    const { x: px, y: ny, z: pz, dx, dz } = n;
+    // 孔口（凸起的圆圈）
+    const ring = cyl(0.11, 0.11, 0.07, 6);
+    if (dx) ring.rotateZ(-dx * Math.PI / 2);
+    else ring.rotateX(dz * Math.PI / 2);
+    ring.translate(px, ny, pz);
+    parts.push(ring);
+    // 短管（喷水嘴）
+    const nozzle = cyl(0.055, 0.075, 0.32, 5);
+    if (dx) nozzle.rotateZ(-dx * Math.PI / 2);
+    else nozzle.rotateX(dz * Math.PI / 2);
+    nozzle.translate(px + (dx ? dx * 0.15 : 0), ny, pz + (dz ? dz * 0.15 : 0));
+    parts.push(nozzle);
   }
 
   // 塔顶出檐（承铜蒺藜）
@@ -490,5 +646,17 @@ export function conformPool(pool, groundAt) {
   conform(pool.floor, groundAt, -1.6, -1.8);
   conform(pool.water, groundAt, 0.16, 0.16);
   meterUV(pool.water);
+  return pool;
+}
+
+/**
+ * 池岸压顶线脚随地形起伏。
+ *
+ * ⚠ 必须在池子**摆放到位之后**调用：压顶是跟着池子的最终局部坐标走的，
+ * 跟 `conformPool` 同一时机（压顶底面 = 地面 + 0.5 m，与池壁顶面齐平）。
+ */
+export function conformPoolCoping(pool, groundAt) {
+  if (!groundAt || !pool.coping) return pool;
+  conformOffset(pool.coping, groundAt, 0.5);
   return pool;
 }

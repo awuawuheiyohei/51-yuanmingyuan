@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { BBOX, LON0, LAT0 } from './config.mjs';
 import { SCENE_PROGRAM } from '../src/scene/scenes-program.js';
+import { deriveDimensions } from '../src/scene/buildings/modular.js';
+import { defaultForm } from '../src/scene/buildings/index.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = resolve(ROOT, 'data/raw');
@@ -802,20 +804,60 @@ async function main() {
   // 景区建筑前要留出空地。
   // 树是按林相随机撒的，撒到建筑跟前就会把屋面盖死——从地面看过去，
   // 一座座殿宇全埋在树冠里，既不真实也看不见。真实园林里建筑周围必有庭院。
-  const clearings = sceneOut
-    .filter((s2) => s2.name)
-    .map((s2) => ({ x: s2.x, z: s2.z, r: 30 }));
+  /**
+   * 景区建筑前的**庭院空地**（不种树）。
+   *
+   * ⚠ 半径必须由**斗口制推导出的实际建筑尺寸**决定，不能写死。
+   *   原来固定 r = 30m，是照着旧尺寸（主殿面阔 23.1m）定的；
+   *   改成斗口制后主殿面阔 32.5m、配殿也变宽，
+   *   30m 的空地盖不住 —— 树就长在殿前，屋面被埋。
+   *
+   * 依据：真实官式院落里，殿前是**开敞的月台 + 庭院**，
+   * 树只种在墙外与配建筑之后。
+   */
+  const clearings = [];
+  const axialPaths = [];
+  for (const s2 of sceneOut) {
+    if (!s2.name) continue;
+    const prog = SCENE_PROGRAM[s2.name];
+    if (!prog || !prog.main) continue;
+    const D = deriveDimensions({
+      mian: prog.main.mian,
+      jin: prog.main.jin,
+      rank: prog.rank,
+      platform: prog.main.platform,
+      roof: prog.main.roof,
+    });
+    // 主殿半宽 + 最远的配殿外缘 + 余地
+    let reach = D.width / 2;
+    for (const a of prog.aux || []) {
+      const af = defaultForm(a.rank);
+      const AD = deriveDimensions({
+        mian: a.mian ?? af.mian,
+        jin: a.jin ?? af.jin,
+        rank: a.rank,
+        platform: a.rank === 'pavilion' ? 'none' : 'simple',
+        roof: af.roof,
+      });
+      reach = Math.max(reach, Math.abs(a.x) + AD.width / 2);
+    }
+    clearings.push({ x: s2.x, z: s2.z, r: reach + 12 });
+    // 御路通道：正面朝南（+Z），南面开一条与主殿同宽的轴线御道
+    axialPaths.push({
+      x: s2.x,
+      z: s2.z,
+      halfW: Math.max(9, D.width / 2 + 4),
+      len: 78 + D.depth,
+    });
+  }
   for (const w of WEST_BUILDINGS) {
     clearings.push({ x: toX(w.lon), z: toZ(w.lat), r: 20 });
   }
   const inClearing = (x, z) =>
     clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r);
 
-  // 御路通道：每景正面朝南（建筑正面朝 +Z），南面开一条 16m 宽、75m 长的空廊。
+  // 御路通道：每景正面朝南（建筑正面朝 +Z），南面开一条空廊。
   // 真实园林里正殿前必有轴线御道；不空出来，从任何角度都只能看见树。
-  const axialPaths = sceneOut
-    .filter((s2) => s2.name)
-    .map((s2) => ({ x: s2.x, z: s2.z, halfW: 9, len: 78 }));
   const inCorridor = (x, z) =>
     axialPaths.some(
       (c) => Math.abs(x - c.x) < c.halfW && z > c.z - 6 && z < c.z + c.len

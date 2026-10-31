@@ -16,8 +16,39 @@ import { buildFigures } from './scene/figures.js';
 import { buildCorridors } from './scene/corridor.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
-import { setTextureOverrides } from './scene/buildings/textures.js';
+import { setTextureOverrides, getTextureOverrides } from './scene/buildings/textures.js';
 import { initHud } from './ui/hud.js';
+
+/* ------------------------------------------------------------------ *
+ * DEBUG（临时）：?err=1 —— 在**模块最顶层**装错误捕获。
+ * 场景构建期间的异常发生在 init() 内部，那时 initHud 还没跑，
+ * 钩子装晚了就抓不到，只能看见"正在构建圆明园"卡住。
+ * ------------------------------------------------------------------ */
+if (new URLSearchParams(location.search).get('err')) {
+  const box = document.createElement('pre');
+  box.id = 'err-result';
+  box.style.cssText =
+    'position:fixed;left:0;top:0;right:0;z-index:99999;background:#300;color:#ff9;' +
+    'font:12px monospace;padding:8px;white-space:pre-wrap;max-height:70vh;overflow:auto;';
+  const errs = [];
+  const push = (s) => {
+    errs.push(s);
+    box.textContent = errs.join('\n---\n');
+  };
+  window.addEventListener('error', (e) =>
+    push(`ERROR ${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`)
+  );
+  window.addEventListener('unhandledrejection', (e) =>
+    push(`REJECT ${e.reason?.stack || String(e.reason)}`)
+  );
+  const origError = console.error.bind(console);
+  console.error = (...a) => {
+    push('console.error: ' + a.map(String).join(' '));
+    origError(...a);
+  };
+  document.addEventListener('DOMContentLoaded', () => document.body.appendChild(box));
+  if (document.body) document.body.appendChild(box);
+}
 
 const state = {
   mode: 'free', // 'free' | 'tour'
@@ -305,6 +336,9 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 pmrem.compileEquirectangularShader();
 let envRT = null;
 
+/** 环境光强度。单独提出来常量，避免各处硬编码跑偏。 */
+const ENV_INTENSITY = 0.55;
+
 function buildEnvironment() {
   const W = 256;
   const H = 128;
@@ -345,7 +379,7 @@ function buildEnvironment() {
   if (envRT) envRT.dispose();
   envRT = rt;
   scene.environment = rt.texture;
-  scene.environmentIntensity = 0.55;
+  scene.environmentIntensity = ENV_INTENSITY;
 }
 
 /* ------------------------------------------------------------ 太阳位置 */
@@ -416,6 +450,13 @@ function updateSun(hour) {
   skyUniforms.cloudLight.value.setHSL(0.09 + day * 0.02, 0.12 + dusk * 0.25, 0.62 + day * 0.33);
   skyUniforms.cloudDark.value.setHSL(0.58, 0.14 + dusk * 0.12, 0.28 + day * 0.24);
 
+  // ⚠ environmentIntensity 必须**每帧**同步到 buildEnvironment 里设的值。
+  // 之前它只在 buildEnvironment() 内部赋值，而 buildEnvironment() 被限流成
+  // 400ms 一次 —— 首帧渲染时它还是 three.js 的默认值 1（比设定值 0.55
+  // 亮近一倍），环境光把整个场景顶到过曝：红墙发粉、青瓦发白。
+  // 这里每帧兜底同步一次，无论 buildEnvironment 跑没跑都不会跑偏。
+  scene.environmentIntensity = ENV_INTENSITY;
+
   // 大气透视：远处要"退"进空气里。原来的雾从 900m 才开始，
   // 对一个 2.4km 的园区几乎没有作用——远处的山和建筑一样清楚，一眼就假。
   // 雾色取"地平线暖色"与"天空底部冷色"的中间值：
@@ -452,27 +493,52 @@ async function loadAITextures() {
     const manifest = await res.json();
     const map = {};
     const names = Object.keys(manifest);
+    const failed = [];
     await Promise.all(
       names.map(
         (n) =>
           new Promise((resolve) => {
+            // manifest 的值有两种形态：
+            //   { file: "moss.png", ... }  （gen-maps.py 早期输出）
+            //   "moss.png"                 （当前 gen-maps.py 的输出）
+            // 之前只认对象形态，取 `manifest[n].file` 拿到 undefined，
+            // 于是**所有**贴图都请求 `textures/undefined` 全部失败，
+            // override 表恒为空 —— 整个园子其实一直跑在"无贴图"状态，
+            // 瓦是纯色、墙是纯色、假山没有苔痕。两种形态都兼容一下。
+            const entry = manifest[n];
+            const file = typeof entry === 'string' ? entry : entry?.file;
+            if (!file) {
+              failed.push(`${n}(无文件名)`);
+              resolve();
+              return;
+            }
             loader.load(
-              `textures/${manifest[n].file}`,
+              `textures/${file}`,
               (t) => {
                 map[n] = t;
                 resolve();
               },
               undefined,
-              () => resolve()
+              () => {
+                failed.push(`${n}→${file}`);
+                resolve();
+              }
             );
           })
       )
     );
-    if (!Object.keys(map).length) return null;
+    if (failed.length) {
+      console.warn(`  ! ${failed.length} 张贴图加载失败：`, failed.slice(0, 8).join('、'));
+    }
+    if (!Object.keys(map).length) {
+      console.warn('  ! AI 贴图一张都没加载成功，全部回落到程序化贴图');
+      return null;
+    }
     setTextureOverrides(map);
-    console.log(`  ✓ 载入 AI 生成材质 ${Object.keys(map).length} 种：${names.join('、')}`);
+    console.log(`  ✓ 载入 AI 生成材质 ${Object.keys(map).length} 种`);
     return map;
-  } catch {
+  } catch (err) {
+    console.warn('  ! AI 贴图加载异常：', err.message);
     return null;
   }
 }
@@ -485,46 +551,69 @@ async function loadScene() {
 
   const byName = (n) => (sceneData.scenes || []).find((s) => s.name === n);
   const t0 = performance.now();
+  // 分段计时：构建慢时要能立刻知道是哪一段，别靠猜
+  const marks = [];
+  let tMark = t0;
+  const mark = (name) => {
+    const now = performance.now();
+    marks.push(`${name} ${Math.round(now - tMark)}ms`);
+    tMark = now;
+  };
 
   await loadAITextures();
+  mark('AI贴图');
 
   const terrain = buildTerrain(sceneData);
   scene.add(terrain);
+  mark('地形');
 
   const water = buildWater(sceneData);
   waterGroup.current = water;
   scene.add(water);
+  mark('水面');
 
   const revetment = buildRevetment(sceneData, heightAt);
   scene.add(revetment);
+  mark('驳岸');
 
   const paths = buildPaths(sceneData, heightAt);
   scene.add(paths);
-  scene.add(buildCorridors(sceneData, heightAt));
+  mark('步道');
 
   // 水生植物：荷叶（福海荷塘）、芦苇、菖蒲——岸线没有它们就是一条刀切的直边
   scene.add(buildAquatic(sceneData, heightAt));
+  mark('水生植物');
 
   // 尺度参照物与生活痕迹（人、马、轿、仪仗…）：
   // 没有已知尺寸的参照物，殿宇到底是 8m 还是 20m 高根本看不出来。
   scene.add(buildFigures(sceneData, heightAt));
+  mark('人物');
 
   // 游廊：圆明园最具辨识度的构件之一（沿水岸连接各景的长廊），
   // 此前写好了却从未被装进场景——7800m 长廊一直是缺席的。
+  //
+  // ⚠ 这里**只能建一次**。之前 569 行与 580 行各建了一次，
+  // 同一个 15 条游廊（307 万三角面）被重复构建两遍，
+  // 光这一项就白费一半构建时间 + 一份显存。
   scene.add(buildCorridors(sceneData, heightAt));
+  mark('游廊');
 
   const layout = buildLayout(sceneData, heightAt);
   scene.add(layout.group);
+  mark('建筑群');
 
   // 假山：先加载 GPU 生成的真网格资产（scripts/gen-rock.py 产出），
   // 加载失败会自动回退到程序化叠山。放在建场景之前预加载，
   // 免得假山先以程序化形态出现再被替换。
   await preloadRockAssets();
-  const rockery = buildRockery(sceneData, heightAt);
+  mark('假山资产');
+  const rockery = buildRockery(sceneData, heightAt, camera.position);
   scene.add(rockery);
+  mark('假山');
 
   const trees = buildTrees(sceneData, heightAt);
   scene.add(trees);
+  mark('树木');
 
   tour = buildTour(sceneData, heightAt);
 
@@ -618,6 +707,35 @@ async function loadScene() {
     );
     controls.target.set(x, heightAt(x, z) + h * 0.3, z);
     controls.update();
+  } else if (view === 'rock') {
+    // DEBUG（临时）：?view=rock&i=<序号> 或 &x=&z= 对准某座假山取近景。
+    // 人眼高度 + 移轴两点透视，和拍建筑同一套取景逻辑。
+    const items = sceneData.rockery || [];
+    const byIdx = q.get('i');
+    let rx;
+    let rz;
+    let rh = 8;
+    if (byIdx != null && items[Number(byIdx)]) {
+      const r = items[Number(byIdx)];
+      rx = r.x;
+      rz = r.z;
+      rh = r.h;
+    } else {
+      rx = Number(q.get('x') ?? -526);
+      rz = Number(q.get('z') ?? 372);
+    }
+    const d = Number(q.get('d') || Math.max(14, rh * 2.2));
+    const yaw = Number(q.get('yaw') ?? 0.7);
+    // 机位高程要用**机位自己的地面高**，不是假山中心的高。
+    // 山区地势起伏大，用错基准会把相机埋进坡里或悬在半空。
+    const camX = rx + Math.sin(yaw) * d;
+    const camZ = rz + Math.cos(yaw) * d;
+    const eye = heightAt(camX, camZ) + (Number(q.get('eh')) ?? 2.4);
+    frameTwoPoint(
+      { x: camX, y: eye, z: camZ },
+      { x: rx, y: heightAt(rx, rz) + rh * 0.45, z: rz }
+    );
+    controls.update();
   } else if (view === 'garden') {
     // 园中景：站在福海西岸看整片水面与对岸建筑（人眼高度 + 移轴）
     const s = byName('福海');
@@ -631,10 +749,18 @@ async function loadScene() {
     }
   }
 
+  // 调试：?hud=0 隐藏所有面板，只留画面（截图验收用）
+  if (q.get('hud') === '0') {
+    for (const el of document.querySelectorAll('.panel, #shot-progress, #info, #loading')) {
+      el.style.display = 'none';
+    }
+  }
+
   console.log(
     `✓ 场景就绪：现状建筑 ${layout.existing} 座 / 四十景聚落 ${layout.sceneCount} 组 / ` +
       `耗时 ${Math.round(performance.now() - t0)} ms`
   );
+  console.log(`  分段耗时：${marks.join(' · ')}`);
 
   // 开发期自检：找出含 NaN 的几何体
   scene.traverse((o) => {
@@ -654,6 +780,11 @@ async function loadScene() {
 
   // DEBUG（临时）：?pick=<x>,<y> 射线拾取屏幕某像素，把命中对象信息写进 DOM。
   // 排查"某个面不对"的快招：改材质颜色看是否变，比逐层读代码快。
+  //
+  // ⚠ 取值必须**等渲染循环跑起来之后**再取：
+  // init() 里同步取值读到的是「构造函数初始值」，
+  // 而光照/曝光是在 animate() 的 updateSun() 里每帧更新的 ——
+  // 在 init 里读会误判成"updateSun 没生效"。
   {
     const pk = new URLSearchParams(location.search).get('pick');
     if (pk) {
@@ -685,8 +816,18 @@ async function loadScene() {
           `pt=(${h.point.x.toFixed(1)},${h.point.y.toFixed(1)},${h.point.z.toFixed(1)})`
         );
       });
-      div.textContent = lines.join('\n') || '(未命中)';
-      document.body.appendChild(div);
+      // 等 3 帧再取值 —— 此时 updateSun 已经跑过，光照参数是真的
+      const stamp = () => {
+        div.textContent =
+          `win=${window.innerWidth}x${window.innerHeight} ` +
+          `exp=${renderer.toneMappingExposure?.toFixed(2)} ` +
+          `sun=${sun.intensity.toFixed(2)} hemi=${hemi.intensity.toFixed(2)} ` +
+          `env=${scene.environmentIntensity?.toFixed(2)} ` +
+          `fog=[${scene.fog.near.toFixed(0)},${scene.fog.far.toFixed(0)}]\n` +
+          (lines.join('\n') || '(未命中)');
+        document.body.appendChild(div);
+      };
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(stamp)));
     }
   }
 
@@ -767,20 +908,109 @@ async function loadScene() {
   {
     if (new URLSearchParams(location.search).get('rock')) {
       const rows = [];
+      const ov = getTextureOverrides();
+      rows.push(
+        `override keys = ${Object.keys(ov).join(',') || '(空)'}`
+      );
       scene.traverse((o) => {
         if (o.name !== 'rockery') return;
         const bb = new THREE.Box3().setFromObject(o);
         let tris = 0;
+        let meshes = 0;
         o.traverse((c) => {
           if (!c.isMesh || !c.geometry) return;
+          meshes++;
           const p = c.geometry.attributes.position;
           tris += c.geometry.index ? c.geometry.index.count / 3 : p.count / 3;
         });
+        const m = o.children[0]?.material;
         rows.push(
           `rockery 世界包围盒 x:[${bb.min.x.toFixed(0)},${bb.max.x.toFixed(0)}] ` +
             `y:[${bb.min.y.toFixed(0)},${bb.max.y.toFixed(0)}] z:[${bb.min.z.toFixed(0)},${bb.max.z.toFixed(0)}] ` +
-            `三角面=${Math.round(tris).toLocaleString()}`
+            `mesh=${meshes} 三角面=${Math.round(tris).toLocaleString()}`
         );
+        rows.push(
+          `rockery 材质: map=${m?.map ? 'YES' : 'NO'} color=#${m?.color?.getHexString?.() ?? '?'} ` +
+            `vertexColors=${m?.vertexColors} flat=${m?.flatShading}`
+        );
+        // 抽样几块石头，看它们在世界里到底有多大、位置对不对
+        const sample = [];
+        sceneData?.rockery?.slice(0, 3).forEach((rk) => {
+          sample.push(
+            `  数据 r=(${rk.x.toFixed(0)},${rk.z.toFixed(0)}) r=${rk.r.toFixed(1)} h=${rk.h.toFixed(1)} ` +
+              `地面高=${heightAt(rk.x, rk.z).toFixed(1)}`
+          );
+        });
+        rows.push(...sample);
+
+        // **最关键**：把相机正前方最近的一座假山投影到屏幕，
+        // 直接回答"它到底在哪、画出来没有"。
+        const camPos = camera.position;
+        let best = null;
+        let bestD = Infinity;
+        for (const rk of sceneData?.rockery || []) {
+          const d = Math.hypot(rk.x - camPos.x, rk.z - camPos.z);
+          if (d < bestD) {
+            bestD = d;
+            best = rk;
+          }
+        }
+        if (best) {
+          const gy = heightAt(best.x, best.z);
+          const v = new THREE.Vector3(best.x, gy + best.h * 0.5, best.z).project(camera);
+          rows.push(
+            `最近假山 (${best.x.toFixed(0)},${best.z.toFixed(0)}) 水平距=${bestD.toFixed(1)}m ` +
+              `r=${best.r.toFixed(1)} h=${best.h.toFixed(1)} 地面高=${gy.toFixed(1)}`
+          );
+          rows.push(
+            `  屏幕投影 = (${(((v.x + 1) / 2) * window.innerWidth).toFixed(0)},` +
+              `${(((1 - v.y) / 2) * window.innerHeight).toFixed(0)}) ` +
+              `z=${v.z.toFixed(3)} ${v.z > 1 ? '【在相机后面/被裁掉】' : ''}`
+          );
+          rows.push(`  相机位置 = (${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)})`);
+
+          // **逐块量石头**：石头底面离当地地面有多高？
+          // 这是判"悬空"最直接的量。
+          const rockMeshes = [];
+          o.traverse((c) => {
+            if (c.isMesh && c.geometry) rockMeshes.push(c);
+          });
+          if (rockMeshes.length) {
+            const pos = rockMeshes[0].geometry.attributes.position;
+            const arr = pos.array;
+            // **按离地高度分桶**：只统计"贴近地面的那层"，
+            // 因为山体本来就是往上堆的，上层石头离地是正常的。
+            const near = [];
+            const far = [];
+            for (let vi = 0; vi < arr.length; vi += 400 * 3) {
+              const px = arr[vi];
+              const py = arr[vi + 1];
+              const pz = arr[vi + 2];
+              if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+              const gap = py - heightAt(px, pz);
+              if (gap < 1.2) near.push(gap);
+              else far.push(gap);
+            }
+            near.sort((a, b) => a - b);
+            far.sort((a, b) => a - b);
+            const q = (arr2, f) =>
+              arr2.length ? arr2[Math.min(arr2.length - 1, Math.floor(arr2.length * f))].toFixed(2) : 'n/a';
+            rows.push(
+              `  近地层(<1.2m) ${near.length} 点：min=${q(near, 0)} median=${q(near, 0.5)} max=${q(near, 0.99)}`
+            );
+            rows.push(
+              `  高处层 ${far.length} 点：min=${q(far, 0)} median=${q(far, 0.5)} max=${q(far, 0.99)}`
+            );
+            // 真正的判据：**是否存在大量紧贴地面的点**（说明山脚落地了）
+            const touching = near.filter((x) => x > -1.5 && x < 0.4).length;
+            rows.push(
+              `  → 贴地(-1.5~0.4m)的点 ${touching} 个 ` +
+                `${touching > 50 ? '【山脚已落地】' : '【山脚没落地——整座山浮着】'}`
+            );
+            // 最低点离地多少
+            rows.push(`  → 全场最低石头离地 ${q(near, 0)}m（负值=已埋进土里）`);
+          }
+        }
       });
       const div = document.createElement('pre');
       div.id = 'rock-result';
@@ -873,8 +1103,15 @@ function animate() {
   // 大气透视随视高自适应：
   // 雾是**贴着地面**的空气层，站在地面看远处要有雾，
   // 高空俯瞰时雾必须推远——否则整个园区被白雾吃掉，俯视图全白。
+  //
+  // ⚠ 这里的系数必须 **≥ 1**。原来写成 `(camY - camGround) / 260`，
+  // 站在地面（相机离地 2.2m）时算出 0.0085，直接把 near/far 缩成
+  // 2.5m / 44m —— 站在地面看，44m 外的东西全被雾刷成死白：
+  // 远处建筑变成白片，26m 处的假山被掺掉 57% 雾色、灰石几乎隐形。
+  // （整园"发白"的真正根因在这里，不是材质固有色。）
   const camGround = heightAt(camera.position.x, camera.position.z);
-  const hFactor = THREE.MathUtils.clamp((camera.position.y - camGround) / 260, 0, 8);
+  // 离地越高，雾的起始与结束都推得越远（1 ~ 8 倍）
+  const hFactor = 1 + THREE.MathUtils.clamp((camera.position.y - camGround) / 260, 0, 7);
   scene.fog.near = 300 * hFactor;
   scene.fog.far = 5200 * hFactor;
 

@@ -59,11 +59,16 @@ export function roofMaterial(glazed = false, color = '#2f7a4a') {
       normalScale: new THREE.Vector2(0.85, 0.85),
       roughness: 0.88,
       metalness: 0.02,
-      // 青瓦的**固有色是深灰**（新瓦约 0.18~0.25 的反照率，
-      // 旧瓦更暗）。之前给 0xb9bcc2（≈0.73）——那是"浅灰白"，
-      // 乘上太阳光 2.6 + 半球光 0.85 后直接过曝到 228/255，
-      // 远看整片屋面像铺了白铁皮（这正是"白屋顶"的真正成因）。
-      color: 0x4a4e54,
+      // 青瓦的固有色。
+      //
+      // ⚠ 两次踩坑：
+      //   ① 给 0xb9bcc2（linear 0.73）→ 太阳下过曝，整片屋面白得像铁皮；
+      //   ② 矫枉过正给 0x4a4e54（linear 0.075）→ **比真实青瓦还暗**，
+      //      背光面直接渲成纯黑，游廊的顶看着像一条黑带。
+      // 真实青瓦（新瓦约 0.20~0.25 反照率，sRGB 约 0x777a7e；
+      // 旧瓦更暗）——取 0x6e7176（linear ≈ 0.16），
+      // 阳面是青灰、背面是深灰，不会黑白两头翻车。
+      color: 0x6e7176,
     });
   });
   // DEBUG（临时）：?roof=tile 把所有屋面染成品红，定位"白屋顶"到底是谁
@@ -211,6 +216,71 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
  * 墁砖地：官式院落里铺的方砖（比墙砖大、色偏灰）。
  * 带法线贴图，砖缝真的有起伏。
  */
+/**
+ * 墁砖地（官式院落地面）—— 按**真实米数**定贴图密度。
+ *
+ * ## 为什么不能用固定的 repeat
+ *
+ * 原来 `brickMaterial()` 写死 `repeat.set(10, 10)`，铺在 48m × 41m 的
+ * 墁砖地平面上 ⇒ **一张贴图铺 4.8m**。而砖贴图本身是**墙面**贴图
+ * （3 块砖 × 6 皮顺砌），于是地面上出现的是
+ * **1.6m × 0.8m 的"巨石"** —— 近看就是一片乱石地，
+ * 哪还有官式院落"墁砖"的规整。
+ *
+ * ## 密度基准
+ *
+ * 官式方砖（墁砖）的实际尺寸约 **0.5m 见方**。
+ * 砖贴图每张含 3 块横向 ⇒ 一张贴图覆盖 1.5m。
+ * 于是 repeat = 实际尺寸 / 1.5。
+ *
+ * @param {number} sizeX 铺装面 X 向尺寸（米）
+ * @param {number} sizeZ 铺装面 Z 向尺寸（米）
+ */
+export function paveMaterial(sizeX, sizeZ) {
+  const rx = Math.max(1, Math.round(sizeX / 1.5));
+  const rz = Math.max(1, Math.round(sizeZ / 1.5));
+  return make(`pave-${rx}x${rz}`, () => {
+    const map = (variantTexture('brick', 0) || brickWall()).clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(rx, rz);
+    const nrm = variantNormal('brick', 0);
+    if (nrm) nrm.repeat.set(rx, rz);
+    return new THREE.MeshStandardMaterial({
+      map,
+      normalMap: nrm || null,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      color: 0xa9a49a,
+      roughness: 0.97,
+    });
+  });
+}
+
+/**
+ * 御路 / 甬路的**石板**：每块石板是一块独立的**几何体**（有真实接缝），
+ * 贴图只负责石面本身的颗粒与色差。
+ *
+ * 贴图 repeat = (1,1)：一张贴图正好铺满一块石板（1.15m × 0.53m），
+ * 石与石之间的缝是几何留出来的，不是画出来的。
+ */
+export function flagstoneMaterial() {
+  return make('flagstone', () => {
+    const map = (variantTexture('stone', 0) || stone()).clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(1, 1);
+    const nrm = variantNormal('stone', 0);
+    if (nrm) nrm.repeat.set(1, 1);
+    return new THREE.MeshStandardMaterial({
+      map,
+      normalMap: nrm || null,
+      normalScale: new THREE.Vector2(0.6, 0.6),
+      color: 0x9d9a92,
+      roughness: 0.95,
+    });
+  });
+}
+
 export function brickMaterial(variant = 0) {
   return make(`brick-pave-v${variant}`, () => {
     const map = (variantTexture('brick', variant) || brickWall()).clone();

@@ -140,32 +140,49 @@ function mulberry32(seed) {
 /**
  * 灰筒瓦屋面。沿屋面坡向排布筒瓦垄（半圆凸起），横向有瓦片搭接接缝。
  * canvas 的 U 方向 = 沿坡向（从脊到檐），V 方向 = 沿垄方向。
+ *
+ * ⚠ **为什么不用 AI 生成的 tile.png**：
+ *   1. 那张图是**银色金属瓦**（亮白筒身 + 黑缝），不是清式青瓦；
+ *   2. 它的垄数/行数与代码里的 UV 约定**对不上**
+ *      （实测 U 方向暗缝在 x=96/294/479，V 方向暗缝密集成片），
+ *      而屋面 UV 是按「U 方向 6 垄、V 方向 6 行搭接」算的 ——
+ *      两者错位 → 采样全落在黑缝上 → **整片屋面渲染成黑色**。
+ *
+ * 所以瓦贴图一律走程序化：布局与 UV 严格配套，颜色也可控。
  */
 export function roofTiles() {
-  if (OVERRIDE.tile) return { map: OVERRIDE.tile };
   if (cache.has('roofTiles')) return cache.get('roofTiles');
-  const W = 256;
-  const H = 256;
+  // 512px：屋面 UV 是「每 1/6 周期一垄」，一个周期铺 6×0.386m ≈ 2.3m，
+  // 512px → 1px ≈ 4.5mm，瓦垄的明暗过渡才不会被 mipmap 抹平。
+  const W = 512;
+  const H = 512;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const rnd = mulberry32(20240713);
 
-  g.fillStyle = '#5d5f63';
+  // 瓦面底色。
+  //
+  // ⚠ 这里是**双重压暗**的坑：贴图底色（sRGB）会转到 linear 工作空间，
+  // 再乘材质的固有色（也是 linear）。底色给 #5d5f63（linear ≈ 0.11）
+  // × 固有色 0x6e7176（linear ≈ 0.16）= 0.018 —— 渲出来接近纯黑。
+  // 青瓦真实的反照率约 0.2，这里把贴图底色提到 #8b8e93，
+  // 乘出来 ≈ 0.045，屋面是**深青灰**而不是黑。
+  g.fillStyle = '#8b8e93';
   g.fillRect(0, 0, W, H);
 
-  const cols = 6; // 垄数（与 AI 生成贴图布局对齐：横向 6 垄）
+  const cols = 6; // 垄数（与屋面 UV 约定配套：U 方向每 1/6 周期一垄）
   const colW = W / cols;
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
     // 每条垄：中间亮（筒瓦脊），两侧暗（瓦沟）
     const grad = g.createLinearGradient(x, 0, x + colW, 0);
-    grad.addColorStop(0.0, '#3f4245');
-    grad.addColorStop(0.12, '#6a6d70');
-    grad.addColorStop(0.38, '#82858a');
-    grad.addColorStop(0.5, '#8b8e93');
-    grad.addColorStop(0.62, '#82858a');
-    grad.addColorStop(0.88, '#6a6d70');
-    grad.addColorStop(1.0, '#3f4245');
+    grad.addColorStop(0.0, '#6a6d72');
+    grad.addColorStop(0.12, '#909399');
+    grad.addColorStop(0.38, '#a8abb0');
+    grad.addColorStop(0.5, '#b0b3b8');
+    grad.addColorStop(0.62, '#a8abb0');
+    grad.addColorStop(0.88, '#909399');
+    grad.addColorStop(1.0, '#6a6d72');
     g.fillStyle = grad;
     g.fillRect(x, 0, colW, H);
 
@@ -174,17 +191,17 @@ export function roofTiles() {
     for (let r = 1; r < rows; r++) {
       const y = (r / rows) * H;
       g.strokeStyle = `rgba(30,32,35,${0.30 + rnd() * 0.14})`;
-      g.lineWidth = 1.4;
+      g.lineWidth = 2.6;
       g.beginPath();
-      g.moveTo(x + 1, y);
-      g.lineTo(x + colW - 1, y);
+      g.moveTo(x + 2, y);
+      g.lineTo(x + colW - 2, y);
       g.stroke();
       // 缝下高光
       g.strokeStyle = 'rgba(190,192,196,0.18)';
-      g.lineWidth = 1;
+      g.lineWidth = 1.8;
       g.beginPath();
-      g.moveTo(x + 1, y + 1.6);
-      g.lineTo(x + colW - 1, y + 1.6);
+      g.moveTo(x + 2, y + 3);
+      g.lineTo(x + colW - 2, y + 3);
       g.stroke();
     }
   }
@@ -205,10 +222,11 @@ export function roofTiles() {
 
 /** 瓦垄法线贴图：横向正弦起伏 + 纵向接缝 */
 export function roofTilesNormal() {
-  if (OVERRIDE_N.tile) return OVERRIDE_N.tile;
+  // ⚠ 同样不用 AI 生成的 tile_n.png：那张是**银瓦**的法线，
+  // 垄/行布局也与屋面 UV 约定对不上（见 roofTiles() 的说明）。
   if (cache.has('roofTilesNormal')) return cache.get('roofTilesNormal');
-  const W = 256;
-  const H = 256;
+  const W = 512;
+  const H = 512;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const img = g.createImageData(W, H);
@@ -813,6 +831,170 @@ export function stone() {
   }
   const tex = toTexture(c);
   cache.set('stone', tex);
+  return tex;
+}
+
+/**
+ * 太湖石（假山）贴图 —— 程序化生成。
+ *
+ * 为什么不用现成的 stone / moss：
+ *   - `stone`（AI 生成）是**切割石板**，带明显的十字拼缝，
+ *     贴到假山上每块石头都会露出一个"十"字，看着像拼贴画。
+ *   - `moss`（AI 生成）是**层理岩石**，有强烈的横向条带方向性，
+ *     贴在不规则曲面上会拉成横条纹。
+ *
+ * 太湖石是**石灰岩溶蚀体**：底色灰白、质地细腻，
+ * 表面有大小不一的溶蚀孔洞（"漏"）和风化斑，外加零星苔藓。
+ * 所以这里画：灰白底 + 粒状斑驳 + 溶蚀麻点 + 苔斑。
+ * **刻意不做任何方向性笔触** —— 方向性会暴露平铺接缝。
+ */
+export function taihuStone() {
+  if (cache.has('taihuStone')) return cache.get('taihuStone');
+  // 512px：贴图周期 1.6m → 1px ≈ 3mm，足够表现石灰岩颗粒。
+  // 1024px 在浏览器端生成要好几秒（几万次逐像素写），会卡住场景构建。
+  const S = 512;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(20261030);
+
+  // 底色：太湖石是**冷灰**石灰岩（不是土黄）。
+  // 偏黄会跟园里的泥土地面、赭石色墙混成一片，看着像泥块不是石头。
+  g.fillStyle = '#a2a5a2';
+  g.fillRect(0, 0, S, S);
+
+  // 大块明暗：溶蚀造成的高低起伏，幅度要大（否则还是死平一块）
+  for (let i = 0; i < 150; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 40 + rnd() * 170;
+    const dark = rnd() < 0.5;
+    const col = dark ? '88,90,90' : '186,188,184';
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, `rgba(${col},${0.12 + rnd() * 0.18})`);
+        grd.addColorStop(1, `rgba(${col},0)`);
+        g.fillStyle = grd;
+        g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+  }
+
+  // 粒状斑驳：细密的小颗粒，模拟石灰岩的粗糙表面。
+  // ⚠ 用 ImageData **一次性**写像素，不要逐个 fillRect ——
+  // 1024px 下 42000 次 fillRect 要好几秒，场景会卡在"正在构建"。
+  {
+    const img = g.getImageData(0, 0, S, S);
+    const d = img.data;
+    for (let i = 0; i < 16000; i++) {
+      const x = (rnd() * S) | 0;
+      const y = (rnd() * S) | 0;
+      const light = rnd() > 0.5;
+      const a = rnd() * 0.15;
+      const s = 1 + ((rnd() * 2.6) | 0);
+      for (let dy = 0; dy < s; dy++) {
+        for (let dx = 0; dx < s; dx++) {
+          const px = ((y + dy) * S + (x + dx)) * 4;
+          if (px + 3 >= d.length) continue;
+          const tgt = light ? 226 : 72;
+          const cur = d[px];
+          // 与原色按 alpha 混合（冷灰，不是偏黄）
+          d[px] = cur + (tgt - cur) * a;
+          d[px + 1] = d[px + 1] + ((light ? 228 : 74) - d[px + 1]) * a;
+          d[px + 2] = d[px + 2] + ((light ? 224 : 74) - d[px + 2]) * a;
+        }
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  // 溶蚀麻点（"漏"的视觉来源）：小坑有深色边、底部更暗。
+  // 同样用 ImageData 批量画，别用 420 次 createRadialGradient（太慢）。
+  {
+    const img = g.getImageData(0, 0, S, S);
+    const d = img.data;
+    for (let i = 0; i < 380; i++) {
+      const cx = rnd() * S;
+      const cy = rnd() * S;
+      const r = 1.8 + rnd() * 6.5;
+      const x0 = Math.max(0, Math.floor(cx - r));
+      const x1 = Math.min(S - 1, Math.ceil(cx + r));
+      const y0 = Math.max(0, Math.floor(cy - r));
+      const y1 = Math.min(S - 1, Math.ceil(cy + r));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dd = Math.hypot(x - cx, y - cy);
+          if (dd > r) continue;
+          // 中心暗、边缘淡
+          const t = 1 - dd / r;
+          const a = t * t * 0.55;
+          const p = (y * S + x) * 4;
+          if (p + 3 >= d.length) continue;
+          d[p] = d[p] + (46 - d[p]) * a;
+          d[p + 1] = d[p + 1] + (44 - d[p + 1]) * a;
+          d[p + 2] = d[p + 2] + (40 - d[p + 2]) * a;
+        }
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  // 细石纹：**不用描边笔触**。
+  //
+  // ⚠ 弧线笔触在曲面上会被三平面 UV 拉成"人字纹"（近看是规则的
+  // V 形折痕，像织物纹理，不像石头）。线条类笔触与程序化投影天生不合。
+  // 改用**色块斑驳**（不同明暗的小色片）表现石灰岩的颗粒。
+  //
+  // ⚠ 性能：这些色块必须用 **ImageData 一次性写**。
+  // 逐块 fillRect（5200 次）在 1024px 画布上要好几秒，
+  // 场景会卡在"正在构建圆明园"。
+  {
+    const img = g.getImageData(0, 0, S, S);
+    const d = img.data;
+    for (let i = 0; i < 5200; i++) {
+      const x = (rnd() * S) | 0;
+      const y = (rnd() * S) | 0;
+      const w = 2 + ((rnd() * 7) | 0);
+      const h = 2 + ((rnd() * 7) | 0);
+      // 明暗斑：大块深/浅，模拟溶蚀造成的高低起伏
+      const light = rnd() > 0.5;
+      const a = 0.05 + rnd() * 0.1;
+      const tr = light ? 210 : 74;
+      const tg = light ? 212 : 78;
+      const tb = light ? 208 : 76;
+      const yEnd = Math.min(S, y + h);
+      const xEnd = Math.min(S, x + w);
+      for (let dy = 0; y + dy < yEnd; dy++) {
+        const rowBase = (y + dy) * S;
+        for (let dx = 0; x + dx < xEnd; dx++) {
+          const p = (rowBase + x + dx) * 4;
+          d[p] = d[p] + (tr - d[p]) * a;
+          d[p + 1] = d[p + 1] + (tg - d[p + 1]) * a;
+          d[p + 2] = d[p + 2] + (tb - d[p + 2]) * a;
+        }
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  // 苔藓：零星绿斑，边缘不规则（用小圆点堆出锯齿边）
+  for (let i = 0; i < 48; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const n = 14 + Math.floor(rnd() * 28);
+    const col = rnd() < 0.5 ? '96,116,58' : '72,92,44';
+    for (let k = 0; k < n; k++) {
+      const a = rnd() * Math.PI * 2;
+      const rr = rnd() * (7 + rnd() * 18);
+      g.fillStyle = `rgba(${col},${0.26 + rnd() * 0.4})`;
+      g.beginPath();
+      g.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr, 1.6 + rnd() * 4, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  const tex = toTexture(c, { repeat: [1, 1] });
+  cache.set('taihuStone', tex);
   return tex;
 }
 

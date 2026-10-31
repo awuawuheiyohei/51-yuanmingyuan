@@ -32,6 +32,7 @@ import {
   waterJet,
   spray,
   steps,
+  ornamentalTree,
 } from './kit.js';
 import { buildHall } from './hall.js';
 
@@ -136,10 +137,15 @@ export function buildFangWaiGuan(c, opts) {
       const pl = planter(1.5, 1.2);
       pl.translate(flowerX + sx * 2.4, 1.15, -1.0 + sz * 2.4);
       c.add('stone', pl);
-      const tree = sph(1.5, 9, 7);
-      tree.scale(1, 1.15, 1);
-      tree.translate(flowerX + sx * 2.4, 3.1, -1.0 + sz * 2.4);
-      c.add('green', tree);
+      // 树：之前是「一个半径 1.5m 的实心绿球」，远看像棒棒糖。
+      // 现在用 ornamentalTree：分枝树干 + 不规则叶簇（盆栽小树）。
+      const tree = ornamentalTree(3.6, 40 + (sx > 0 ? 7 : 0) + (sz > 0 ? 3 : 0));
+      for (const g of tree.wood) {
+        c.add('bark', g.clone().translate(flowerX + sx * 2.4, 1.15, -1.0 + sz * 2.4));
+      }
+      for (const g of tree.green) {
+        c.add('green', g.clone().translate(flowerX + sx * 2.4, 1.15, -1.0 + sz * 2.4));
+      }
     }
   }
 

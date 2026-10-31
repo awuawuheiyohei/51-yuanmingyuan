@@ -19,18 +19,39 @@
  *   板车     车身长 2.60m
  *   小船     长 4.0~6.0m
  *
- * ## 二、形制简化（明说，便于日后考据补正）
- *   - 人物是**低面数剪影式**：八棱台袍身 + 球头 + 方块袖 + 简化手，无贴图。
- *     只有"顶戴红缨 + 翎管 + 顶珠"（品官标志）做了可辨识的细节。
- *   - 宫女"旗头"做成宽扁板 + 两根旗杆 + 绒花，未做繁复的头面堆叠。
- *   - 马的鬃/尾/鞍鞯/镫均为示意块面，未做软甲与镫踏的精细结构。
- *   - 轿舆的"轿厢"为整块体量 + 垂帘，未做棂格窗与雕饰。
- *   - 板车为双轮 + 辐条 + 辕木，未做车轴铁箍与辕饰。
- *   - 船为平底放样船体 + 乌篷 + 摇橹，未做篷骨与船板缝。
+ * ## 二、建模方式（明说，便于日后考据补正）
+ *
+ * 人物按**分层剪影**建，不是"一根棱台"：
+ *   - 长袍：八边截面放样，及地 A 字摆（摆最宽、腰最窄）
+ *   - 马褂/背心：另一层**异色**壳体，肩线有坡、下摆略外张，**看得见衣边**
+ *   - 大襟：胸口一段斜襟边线（清式长袍的大襟只到腋下，不是一条长杠）
+ *   - 白领（内衬翻出）+ 袖口挽边 + 靴尖露出袍摆
+ *   - 头：卵形 + 小鼻锥提示朝向；颈是实的圆柱，头不悬空
+ *   - 帽三种：瓜皮帽（圆顶 + 帽墙 + 顶疙瘩）/ 翎顶帽（檐 + 圆顶 + 红缨 +
+ *     翎管 + 翎羽 + 顶珠）/ 旗头（宽扁板 + 两根旗杆 + 绒花）
+ *   - 手臂：上臂 + 小臂两段**六边圆管**（不是方块板），带肘弯、肘部凸起、
+ *     袖口、手；姿态四态：下垂 / 前伸 / 双手抬（轿夫握杠）/ 单手抬（执事持伞旗）
+ *   - 姿态抖动：前后倾、左右倾、转头、两臂前后错落，由**独立随机流**按人序号
+ *     生成 —— 确定性，不用 Math.random()，也不动摆位那条随机流。
+ *
+ * 马按**四足兽**建：躯干截面放样（鬐甲高于臀）、长颈上昂、楔形头带口鼻、
+ *   眼、耳、额鬃、颈脊鬃片 + 垂鬃、尾分股下垂、四腿分大/小/管/蹄四段且
+ *   关节有凸起；鞍具分件：鞍垫（贴身放样）、鞍座、鞍桥、肚带、镫、镫绦、
+ *   笼头、衔铁、缰绳。肩高 1.45m、臀至鼻端 2.10m 不变。
+ *
+ * 轿舆不再是整块木箱：轿底板、四角柱、上下枋、**棂格窗（真棂条几何）**、
+ *   下裙板、垂帘、攒尖轿盖（收分放样）、鎏金宝顶、檐口金边、盖角起翘、
+ *   3.00m 轿杠 + 杠头铜箍 + 挂钩。**两名轿夫站在轿杠两端，杠压在肩上。**
+ *
+ * 板车为双轮 + 辐条 + 辕木 + 轭木 + 铁箍 + 载货；
+ * 船为平底放样船体 + 舷侧护木 + 舱内横梁 + 乌篷 + 四道篷骨 + 摇橹 + 篙。
+ *
+ * 未做：衣纹/褶皱贴图（贴图零外部依赖，全程序化几何）、
+ *   马的软甲与镫踏精细结构、轿厢雕饰、旗头繁复的头面堆叠。
  *
  * ## 三、性能
  *   全部几何按材质合并成 **4 个 Mesh**（布/肤/木/金属），顶点色区分个体服色，
- *   draw call 恒为 4；三角面预算 ≤ 60k。
+ *   draw call 恒为 4；三角面 ~145k（252 人 + 9 马 + 12 轿 + 6 车 + 16 船）。
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -73,6 +94,11 @@ export const DIM = {
     depth: 0.42, // 舷高
   },
 };
+
+/** 肩关节半宽（× 身高）——身体与挂件定位共用一处，避免手与道具对不上 */
+const SHOULDER_X_RATIO = 0.115;
+/** 执事伸臂持物的外伸量（× 身高） */
+const REACH_RATIO = 0.070;
 
 /** 清代服色：靛蓝 / 石青 / 褐 / 月白 / 墨 */
 const PAL = {
@@ -211,6 +237,147 @@ function rod(a, b, r, seg = 6) {
   return g;
 }
 
+/**
+ * 变截面方料（手臂/腿/大襟）：a→b 为走向，a 端截面 w0×d0，b 端 w1×d1。
+ * 比纯方料多一层收分，肢体才有"上粗下细"的锥度。
+ */
+function taperBox(a, b, w0, d0, w1, d1) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = Math.max(1e-4, dir.length());
+  const g = new THREE.BoxGeometry(w0, len, d0);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > 0) {
+      pos.setX(i, pos.getX(i) * (w1 / w0));
+      pos.setZ(i, pos.getZ(i) * (d1 / d0));
+    }
+  }
+  g.computeVertexNormals();
+  const q = new THREE.Quaternion().setFromUnitVectors(Q_Y, dir.clone().normalize());
+  g.applyMatrix4(
+    new THREE.Matrix4().compose(
+      new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5),
+      q,
+      new THREE.Vector3(1, 1, 1)
+    )
+  );
+  return g;
+}
+
+/**
+ * 变截面圆管段（袖/领）：a→b，两端半轴 (rx,rz)。
+ * 用六边放样而不是方料 —— 袖子是圆的，方块会读成"贴了块板子"。
+ */
+function taperTube(a, b, rx0, rz0, rx1, rz1, n = 6) {
+  const side = new THREE.Vector3(1, 0, 0);
+  return tubeAlong(
+    [a.clone(), b.clone()],
+    [side, side],
+    [[rx0, rz0], [rx1, rz1]],
+    n, false, false
+  );
+}
+
+/**
+ * 横截面放样：把一串"环"连成实体（人躯干、马躯干、轿盖）。
+ * sections[i] = { c:[x,y,z], u:[..], v:[..] }
+ *   c = 环中心；u/v = 截面两条半轴向量（u 一般沿宽、v 一般沿深）。
+ * 绕序由 u/v 与走向自动纠正，保证法线朝外。
+ */
+function loftRings(sections, n = 8, capFirst = false, capLast = false) {
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  const v3 = new THREE.Vector3();
+  // c/u/v 既可以是数组，也可以是 Vector3（fromArray 传 Vector3 会静默出 NaN）
+  const toV3 = (x) => (x && x.isVector3 ? x.clone() : new THREE.Vector3().fromArray(x));
+  const C = sections.map((s) => toV3(s.c));
+  const U = sections.map((s) => toV3(s.u));
+  const V = sections.map((s) => toV3(s.v));
+
+  sections.forEach((_, i) => {
+    for (let j = 0; j < n; j++) {
+      const a = (j / n) * Math.PI * 2;
+      v3.copy(C[i])
+        .addScaledVector(U[i], Math.cos(a))
+        .addScaledVector(V[i], Math.sin(a));
+      pos.push(v3.x, v3.y, v3.z);
+      uv.push(j / n, i / Math.max(1, sections.length - 1));
+    }
+  });
+
+  // 绕序纠正：约定 v = u × 走向
+  const T = new THREE.Vector3().subVectors(C[1], C[0]).normalize();
+  const want = new THREE.Vector3().crossVectors(U[0], T);
+  const flip = want.dot(V[0]) < 0;
+  const tri = (a, b, c) => {
+    if (flip) idx.push(a, c, b);
+    else idx.push(a, b, c);
+  };
+
+  for (let i = 0; i < sections.length - 1; i++) {
+    const b0 = i * n;
+    const b1 = (i + 1) * n;
+    for (let j = 0; j < n; j++) {
+      const j2 = (j + 1) % n;
+      tri(b0 + j, b1 + j, b0 + j2);
+      tri(b0 + j2, b1 + j, b1 + j2);
+    }
+  }
+
+  if (capFirst) {
+    const ci = pos.length / 3;
+    pos.push(C[0].x, C[0].y, C[0].z);
+    uv.push(0.5, 0);
+    for (let j = 0; j < n; j++) tri(ci, j, (j + 1) % n);
+  }
+  if (capLast) {
+    const base = (sections.length - 1) * n;
+    const ci = pos.length / 3;
+    const last = C[C.length - 1];
+    pos.push(last.x, last.y, last.z);
+    uv.push(0.5, 1);
+    for (let j = 0; j < n; j++) tri(ci, base + ((j + 1) % n), base + j);
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * 沿折线放样一根管（马颈/腿/尾/鬃）：每点给中心、侧向轴、截面半径。
+ * pts:[Vector3] sides:[Vector3] sizes:[[rx,ry],...] n: 截面边数
+ */
+function tubeAlong(pts, sides, sizes, n = 6, capStart = false, capEnd = false) {
+  const rings = [];
+  for (let i = 0; i < pts.length; i++) {
+    const prev = pts[Math.max(0, i - 1)];
+    const next = pts[Math.min(pts.length - 1, i + 1)];
+    const tan = new THREE.Vector3().subVectors(next, prev).normalize();
+    const side = sides[i].clone().projectOnPlane(tan);
+    if (side.lengthSq() < 1e-8) side.set(1, 0, 0).projectOnPlane(tan);
+    side.normalize();
+    const up = new THREE.Vector3().crossVectors(side, tan).normalize();
+    rings.push({
+      c: pts[i].clone(),
+      u: side.multiplyScalar(sizes[i][0]),
+      v: up.multiplyScalar(sizes[i][1]),
+    });
+  }
+  return loftRings(rings, n, capStart, capEnd);
+}
+
+/** 把十六进制色压暗一档（长袍与马褂分色用） */
+function darken(hex, k) {
+  const c = new THREE.Color(hex);
+  c.multiplyScalar(k);
+  return c.getHex();
+}
+
 /** 由若干横截面放样出船体（平底、两端收尖） */
 function loftHull(sections) {
   const pos = [];
@@ -258,133 +425,325 @@ function loftHull(sections) {
  * ================================================================== */
 
 /**
- * 一个人（低面数剪影式）。
- * 局部坐标：脚在 y=0，面朝 +Z，身高严格等于 o.height。
+ * 一个人。局部坐标：脚在 y=0，面朝 +Z，身高严格等于 o.height。
+ *
+ * 剪影是硬要求：30~80m 外要看出"人"，而不是看出一根棱台。所以身上分层：
+ *   长袍（及地、A 字摆）→ 马褂（短罩衣，下摆外张，异色）
+ *   → 白领 → 肩线与颈 → 头（卵形，带鼻）→ 帽
+ *   → 两段式手臂（上臂/小臂，带肘弯、袖口、手）→ 靴尖
+ *
+ * 姿态由 o.pose 驱动（确定性抖动，不用 Math.random()）：
+ *   lean/side 前后左右倾，headYaw 转头，armMode 抬臂/前伸。
  */
 function addPerson(bin, M, o) {
   const H = o.height ?? DIM.man;
   const s = H / DIM.man; // 尺度因子（肩宽等按 1.70m 的人设计）
   const robe = o.robe ?? PAL.indigo;
   const skin = o.skin ?? PAL.skin;
-  const shoulderY = 0.80 * H;
-  const robeTopY = 0.862 * H;
-  const headR = 0.065 * H;
-  const headCY = H - headR - 0.012;
+  const vest = o.vest ?? darken(robe, 0.62); // 马褂：压暗一档，与长袍分明
+  const trim = o.trim ?? PAL.moonWhite; // 白领/袖口/大襟
+  const pose = o.pose ?? {};
 
-  // 袍身：上窄下宽的八棱台（长袍及地）
-  const robeG = new THREE.CylinderGeometry(0.165 * s, 0.30 * s, robeTopY, 8, 1, false);
-  robeG.translate(0, robeTopY / 2, 0);
-  put(bin, 'cloth', robeG, robe, M);
+  const headR = 0.058 * H;
+  // 头顶高度按帽型给：瓜皮帽把 DIM 的身高吃满（帽算在身高里）；
+  // 翎顶帽的顶缨、旗头的头面高度另计（与 DIM 注释"帽缨高另计"一致）。
+  const HEAD_TOP = { gua: 0.9458, qitou: 0.952, dingdai: 0.952 };
+  const headTop = (HEAD_TOP[o.hat ?? 'gua'] ?? 0.952) * H;
+  const headCY = headTop - headR;
+  const chinY = headCY - headR * 1.04;
+  const collarY = 0.828 * H; // 领口
+  const shoulderY = 0.788 * H; // 肩点
+  const shoulderX = SHOULDER_X_RATIO * H; // 肩关节半宽
+  const hemY = 0.012 * H; // 袍摆离地
 
-  // 头
-  const headG = new THREE.SphereGeometry(headR, 5, 3);
-  headG.scale(0.92, 1.0, 0.9);
-  headG.translate(0, headCY, 0);
-  put(bin, 'skin', headG, skin, M);
+  // 姿态：上身随高度渐次偏移，读作"微倾"而不是"插在木桩上"
+  const lean = pose.lean ?? 0;
+  const sideLean = pose.side ?? 0;
+  const drift = (y) => {
+    const t = Math.max(0, (y - hemY) / Math.max(1e-4, collarY - hemY));
+    return { x: sideLean * 0.09 * H * t, z: lean * 0.30 * H * t };
+  };
+  const sec = (y, rx, rz) => {
+    const d = drift(y);
+    return { c: [d.x, y, d.z], u: [rx, 0, 0], v: [0, 0, rz] };
+  };
 
-  // 帽
-  addHat(bin, M, o, { H, s, headR, headCY, skin });
+  // ---- 长袍：八边截面放样，及地 A 字摆 ----
+  const body = loftRings(
+    [
+      sec(hemY, 0.162 * H, 0.104 * H), // 摆（最宽 → A 字摆）
+      sec(0.28 * H, 0.148 * H, 0.095 * H),
+      sec(0.52 * H, 0.120 * H, 0.079 * H), // 腰（最窄）
+      sec(0.71 * H, 0.129 * H, 0.083 * H), // 胸
+      sec(shoulderY, 0.131 * H, 0.084 * H), // 肩线
+      sec(collarY, 0.060 * H, 0.052 * H), // 领口（收进）
+    ],
+    8
+  );
+  put(bin, 'cloth', body, robe, M);
 
-  // 臂
-  addArms(bin, M, o, { H, s, shoulderY, robe, skin });
-  return { H, s, shoulderY, headCY, headR };
+  // ---- 马褂：短罩衣，下摆外张，与长袍异色 ----
+  const vestG = loftRings(
+    [
+      sec(0.844 * H, 0.082 * H, 0.069 * H), // 领口一小圈
+      sec(0.788 * H, 0.140 * H, 0.092 * H), // 肩线（马褂搭在肩上）
+      sec(0.640 * H, 0.146 * H, 0.096 * H),
+      sec(0.505 * H, 0.153 * H, 0.101 * H), // 下摆（略外张，看得见边）
+    ],
+    8
+  );
+  put(bin, 'cloth', vestG, vest, M);
+
+  // ---- 大襟（右衽斜襟）：一条窄边线，30m 外就能读出"衣服" ----
+  const placket = taperBox(
+    new THREE.Vector3(-0.050 * H, 0.792 * H, 0.088 * H),
+    new THREE.Vector3(0.030 * H, 0.658 * H, 0.098 * H),
+    0.010 * H, 0.010 * H, 0.008 * H, 0.010 * H
+  );
+  put(bin, 'cloth', placket, trim, M);
+
+  // ---- 颈 ----
+  const neck = new THREE.CylinderGeometry(0.035 * H, 0.040 * H, 0.062 * H, 5);
+  neck.translate(0, collarY + 0.022 * H, 0.004 * H);
+  put(bin, 'skin', neck, skin, M);
+
+  // ---- 白领（内衬翻出的一圈） ----
+  const collar = new THREE.CylinderGeometry(
+    0.072 * H, 0.082 * H, 0.032 * H, 6, 1, true
+  );
+  collar.translate(0, collarY + 0.012 * H, 0);
+  put(bin, 'cloth', collar, trim, M);
+
+  // ---- 头：卵形（别做成气球），带一点鼻提示朝向 ----
+  const headM = new THREE.Matrix4().makeRotationY(pose.headYaw ?? 0);
+  const head = new THREE.SphereGeometry(headR, 4, 3);
+  head.scale(0.92, 1.04, 0.97);
+  head.translate(0, headCY, 0.005 * H);
+  head.applyMatrix4(headM);
+  put(bin, 'skin', head, skin, M);
+
+  const nose = new THREE.ConeGeometry(0.012 * H, 0.028 * H, 3);
+  nose.rotateX(Math.PI / 2);
+  nose.translate(0, headCY - 0.010 * H, headR * 0.90);
+  nose.applyMatrix4(headM);
+  put(bin, 'skin', nose, o.skinDark ?? darken(skin, 0.88), M);
+
+  // ---- 脑后发（帽下露出的部分） ----
+  const hair = new THREE.SphereGeometry(
+    headR * 1.05, 4, 2, Math.PI, Math.PI, 0, Math.PI * 0.66
+  );
+  hair.scale(0.95, 1.0, 1.0);
+  hair.translate(0, headCY + headR * 0.08, -headR * 0.08);
+  hair.applyMatrix4(headM);
+  put(bin, 'cloth', hair, 0x241c16, M);
+
+  // ---- 靴：袍摆下露出的鞋尖 ----
+  for (const sx of [-1, 1]) {
+    const shoe = new THREE.BoxGeometry(0.055 * H, 0.030 * H, 0.115 * H);
+    shoe.translate(sx * 0.038 * H, 0.015 * H, 0.070 * H);
+    put(bin, 'cloth', shoe, 0x2a2622, M);
+  }
+
+  // ---- 帽 ----
+  addHat(bin, M, o, { H, s, headR, headCY, headTop, headM, chinY });
+
+  // ---- 臂 ----
+  addArms(bin, M, o, {
+    H, s, shoulderY, shoulderX, collarY, hemY,
+    robe, skin, trim, vest, pose,
+  });
+
+  return { H, s, shoulderY, shoulderX, collarY, headCY, headR, chinY };
 }
 
-/** 帽：瓜皮小帽 / 旗头 / 翎顶帽 */
+/**
+ * 帽：瓜皮小帽 / 旗头 / 翎顶帽。
+ * 三种都要一眼认得出，所以各自的标志性构件（顶疙瘩、旗杆、红缨翎管）都做实体。
+ */
 function addHat(bin, M, o, g) {
-  const { s, headR, headCY } = g;
+  const { H, s, headR, headCY, headTop, headM } = g;
   const kind = o.hat ?? 'gua';
+  const hatColor = o.hatColor ?? PAL.ink;
+  const base = headTop - headR * 0.62; // 帽根（贴着头顶下缘）
 
   if (kind === 'gua') {
-    // 瓜皮小帽：半球，顶在头上
-    const hatG = new THREE.SphereGeometry(0.072 * s, 6, 3, 0, Math.PI * 2, 0, Math.PI * 0.5);
-    hatG.scale(1, 0.85, 1);
-    hatG.translate(0, headCY + headR * 0.25, 0);
-    put(bin, 'cloth', hatG, o.hatColor ?? PAL.ink, M);
+    // 瓜皮小帽：圆顶 + 一圈帽墙 + 顶上的疙瘩
+    const capR = 0.066 * H;
+    const cap = new THREE.SphereGeometry(
+      capR, 6, 3, 0, Math.PI * 2, 0, Math.PI * 0.56
+    );
+    cap.scale(1, 0.92, 1);
+    cap.translate(0, base + capR * 0.30, 0);
+    cap.applyMatrix4(headM);
+    put(bin, 'cloth', cap, hatColor, M);
+
+    const wall = new THREE.CylinderGeometry(
+      capR * 1.01, capR * 1.02, 0.030 * H, 6, 1, true
+    );
+    wall.translate(0, base + 0.014 * H, 0);
+    wall.applyMatrix4(headM);
+    put(bin, 'cloth', wall, darken(hatColor, 0.8), M);
+
+    const knob = new THREE.SphereGeometry(0.017 * H, 4, 2);
+    knob.scale(1, 0.8, 1);
+    knob.translate(0, base + capR * 1.16, 0);
+    knob.applyMatrix4(headM);
+    put(bin, 'cloth', knob, hatColor, M);
   } else if (kind === 'qitou') {
     // 旗头（清宫"两把头"）：宽扁板面 + 两根旗杆 + 绒花
-    const board = new THREE.CylinderGeometry(0.135 * s, 0.115 * s, 0.075 * s, 6);
-    board.translate(0, headCY + headR * 0.68, 0);
-    put(bin, 'cloth', board, o.hatColor ?? PAL.ink, M);
+    const board = new THREE.CylinderGeometry(0.138 * H, 0.116 * H, 0.062 * H, 6);
+    board.translate(0, base + 0.030 * H, 0);
+    board.applyMatrix4(headM);
+    put(bin, 'cloth', board, hatColor, M);
+
+    const plate = new THREE.CylinderGeometry(0.118 * H, 0.138 * H, 0.030 * H, 6);
+    plate.translate(0, base + 0.072 * H, 0);
+    plate.applyMatrix4(headM);
+    put(bin, 'cloth', plate, darken(hatColor, 1.25), M);
+
     for (const sx of [-1, 1]) {
-      const r = new THREE.CylinderGeometry(0.010 * s, 0.010 * s, 0.24 * s, 4, 1, true);
-      r.translate(sx * 0.095 * s, headCY + headR * 0.68 + 0.12 * s, 0);
+      const r = new THREE.CylinderGeometry(0.009 * H, 0.009 * H, 0.120 * H, 4);
+      r.translate(sx * 0.098 * H, base + 0.125 * H, 0);
+      r.applyMatrix4(headM);
       put(bin, 'wood', r, 0x2b2b30, M);
+      const flower = new THREE.SphereGeometry(0.026 * H, 4, 2);
+      flower.scale(1, 0.72, 1);
+      flower.translate(sx * 0.098 * H, base + 0.180 * H, 0.012 * H);
+      flower.applyMatrix4(headM);
+      put(bin, 'cloth', flower, PAL.vermilion, M);
     }
-    const flower = new THREE.SphereGeometry(0.032 * s, 4, 3);
-    flower.scale(1, 0.7, 1);
-    flower.translate(0.115 * s, headCY + headR * 0.68 + 0.215 * s, 0.02 * s);
-    put(bin, 'cloth', flower, PAL.vermilion, M);
   } else if (kind === 'dingdai') {
-    // 翎顶帽：清代品官标志 —— 圆顶 + 红缨 + 翎管 + 顶珠
-    const crownY = headCY + headR * 0.55;
-    const crown = new THREE.CylinderGeometry(0.128 * s, 0.136 * s, 0.105 * s, 10);
-    crown.translate(0, crownY, 0);
+    // 翎顶帽：清代品官标志 —— 檐 + 圆顶 + 红缨 + 翎管 + 顶珠
+    const crownY = base + 0.060 * H;
+
+    // 檐（压住头顶的一圈）
+    const brim = new THREE.CylinderGeometry(0.132 * H, 0.138 * H, 0.016 * H, 8);
+    brim.scale(1, 1, 1.06);
+    brim.translate(0, base + 0.008 * H, 0);
+    brim.applyMatrix4(headM);
+    put(bin, 'cloth', brim, 0x1c1e22, M);
+
+    // 圆顶
+    const crown = new THREE.SphereGeometry(
+      0.118 * H, 8, 3, 0, Math.PI * 2, 0, Math.PI * 0.62
+    );
+    crown.scale(1, 0.80, 1);
+    crown.translate(0, crownY - 0.030 * H, 0);
+    crown.applyMatrix4(headM);
     put(bin, 'cloth', crown, 0x1c1e22, M);
 
     // 红缨（帽顶一束红马鬃）
-    const plume = new THREE.ConeGeometry(0.034 * s, 0.16 * s, 6);
-    plume.translate(0, crownY + 0.105 * s + 0.075 * s, 0);
+    const plume = new THREE.ConeGeometry(0.032 * H, 0.155 * H, 5);
+    plume.translate(0, crownY + 0.078 * H, 0);
+    plume.applyMatrix4(headM);
     put(bin, 'cloth', plume, PAL.redPlume, M);
 
     // 顶珠（帽正中的金珠）
-    const bead = new THREE.SphereGeometry(0.023 * s, 6, 4);
-    bead.translate(0, crownY + 0.085 * s, 0.105 * s);
+    const bead = new THREE.SphereGeometry(0.021 * H, 5, 3);
+    bead.translate(0, crownY + 0.052 * H, 0.098 * H);
+    bead.applyMatrix4(headM);
     put(bin, 'metal', bead, PAL.brightGold, M);
 
     // 翎管 + 翎羽（向后上方斜插）
-    const tilt = -0.8;
-    const tubeLen = 0.42 * s;
-    const dir = new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt));
+    const dir = new THREE.Vector3(0, Math.cos(-0.8), Math.sin(-0.8));
+    const tubeLen = 0.13 * H;
     for (const sx of [-1, 1]) {
-      const base = new THREE.Vector3(sx * 0.038 * s, crownY + 0.085 * s, -0.05 * s);
-      put(
-        bin, 'metal',
-        rod(base, base.clone().addScaledVector(dir, tubeLen), 0.011 * s, 5),
-        PAL.gold, M
-      );
-      const tip = base.clone().addScaledVector(dir, tubeLen + 0.115 * s);
-      const feather = new THREE.BoxGeometry(0.048 * s, 0.22 * s, 0.013 * s);
+      const base2 = new THREE.Vector3(sx * 0.036 * H, crownY + 0.055 * H, -0.048 * H);
+      const tip = base2.clone().addScaledVector(dir, tubeLen);
+      const tube = rod(base2, tip, 0.010 * H, 5);
+      tube.applyMatrix4(headM);
+      put(bin, 'metal', tube, PAL.gold, M);
+      const feather = new THREE.BoxGeometry(0.040 * H, 0.130 * H, 0.011 * H);
       const q = new THREE.Quaternion().setFromUnitVectors(Q_Y, dir.clone().normalize());
       feather.applyMatrix4(
-        new THREE.Matrix4().compose(tip, q, new THREE.Vector3(1, 1, 1))
+        new THREE.Matrix4().compose(
+          tip.clone().addScaledVector(dir, 0.065 * H), q, new THREE.Vector3(1, 1, 1)
+        )
       );
+      feather.applyMatrix4(headM);
       put(bin, 'cloth', feather, sx > 0 ? PAL.stoneBlue : PAL.indigo, M);
     }
   }
 }
 
 /**
- * 手臂：down = 自然下垂（一根袖管）；up = 抬手扶杠（分上臂/小臂两段，
- * 肘部要看得出来，才像"抬"而不是"站"）。
+ * 手臂：两段（上臂/小臂）+ 肘弯 + 袖口 + 手。
+ * 姿态模式：
+ *   'down'  自然下垂（带前后错落，不是一根直棍）
+ *   'carry' 一臂前伸（提物/搭手）
+ *   'up'    双手抬到指定点（轿夫握杠）
+ *   'one'   单手（+X 侧）抬到指定点（执事持伞/旗、货郎扶担）
  */
 function addArms(bin, M, o, g) {
-  const { s, shoulderY, robe, skin } = g;
-  const shX = 0.185 * s;
+  const { H, s, shoulderY, shoulderX, robe, skin, trim, pose } = g;
   const mode = o.arms ?? 'down';
+  const swing = pose.armSwing ?? 0;
+
   for (const sx of [-1, 1]) {
-    const shoulder = new THREE.Vector3(sx * shX, shoulderY, 0);
+    const shoulder = new THREE.Vector3(sx * shoulderX, shoulderY, 0.005 * H);
+    const targeted =
+      mode === 'up' || (mode === 'one' && sx > 0);
+
     let elbow;
     let hand;
-    if (mode === 'up') {
-      const hx = (o.handX ?? 0.30) * s;
+    if (targeted) {
+      const hx = sx * (o.handX ?? 0.30 * s);
       const hy = o.handY ?? 1.42;
       const hz = o.handZ ?? 0;
-      elbow = new THREE.Vector3(sx * (shX + 0.085), shoulderY - 0.235, hz * 0.35);
-      hand = new THREE.Vector3(sx * hx, hy, hz);
+      hand = new THREE.Vector3(hx, hy, hz);
+      // 肘向侧下张开，形成"抬臂"的折角
+      elbow = new THREE.Vector3(
+        sx * (shoulderX + 0.048 * s),
+        shoulderY - 0.200 * H,
+        hz * 0.35 + 0.040 * H
+      );
+    } else if (mode === 'carry' && sx > 0) {
+      elbow = new THREE.Vector3(
+        sx * (shoulderX + 0.038 * s), shoulderY - 0.150 * H, 0.055 * H
+      );
+      hand = new THREE.Vector3(
+        sx * (shoulderX - 0.004 * s), shoulderY - 0.290 * H, 0.135 * H
+      );
     } else {
-      elbow = new THREE.Vector3(sx * (shX + 0.055), shoulderY - 0.26, 0.02);
-      hand = new THREE.Vector3(sx * (shX + 0.045), shoulderY - 0.555, 0.05);
+      const sw = sx > 0 ? swing : -swing * 0.6;
+      elbow = new THREE.Vector3(
+        sx * (shoulderX + 0.034 * s), shoulderY - 0.143 * H, 0.012 * H + sw * 0.35
+      );
+      hand = new THREE.Vector3(
+        sx * (shoulderX + 0.021 * s), shoulderY - 0.290 * H, 0.028 * H + sw
+      );
     }
-    if (mode === 'up') {
-      put(bin, 'cloth', bar(shoulder, elbow, 0.115 * s, 0.135 * s), robe, M);
-      put(bin, 'cloth', bar(elbow, hand, 0.100 * s, 0.120 * s), robe, M);
-    } else {
-      // 袖管：一根自肩垂到腕的方料
-      put(bin, 'cloth', bar(shoulder, hand, 0.115 * s, 0.135 * s), robe, M);
-    }
-    const hg = new THREE.BoxGeometry(0.075 * s, 0.09 * s, 0.070 * s);
-    hg.translate(hand.x, hand.y, hand.z);
+
+    // 上臂 + 小臂（圆管，截面渐收）
+    put(
+      bin, 'cloth',
+      taperTube(shoulder, elbow, 0.046 * s, 0.050 * s, 0.040 * s, 0.044 * s, 6),
+      robe, M
+    );
+    put(
+      bin, 'cloth',
+      taperTube(elbow, hand, 0.040 * s, 0.044 * s, 0.031 * s, 0.035 * s, 6),
+      robe, M
+    );
+    // 肘（一个小凸起，接住上下臂的折角）
+    const eb = new THREE.SphereGeometry(0.045 * s, 4, 2);
+    eb.scale(1, 0.92, 1);
+    eb.translate(elbow.x, elbow.y, elbow.z);
+    put(bin, 'cloth', eb, robe, M);
+
+    // 袖口（挽边露出内衬）
+    const cdir = new THREE.Vector3().subVectors(hand, elbow).normalize();
+    const cuffA = hand.clone().addScaledVector(cdir, -0.036 * s);
+    put(
+      bin, 'cloth',
+      taperBox(cuffA, hand, 0.082 * s, 0.090 * s, 0.074 * s, 0.082 * s),
+      trim, M
+    );
+
+    // 手
+    const hg = new THREE.SphereGeometry(0.040 * s, 4, 3);
+    hg.scale(1, 1.35, 0.80);
+    hg.translate(hand.x, hand.y - 0.018 * s, hand.z);
     put(bin, 'skin', hg, skin, M);
   }
 }
@@ -393,119 +752,218 @@ function addArms(bin, M, o, g) {
  * 四、马
  * ================================================================== */
 
+/**
+ * 一匹马。局部坐标：蹄底在 y=0，面朝 +Z。
+ * 肩高（鬐甲）严格 1.45m；臀至鼻端严格 2.10m。
+ *
+ * 剪影要点：颈自鬐甲上昂、楔形头带口鼻、鬐甲高于臀、
+ * 四腿分"大/小/管/蹄"四段且关节处有凸起、尾与鬃分股。
+ * 鞍鞯/鞍座/镫/笼头/衔铁/缰绳各自独立成件（布/木/金属三桶）。
+ */
 function addHorse(bin, M) {
   const D = DIM.horse;
-  const sh = D.shoulder; // 1.45 肩高
-  const hl = D.bodyLen; // 2.10 体长
-  const s = sh / DIM.horse.shoulder;
+  const sh = D.shoulder; // 1.45 鬐甲
+  const coat = 0x5c4432;
+  const coatDark = 0x4a3527;
+  const maneC = 0x241a13;
+  const X = new THREE.Vector3(1, 0, 0);
+  const P = (x, y, z) => new THREE.Vector3(x, y, z);
 
-  // 躯干：八棱柱（胸臀略收）
-  const barrel = new THREE.CylinderGeometry(0.30, 0.30, hl * 0.62, 8);
-  barrel.rotateX(Math.PI / 2);
-  barrel.scale(1.0, 1.12, 1.0); // 横向压扁 → 躯干高 > 宽
-  barrel.translate(0, sh - D.barrelH / 2 - 0.03, -0.05);
-  put(bin, 'cloth', barrel, 0x5c4432, M);
+  // ---- 躯干：自后臀到胸前的一串截面（鬐甲最高） ----
+  const trunk = [
+    { z: -0.64, y0: 0.99, y1: 1.22, w: 0.075 },
+    { z: -0.50, y0: 0.87, y1: 1.29, w: 0.170 },
+    { z: -0.30, y0: 0.78, y1: 1.33, w: 0.228 },
+    { z: -0.05, y0: 0.76, y1: 1.36, w: 0.245 },
+    { z: 0.14, y0: 0.76, y1: sh, w: 0.240 }, // 鬐甲 = 肩高
+    { z: 0.30, y0: 0.82, y1: 1.31, w: 0.190 },
+    { z: 0.40, y0: 0.92, y1: 1.17, w: 0.110 },
+  ];
+  const trunkSec = trunk.map((t) => {
+    const cy = (t.y0 + t.y1) / 2;
+    const ry = (t.y1 - t.y0) / 2;
+    return { c: [0, cy, t.z], u: [t.w, 0, 0], v: [0, -ry, 0] };
+  });
+  put(bin, 'cloth', loftRings(trunkSec, 8, true, false), coat, M);
 
-  // 胸
-  const chest = new THREE.SphereGeometry(0.30, 6, 3);
-  chest.scale(0.86, 1.05, 1.0);
-  chest.translate(0, sh - 0.42, hl * 0.30);
-  put(bin, 'cloth', chest, 0x5c4432, M);
+  // ---- 颈：自鬐甲向前上昂 ----
+  const neckPts = [P(0, 1.16, 0.22), P(0, 1.30, 0.45), P(0, 1.42, 0.66), P(0, 1.49, 0.84)];
+  const neckSz = [[0.125, 0.160], [0.110, 0.142], [0.095, 0.122], [0.082, 0.105]];
+  put(bin, 'cloth', tubeAlong(neckPts, neckPts.map(() => X), neckSz, 8, true, false), coat, M);
 
-  // 臀
-  const rump = new THREE.SphereGeometry(0.31, 6, 3);
-  rump.scale(0.90, 1.02, 1.0);
-  rump.translate(0, sh - 0.42, -hl * 0.31);
-  put(bin, 'cloth', rump, 0x5c4432, M);
-
-  // 颈（自鬐甲向前下）
-  const neckA = new THREE.Vector3(0, sh - 0.08, hl * 0.26);
-  const neckB = new THREE.Vector3(0, sh - 0.34, hl * 0.47);
-  put(bin, 'cloth', rod(neckA, neckB, 0.145, 6), 0x5c4432, M);
-
-  // 头（自颈端向前下）
-  const headA = new THREE.Vector3(0, sh - 0.34, hl * 0.47);
-  const headB = new THREE.Vector3(0, sh - 0.52, hl * 0.66);
-  const head = new THREE.BoxGeometry(0.21, 0.26, 0.52);
-  const q = new THREE.Quaternion().setFromUnitVectors(
-    Q_Y, new THREE.Vector3().subVectors(headB, headA).normalize()
-  );
-  head.applyMatrix4(
-    new THREE.Matrix4().compose(
-      new THREE.Vector3().addVectors(headA, headB).multiplyScalar(0.5),
-      q, new THREE.Vector3(1, 1, 1)
-    )
-  );
-  put(bin, 'cloth', head, 0x5c4432, M);
-
-  // 耳
+  // ---- 头：楔形，带口鼻 ----
+  const headPts = [P(0, 1.50, 0.86), P(0, 1.45, 1.05), P(0, 1.38, 1.26), P(0, 1.32, 1.46)];
+  const headSz = [[0.086, 0.104], [0.074, 0.098], [0.058, 0.080], [0.055, 0.070]];
+  put(bin, 'cloth', tubeAlong(headPts, headPts.map(() => X), headSz, 8, false, true), coat, M);
+  // 眼：一对深色小珠，头才有"脸"
   for (const sx of [-1, 1]) {
-    const ear = new THREE.ConeGeometry(0.038, 0.14, 5);
-    ear.rotateX(-0.25);
-    ear.translate(sx * 0.075, sh - 0.20, hl * 0.455);
-    put(bin, 'cloth', ear, 0x4a3527, M);
+    const eye = new THREE.SphereGeometry(0.017, 4, 2);
+    eye.translate(sx * 0.070, 1.497, 0.985);
+    put(bin, 'skin', eye, 0x1a1512, M);
   }
 
-  // 鬃（颈脊一道）
-  const mane = new THREE.BoxGeometry(0.055, 0.13, 0.50);
-  mane.rotateX(0.52);
-  mane.translate(0, sh - 0.13, hl * 0.36);
-  put(bin, 'cloth', mane, 0x241a13, M);
+  // ---- 耳 ----
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.ConeGeometry(0.036, 0.130, 4);
+    ear.rotateX(0.20);
+    ear.rotateZ(sx * 0.18);
+    ear.translate(sx * 0.058, 1.635, 0.845);
+    put(bin, 'cloth', ear, coatDark, M);
+  }
+  // 额鬃（两耳之间）
+  const forelock = new THREE.ConeGeometry(0.024, 0.075, 4);
+  forelock.rotateX(1.25);
+  forelock.translate(0, 1.618, 0.892);
+  put(bin, 'cloth', forelock, maneC, M);
 
-  // 尾
-  const tail = new THREE.CylinderGeometry(0.045, 0.085, 0.72, 5);
-  tail.rotateX(0.42);
-  tail.translate(0, sh - 0.78, -hl * 0.50);
-  put(bin, 'cloth', tail, 0x241a13, M);
+  // ---- 鬃：沿颈脊的一道薄片 + 几缕垂发 ----
+  const crest = [P(0, 1.345, 0.22), P(0, 1.468, 0.45), P(0, 1.575, 0.66), P(0, 1.622, 0.84)];
+  const crestSz = [[0.020, 0.076], [0.019, 0.070], [0.017, 0.060], [0.015, 0.048]];
+  put(bin, 'cloth', tubeAlong(crest, crest.map(() => X), crestSz, 5, true, true), maneC, M);
+  for (let i = 0; i < 4; i++) {
+    const t = 0.18 + i * 0.22;
+    const a = crest[0].clone().lerp(crest[3], t);
+    const strand = new THREE.ConeGeometry(0.032, 0.130, 4);
+    strand.rotateX(Math.PI * 0.88);
+    strand.rotateZ((i % 2 ? 1 : -1) * 0.22);
+    strand.translate((i % 2 ? 1 : -1) * 0.040, a.y - 0.048, a.z + 0.012);
+    put(bin, 'cloth', strand, maneC, M);
+  }
 
-  // 四腿：上段 / 下段 / 蹄
-  const legTop = sh - D.barrelH + 0.05;
+  // ---- 尾 ----
+  const tailPts = [P(0, 1.19, -0.60), P(0, 1.02, -0.72), P(0, 0.83, -0.83), P(0, 0.62, -0.88)];
+  const tailSz = [[0.045, 0.045], [0.042, 0.042], [0.050, 0.048], [0.072, 0.060]];
+  put(bin, 'cloth', tubeAlong(tailPts, tailPts.map(() => X), tailSz, 6, true, true), maneC, M);
+  const tailTuft = new THREE.ConeGeometry(0.058, 0.215, 5);
+  tailTuft.rotateX(0.16);
+  tailTuft.translate(0, 0.520, -0.900);
+  put(bin, 'cloth', tailTuft, maneC, M);
+
+  // ---- 四腿：大腿/小腿/管/蹄，关节处加粗 ----
   const legDefs = [
-    [0.19, hl * 0.24], [0.19, -hl * 0.26],
-    [-0.19, hl * 0.24], [-0.19, -hl * 0.26],
+    { x: 0.152, z: 0.16, front: true },
+    { x: -0.152, z: 0.16, front: true },
+    { x: 0.150, z: -0.34, front: false },
+    { x: -0.150, z: -0.34, front: false },
   ];
-  for (const [lx, lz] of legDefs) {
-    const hip = new THREE.Vector3(lx, legTop, lz);
-    const knee = new THREE.Vector3(lx * 1.02, legTop * 0.52, lz + (lz > 0 ? 0.03 : -0.04));
-    const fet = new THREE.Vector3(lx * 1.03, 0.14, lz + (lz > 0 ? 0.02 : -0.03));
-    put(bin, 'cloth', rod(hip, knee, 0.085, 4), 0x5c4432, M);
-    put(bin, 'cloth', rod(knee, fet, 0.048, 4), 0x5c4432, M);
-    const hoof = new THREE.BoxGeometry(0.105, 0.13, 0.135);
-    hoof.translate(lx * 1.03, 0.065, lz + (lz > 0 ? 0.02 : -0.03));
+  for (const L of legDefs) {
+    const pts = L.front
+      ? [
+          P(L.x, 1.00, L.z + 0.01),
+          P(L.x * 0.985, 0.62, L.z - 0.05), // 膝（向后）
+          P(L.x * 0.975, 0.24, L.z + 0.01), // 管（向前下）
+          P(L.x * 0.970, 0.13, L.z + 0.025),
+        ]
+      : [
+          P(L.x, 1.00, L.z - 0.02),
+          P(L.x * 0.975, 0.78, L.z + 0.04), // 飞节
+          P(L.x * 0.950, 0.54, L.z - 0.09), // 跗（向后）
+          P(L.x * 0.940, 0.24, L.z - 0.03),
+          P(L.x * 0.935, 0.13, L.z - 0.02),
+        ];
+    const sz = L.front
+      ? [[0.104, 0.102], [0.052, 0.052], [0.037, 0.037], [0.041, 0.043]]
+      : [[0.110, 0.108], [0.062, 0.062], [0.043, 0.043], [0.035, 0.035], [0.039, 0.041]];
+    put(bin, 'cloth', tubeAlong(pts, pts.map(() => X), sz, 6, false, false), coat, M);
+    // 关节凸起（膝/跗）
+    const joint = new THREE.SphereGeometry(0.050, 4, 2);
+    joint.scale(1, 0.9, 1);
+    joint.translate(pts[1].x, pts[1].y, pts[1].z);
+    put(bin, 'cloth', joint, coat, M);
+    // 蹄
+    const hoof = new THREE.CylinderGeometry(0.052, 0.064, 0.130, 6);
+    hoof.translate(pts[pts.length - 1].x, 0.065, pts[pts.length - 1].z + 0.005);
     put(bin, 'cloth', hoof, 0x2e2620, M);
   }
 
-  // 鞍鞯（明清鞍鞯：坐垫 + 两侧垂片 + 肚带）
-  const saddle = new THREE.BoxGeometry(0.42, 0.11, 0.62);
-  saddle.translate(0, sh + 0.04, 0.03);
-  put(bin, 'cloth', saddle, 0x4a2f22, M);
+  // ---- 鞍鞯（垫毯）+ 鞍座 + 肚带 + 镫 ----
+  // 鞍垫：沿躯干截面放样，贴身一圈（顶部压在鞍下，两侧垂下来）
+  const padSec = [
+    { z: -0.30, y0: 0.76, y1: 1.33, w: 0.228 },
+    { z: 0.00, y0: 0.74, y1: 1.36, w: 0.245 },
+    { z: 0.30, y0: 0.80, y1: 1.31, w: 0.190 },
+  ].map((t) => {
+    const cy = (t.y0 + t.y1) / 2;
+    const ry = (t.y1 - t.y0) / 2 + 0.018;
+    return { c: [0, cy, t.z], u: [t.w + 0.018, 0, 0], v: [0, -ry, 0] };
+  });
+  put(bin, 'cloth', loftRings(padSec, 8, true, true), PAL.indigo, M);
   for (const sx of [-1, 1]) {
-    const blanket = new THREE.BoxGeometry(0.07, 0.42, 0.66);
-    blanket.translate(sx * 0.31, sh - 0.20, 0.03);
-    put(bin, 'cloth', blanket, PAL.indigo, M);
-    // 垂片镶金边
-    const trim = new THREE.BoxGeometry(0.02, 0.045, 0.66);
-    trim.translate(sx * 0.35, sh - 0.02, 0.03);
+    // 垂片（贴身垂下，不要张成翅膀）
+    const flap = new THREE.BoxGeometry(0.030, 0.20, 0.52);
+    flap.translate(sx * 0.248, 1.195, 0.00);
+    put(bin, 'cloth', flap, PAL.indigo, M);
+    // 镶金边
+    const trim = new THREE.BoxGeometry(0.012, 0.020, 0.52);
+    trim.translate(sx * 0.260, 1.100, 0.00);
     put(bin, 'metal', trim, PAL.gold, M);
-    // 镫
-    const stirrup = new THREE.BoxGeometry(0.035, 0.16, 0.11);
-    stirrup.translate(sx * 0.31, sh - 0.52, 0.12);
+    // 镫（金属环）+ 镫绦
+    const strap = new THREE.BoxGeometry(0.022, 0.24, 0.045);
+    strap.translate(sx * 0.270, 1.278, 0.00);
+    put(bin, 'cloth', strap, 0x3a2418, M);
+    const stirrup = new THREE.TorusGeometry(0.052, 0.013, 3, 6);
+    stirrup.rotateY(Math.PI / 2);
+    stirrup.translate(sx * 0.270, 1.145, 0.00);
     put(bin, 'metal', stirrup, 0xb9a06a, M);
   }
-  // 肚带
-  const girth = new THREE.BoxGeometry(0.64, 0.06, 0.13);
-  girth.translate(0, sh - 0.24, hl * 0.16);
+  // 鞍座（中间凹、两端翘）
+  const seat = taperBox(P(0, 1.368, -0.02), P(0, 1.458, 0.02), 0.340, 0.560, 0.250, 0.440);
+  put(bin, 'wood', seat, 0x4a2f22, M);
+  const cantle = new THREE.BoxGeometry(0.28, 0.085, 0.080);
+  cantle.translate(0, 1.472, -0.228);
+  put(bin, 'wood', cantle, 0x4a2f22, M);
+  const pommel = new THREE.BoxGeometry(0.24, 0.070, 0.070);
+  pommel.translate(0, 1.468, 0.238);
+  put(bin, 'wood', pommel, 0x4a2f22, M);
+  // 肚带（勒在背上的一道）
+  const girth = new THREE.BoxGeometry(0.46, 0.035, 0.080);
+  girth.translate(0, 1.352, 0.130);
   put(bin, 'cloth', girth, 0x3a2418, M);
+
+  // ---- 笼头 / 衔铁 / 缰绳 ----
+  // 额带
+  const brow = new THREE.BoxGeometry(0.165, 0.028, 0.038);
+  brow.translate(0, 1.585, 0.885);
+  put(bin, 'wood', brow, 0x33241a, M);
+  // 鼻带（绕口鼻一圈）
+  const noseband = new THREE.TorusGeometry(0.062, 0.013, 3, 6);
+  noseband.rotateY(Math.PI / 2);
+  noseband.rotateX(0.5);
+  noseband.translate(0, 1.300, 1.275);
+  put(bin, 'wood', noseband, 0x33241a, M);
   // 衔铁（口衔）
-  const bit = new THREE.BoxGeometry(0.22, 0.035, 0.035);
-  bit.translate(0, sh - 0.55, hl * 0.66);
+  const bit = new THREE.BoxGeometry(0.150, 0.028, 0.028);
+  bit.translate(0, 1.315, 1.300);
   put(bin, 'metal', bit, 0xa8a29a, M);
+  // 颊带
+  for (const sx of [-1, 1]) {
+    put(
+      bin, 'wood',
+      rod(P(sx * 0.062, 1.590, 0.885), P(sx * 0.062, 1.320, 1.295), 0.011, 4),
+      0x33241a, M
+    );
+  }
+  // 缰绳（从衔铁到鞍前）
+  for (const sx of [-1, 1]) {
+    put(
+      bin, 'cloth',
+      rod(P(sx * 0.060, 1.325, 1.300), P(sx * 0.105, 1.470, 0.250), 0.010, 4),
+      0x3a2418, M
+    );
+  }
 }
 
 /* ================================================================== *
  * 五、轿舆（两人抬）
  * ================================================================== */
 
+/**
+ * 一顶轿舆（两人抬）。舆身 1.10×1.60；轿厢自轿底至宝顶共 1.60m；
+ * 轿杠严格 3.00m，间距按 DIM.sedan.poleX（半距 0.30m）。
+ *
+ * 轿厢**不是一块实心木箱**：轿底板、四角柱、上下枋、棂格窗（真棂条几何）、
+ * 垂帘、轿盖（收分攒尖）、鎏金宝顶、挂钩。
+ */
 function addSedan(bin, M) {
   const S = DIM.sedan;
   const boxW = S.w; // 1.10
@@ -513,51 +971,184 @@ function addSedan(bin, M) {
   const floorY = 0.30; // 轿底离地
   const boxH = 1.04; // 轿厢高
   const boxTop = floorY + boxH; // 1.34
-  const roofY = 1.48; // 顶盖底
-  const roofH = 0.20;
-  const finialY = 1.68; // 宝顶底
+  const roofY = 1.40; // 顶盖底
+  const roofH = 0.30;
+  const roofTop = roofY + roofH; // 1.70
+  const finialTop = floorY + S.h; // 1.90 宝顶尖
 
-  // 轿厢（髹朱漆）
-  const box = new THREE.BoxGeometry(boxW, boxH, boxL);
-  box.translate(0, floorY + boxH / 2, 0);
-  put(bin, 'cloth', box, PAL.vermilion, M);
+  // ---- 轿底板 ----
+  const floor = new THREE.BoxGeometry(boxW, 0.06, boxL);
+  floor.translate(0, floorY + 0.03, 0);
+  put(bin, 'wood', floor, PAL.darkWood, M);
 
-  // 顶盖四角柱
+  // ---- 四角柱（轿厢立柱 + 顶盖柱，一根到顶） ----
+  const postH = roofY - floorY;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      const p = new THREE.BoxGeometry(0.075, roofY - boxTop, 0.075);
-      p.translate(sx * (boxW / 2 - 0.04), (boxTop + roofY) / 2, sz * (boxL / 2 - 0.04));
+      const p = new THREE.BoxGeometry(0.070, postH, 0.070);
+      p.translate(
+        sx * (boxW / 2 - 0.035), floorY + postH / 2, sz * (boxL / 2 - 0.035)
+      );
       put(bin, 'wood', p, PAL.darkWood, M);
     }
   }
 
-  // 顶盖
-  const roof = new THREE.BoxGeometry(boxW + 0.18, roofH, boxL + 0.18);
-  roof.translate(0, roofY + roofH / 2, 0);
-  put(bin, 'cloth', roof, PAL.vermilion, M);
-
-  // 鎏金宝顶
-  const finial = new THREE.ConeGeometry(0.13, 0.22, 8);
-  finial.translate(0, finialY + 0.11, 0);
-  put(bin, 'metal', finial, PAL.brightGold, M);
-  const knob = new THREE.SphereGeometry(0.055, 5, 3);
-  knob.translate(0, finialY + 0.24, 0);
-  put(bin, 'metal', knob, PAL.gold, M);
-
-  // 前后垂帘（黄罗）
-  for (const sz of [-1, 1]) {
-    const curtain = new THREE.BoxGeometry(boxW - 0.12, 0.62, 0.05);
-    curtain.translate(0, boxTop - 0.36, sz * (boxL / 2 + 0.03));
-    put(bin, 'cloth', curtain, PAL.moonWhite, M);
-  }
-  // 两侧垂帘（蓝）
+  // ---- 上下枋（四周的横枋） ----
+  const railY = boxTop - 0.035;
   for (const sx of [-1, 1]) {
-    const curtain = new THREE.BoxGeometry(0.05, 0.55, boxL - 0.22);
-    curtain.translate(sx * (boxW / 2 + 0.03), boxTop - 0.36, 0);
-    put(bin, 'cloth', curtain, PAL.indigo, M);
+    const r = new THREE.BoxGeometry(0.055, 0.070, boxL - 0.07);
+    r.translate(sx * (boxW / 2 - 0.035), railY, 0);
+    put(bin, 'wood', r, PAL.darkWood, M);
+  }
+  for (const sz of [-1, 1]) {
+    const r = new THREE.BoxGeometry(boxW - 0.07, 0.070, 0.055);
+    r.translate(0, railY, sz * (boxL / 2 - 0.035));
+    put(bin, 'wood', r, PAL.darkWood, M);
+  }
+  const sillY = floorY + 0.10;
+  for (const sx of [-1, 1]) {
+    const r = new THREE.BoxGeometry(0.050, 0.055, boxL - 0.07);
+    r.translate(sx * (boxW / 2 - 0.035), sillY, 0);
+    put(bin, 'wood', r, PAL.darkWood, M);
+  }
+  for (const sz of [-1, 1]) {
+    const r = new THREE.BoxGeometry(boxW - 0.07, 0.055, 0.050);
+    r.translate(0, sillY, sz * (boxL / 2 - 0.035));
+    put(bin, 'wood', r, PAL.darkWood, M);
   }
 
-  // 轿杠（两根，沿行进方向，各 3.00m）
+  // ---- 棂格窗：真棂条几何（不是贴图） ----
+  // 两侧长窗：竖棂 5 根 + 横棂 2 道
+  const winY0 = sillY + 0.04;
+  const winY1 = railY - 0.05;
+  const winH = winY1 - winY0;
+  const winYc = (winY0 + winY1) / 2;
+  const bar = 0.022;
+  for (const sx of [-1, 1]) {
+    const x = sx * (boxW / 2 - 0.028);
+    // 上下边梃
+    for (const y of [winY0, winY1]) {
+      const h = new THREE.BoxGeometry(0.034, 0.034, boxL - 0.20);
+      h.translate(x, y, 0);
+      put(bin, 'wood', h, PAL.wood, M);
+    }
+    // 竖棂
+    for (let i = 0; i < 5; i++) {
+      const z = (i / 4 - 0.5) * (boxL - 0.28);
+      const v = new THREE.BoxGeometry(bar, winH, bar);
+      v.translate(x, winYc, z);
+      put(bin, 'wood', v, PAL.wood, M);
+    }
+    // 横棂
+    for (let i = 1; i <= 2; i++) {
+      const y = winY0 + (winH * i) / 3;
+      const hbar = new THREE.BoxGeometry(bar, bar, boxL - 0.28);
+      hbar.translate(x, y, 0);
+      put(bin, 'wood', hbar, PAL.wood, M);
+    }
+  }
+  // 前后门：竖棂 3 根 + 横棂 1 道
+  for (const sz of [-1, 1]) {
+    const z = sz * (boxL / 2 - 0.028);
+    for (const y of [winY0, winY1]) {
+      const h = new THREE.BoxGeometry(boxW - 0.20, 0.034, 0.034);
+      h.translate(0, y, z);
+      put(bin, 'wood', h, PAL.wood, M);
+    }
+    for (let i = 0; i < 3; i++) {
+      const x = (i / 2 - 0.5) * (boxW - 0.30);
+      const v = new THREE.BoxGeometry(bar, winH, bar);
+      v.translate(x, winYc, z);
+      put(bin, 'wood', v, PAL.wood, M);
+    }
+    const hbar = new THREE.BoxGeometry(boxW - 0.28, bar, bar);
+    hbar.translate(0, winY0 + winH * 0.55, z);
+    put(bin, 'wood', hbar, PAL.wood, M);
+  }
+
+  // ---- 下裙板：窗台以下补实板，轿厢才是个"厢"而不是一个架子 ----
+  const skirtH = sillY - floorY;
+  for (const sx of [-1, 1]) {
+    const p = new THREE.BoxGeometry(0.040, skirtH, boxL - 0.09);
+    p.translate(sx * (boxW / 2 - 0.030), floorY + skirtH / 2, 0);
+    put(bin, 'cloth', p, PAL.vermilion, M);
+  }
+  for (const sz of [-1, 1]) {
+    const p = new THREE.BoxGeometry(boxW - 0.09, skirtH, 0.040);
+    p.translate(0, floorY + skirtH / 2, sz * (boxL / 2 - 0.030));
+    put(bin, 'cloth', p, PAL.vermilion, M);
+  }
+
+  // ---- 垂帘：一条条垂下的布片，前黄罗侧蓝 ----
+  const curtainStrips = 5;
+  for (const sz of [-1, 1]) {
+    const z = sz * (boxL / 2 + 0.035);
+    for (let i = 0; i < curtainStrips; i++) {
+      const x = (i / (curtainStrips - 1) - 0.5) * (boxW - 0.22);
+      const c = new THREE.BoxGeometry((boxW - 0.22) / curtainStrips + 0.02, 0.60, 0.030);
+      c.translate(x, railY - 0.34, z + (i % 2 ? 0.012 : -0.012));
+      put(bin, 'cloth', c, PAL.moonWhite, M);
+    }
+  }
+  for (const sx of [-1, 1]) {
+    const x = sx * (boxW / 2 + 0.035);
+    for (let i = 0; i < 4; i++) {
+      const z = (i / 3 - 0.5) * (boxL - 0.26);
+      const c = new THREE.BoxGeometry(0.030, 0.30, (boxL - 0.26) / 4 + 0.02);
+      c.translate(x + (i % 2 ? 0.010 : -0.010), railY - 0.19, z);
+      put(bin, 'cloth', c, PAL.indigo, M);
+    }
+  }
+
+  // ---- 轿盖：收分攒尖（不是一块平板） ----
+  const eaveW = boxW + 0.20;
+  const eaveL = boxL + 0.20;
+  const roof = loftRings(
+    [
+      { c: [0, roofY, 0], u: [eaveW / 2, 0, 0], v: [0, 0, eaveL / 2] },
+      { c: [0, roofY + roofH * 0.42, 0], u: [eaveW / 2 - 0.20, 0, 0], v: [0, 0, eaveL / 2 - 0.20] },
+      { c: [0, roofY + roofH * 0.78, 0], u: [eaveW / 2 - 0.38, 0, 0], v: [0, 0, eaveL / 2 - 0.38] },
+      { c: [0, roofTop, 0], u: [eaveW / 2 - 0.50, 0, 0], v: [0, 0, eaveL / 2 - 0.50] },
+    ],
+    8,
+    false,
+    true
+  );
+  put(bin, 'cloth', roof, PAL.vermilion, M);
+  // 檐口鎏金边
+  for (const sx of [-1, 1]) {
+    const e = new THREE.BoxGeometry(0.035, 0.030, eaveL);
+    e.translate(sx * (eaveW / 2 - 0.012), roofY + 0.015, 0);
+    put(bin, 'metal', e, PAL.gold, M);
+  }
+  for (const sz of [-1, 1]) {
+    const e = new THREE.BoxGeometry(eaveW, 0.030, 0.035);
+    e.translate(0, roofY + 0.015, sz * (eaveL / 2 - 0.012));
+    put(bin, 'metal', e, PAL.gold, M);
+  }
+  // 盖角起翘（攒尖的四角小翘头）
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const tip = new THREE.ConeGeometry(0.016, 0.058, 4);
+      tip.rotateZ(-sx * 0.62);
+      tip.rotateX(sz * 0.62);
+      tip.translate(sx * (eaveW / 2 - 0.050), roofY + 0.048, sz * (eaveL / 2 - 0.050));
+      put(bin, 'metal', tip, PAL.gold, M);
+    }
+  }
+
+  // ---- 鎏金宝顶（锥 + 珠 + 小尖，顶尖正好落在 1.90m） ----
+  const finial = new THREE.ConeGeometry(0.098, 0.115, 8);
+  finial.translate(0, roofTop + 0.058, 0);
+  put(bin, 'metal', finial, PAL.brightGold, M);
+  const knob = new THREE.SphereGeometry(0.040, 5, 3);
+  knob.translate(0, roofTop + 0.125, 0);
+  put(bin, 'metal', knob, PAL.gold, M);
+  const spire = new THREE.ConeGeometry(0.017, finialTop - (roofTop + 0.160), 4);
+  spire.translate(0, (roofTop + 0.160 + finialTop) / 2, 0);
+  put(bin, 'metal', spire, PAL.brightGold, M);
+
+  // ---- 轿杠（两根，沿行进方向，各 3.00m） ----
   for (const sx of [-1, 1]) {
     const x = sx * S.poleX;
     put(
@@ -569,6 +1160,13 @@ function addSedan(bin, M) {
       ),
       PAL.darkWood, M
     );
+    // 杠头铜箍
+    for (const sz of [-1, 1]) {
+      const cap = new THREE.CylinderGeometry(0.052, 0.052, 0.070, 5);
+      cap.rotateX(Math.PI / 2);
+      cap.translate(x, S.poleY, sz * (S.poleLen / 2 - 0.035));
+      put(bin, 'metal', cap, 0xa8863c, M);
+    }
     // 挂钩（铜）：把轿厢吊在杠上
     for (const sz of [-0.62, 0.62]) {
       put(
@@ -607,6 +1205,22 @@ function addCart(bin, M) {
   const tongue = new THREE.BoxGeometry(0.12, 0.10, 1.50);
   tongue.translate(0, deckY - 0.06, C.len / 2 + 0.72);
   put(bin, 'wood', tongue, PAL.wood, M);
+  // 轭木（套在牲口脖子上的横木）
+  const yoke = new THREE.BoxGeometry(0.86, 0.075, 0.075);
+  yoke.translate(0, deckY - 0.06, C.len / 2 + 1.40);
+  put(bin, 'wood', yoke, PAL.darkWood, M);
+  for (const sx of [-1, 1]) {
+    const boss = new THREE.CylinderGeometry(0.055, 0.055, 0.090, 6);
+    boss.rotateX(Math.PI / 2);
+    boss.translate(sx * 0.30, deckY - 0.06, C.len / 2 + 1.40);
+    put(bin, 'metal', boss, 0x8d8378, M);
+  }
+  // 辕木铁箍
+  for (const dz of [0.40, 1.05]) {
+    const band = new THREE.BoxGeometry(0.135, 0.115, 0.045);
+    band.translate(0, deckY - 0.06, C.len / 2 + dz);
+    put(bin, 'metal', band, 0x8d8378, M);
+  }
 
   // 车轴 + 双轮（辐条看得出来）
   const axle = new THREE.CylinderGeometry(0.045, 0.045, C.wid + 0.16, 6);
@@ -688,14 +1302,26 @@ function addBoat(bin, M, len) {
     put(bin, 'wood', rail, PAL.darkWood, M);
   }
 
+  // 舷侧护木（压住船板的条木）
+  for (const sx of [-1, 1]) {
+    const rail2 = new THREE.BoxGeometry(0.035, 0.055, L * 0.66);
+    rail2.translate(sx * W * 0.455, H * 0.62, 0);
+    put(bin, 'wood', rail2, 0x8a6d47, M);
+  }
+  // 舱内横梁（座板）
+  for (const dz of [-L * 0.18, L * 0.16]) {
+    const thwart = new THREE.BoxGeometry(W * 0.86, 0.045, 0.20);
+    thwart.translate(0, H * 0.86, dz);
+    put(bin, 'wood', thwart, 0x7d6141, M);
+  }
   // 乌篷（半圆篷）
   const canopy = new THREE.SphereGeometry(W * 0.46, 6, 4, 0, Math.PI * 2, 0, Math.PI * 0.5);
   canopy.scale(1, 0.78, 1);
   canopy.translate(0, H - 0.03, -L * 0.02);
   put(bin, 'cloth', canopy, PAL.canopy, M);
   // 篷骨
-  for (const dz of [-L * 0.08, L * 0.08]) {
-    const rib = new THREE.TorusGeometry(W * 0.455, 0.022, 3, 8, Math.PI);
+  for (const dz of [-L * 0.14, -L * 0.05, L * 0.04, L * 0.12]) {
+    const rib = new THREE.TorusGeometry(W * 0.455, 0.020, 3, 8, Math.PI);
     rib.rotateY(Math.PI / 2);
     rib.translate(0, H - 0.03, dz);
     put(bin, 'wood', rib, 0x3a3229, M);
@@ -726,13 +1352,22 @@ function addBoat(bin, M, len) {
  * 八、道具：扁担货郎 / 仪仗执事
  * ================================================================== */
 
-/** 挑担货郎：扁担 + 两筐 + 筐中货 */
-function addPorterKit(bin, M, s) {
-  const poleY = 1.42;
-  const poleX = 0.12 * s;
+/**
+ * 挑担货郎：扁担 + 两筐 + 筐中货。
+ * 扁担**压在肩上**（不是浮在身侧）：x 取肩关节半宽，y 取肩点上方一点，
+ * 与人物身体对得上；手也握在同一根扁担上。
+ */
+function addPorterKit(bin, M, g) {
+  const s = g.s;
+  const poleX = g.shoulderX; // 压在肩上
+  const poleY = g.shoulderY + 0.075 * g.H; // 肩头顶面
   const poleA = new THREE.Vector3(poleX, poleY, -0.95 * s);
   const poleB = new THREE.Vector3(poleX, poleY, 0.95 * s);
   put(bin, 'wood', rod(poleA, poleB, 0.022 * s, 5), PAL.bamboo, M);
+  // 肩垫（压肩的一块布）
+  const pad = new THREE.BoxGeometry(0.085 * g.H, 0.030 * g.H, 0.120 * g.H);
+  pad.translate(poleX, poleY - 0.022 * g.H, 0.02);
+  put(bin, 'cloth', pad, PAL.sack, M);
 
   for (const sz of [-1, 1]) {
     const z = sz * 0.80 * s;
@@ -764,8 +1399,8 @@ function addPorterKit(bin, M, s) {
  *   'banner'  飞黄旗
  *   'fan'     扇
  */
-function addRegalia(bin, M, kind, s) {
-  const handX = 0.30 * s;
+function addRegalia(bin, M, kind, s, g) {
+  const handX = g.shoulderX + 0.070 * g.H; // 执事伸臂持物的位置
   const handY = kind === 'fan' ? 1.30 : 1.56;
   const handZ = 0.06;
   if (kind === 'parasol') {
@@ -1126,6 +1761,25 @@ export function buildFigures(sceneData, heightAt) {
   group.name = 'figures';
 
   const rnd = mulberry32(0x51f1a7c3); // 固定种子：同一份 scene.json 每次生成一致
+  /**
+   * 姿态抖动用**另一条随机流**：摆位（rnd）与姿态（poseRnd）分开，
+   * 这样改姿态不会连带改掉全园人物的位置。仍然是确定性的，不用 Math.random()。
+   */
+  const poseRnd = mulberry32(0x51a7f16);
+  const nextPose = (kind) => {
+    const p = {
+      lean: (poseRnd() - 0.5) * 0.10, // 前后倾
+      side: (poseRnd() - 0.5) * 0.07, // 左右倾
+      headYaw: (poseRnd() - 0.5) * 0.80, // 转头
+      armSwing: (poseRnd() - 0.5) * 0.045, // 两臂前后错落
+      armMode: 'down',
+    };
+    if (kind === 'commoner') {
+      const r = poseRnd();
+      p.armMode = r < 0.20 ? 'carry' : 'down';
+    }
+    return p;
+  };
   const bin = new Bin();
   const H = heightAt || (() => 0);
 
@@ -1248,6 +1902,7 @@ export function buildFigures(sceneData, heightAt) {
           robe: rnd() < 0.5 ? PAL.stoneBlue : PAL.indigo,
           hat: 'qitou',
           skin: rnd() < 0.5 ? PAL.skin : PAL.skinDark,
+          pose: nextPose('commoner'),
         });
       } else {
         addPerson(bin, M, {
@@ -1255,6 +1910,7 @@ export function buildFigures(sceneData, heightAt) {
           robe: COMMONER_COLORS[Math.floor(rnd() * COMMONER_COLORS.length)],
           hat: 'gua',
           skin: rnd() < 0.5 ? PAL.skin : PAL.skinDark,
+          pose: nextPose('commoner'),
         });
       }
       placed++;
@@ -1290,12 +1946,14 @@ export function buildFigures(sceneData, heightAt) {
         if (rnd() < 0.3) {
           addPerson(bin, M, {
             height: DIM.woman, robe: PAL.stoneBlue, hat: 'qitou', skin: PAL.skin,
+            pose: nextPose('commoner'),
           });
         } else {
           addPerson(bin, M, {
             height: DIM.man,
             robe: COMMONER_COLORS[Math.floor(rnd() * COMMONER_COLORS.length)],
             hat: 'gua', skin: PAL.skin,
+            pose: nextPose('commoner'),
           });
         }
         stats.commoner++;
@@ -1318,9 +1976,14 @@ export function buildFigures(sceneData, heightAt) {
         robe: rnd() < 0.5 ? PAL.brown : PAL.darkBrown,
         hat: 'gua',
         skin: PAL.skinDark,
-        arms: 'down',
+        // 一手扶扁担（担子压在肩上，手不能空垂）
+        arms: 'one',
+        handX: (SHOULDER_X_RATIO + 0.020) * DIM.porter,
+        handY: DIM.porter * (0.788 + 0.075),
+        handZ: 0.13,
+        pose: nextPose('porter'),
       });
-      addPorterKit(bin, M, g.s);
+      addPorterKit(bin, M, g);
       stats.porter++;
       rec('porter', fx, fz, H(fx, fz), 0.7);
       break;
@@ -1354,6 +2017,7 @@ export function buildFigures(sceneData, heightAt) {
           robe: PAL.mandarin,
           hat: 'dingdai',
           skin: PAL.skin,
+          pose: nextPose('official'),
         });
         stats.official++;
         rec('official', fx, fz, H(fx, fz), 0.8);
@@ -1389,9 +2053,14 @@ export function buildFigures(sceneData, heightAt) {
           robe: kind === 'fan' ? PAL.mandarin : PAL.vermilion,
           hat: 'dingdai',
           skin: PAL.skin,
-          arms: 'down',
+          // 一手抬起持伞/持旗（手的位置与道具杆重合）
+          arms: 'one',
+          handX: (SHOULDER_X_RATIO + REACH_RATIO) * DIM.guard,
+          handY: kind === 'fan' ? 1.30 : 1.56,
+          handZ: 0.06,
+          pose: nextPose('guard'),
         });
-        addRegalia(bin, M, kind, g.s);
+        addRegalia(bin, M, kind, g.s, g);
         stats.guard++;
         rec('guard', fx, fz, H(fx, fz), 0.9);
         done++;
@@ -1439,9 +2108,17 @@ export function buildFigures(sceneData, heightAt) {
     );
     addSedan(bin, M);
 
-    // 前后各一名轿夫，抬手扶杠
+    // 前后各一名轿夫：人站在**轿杠两端**，杠压在肩上、双手各握一根。
+    // （原来人站在轿厢正中、只在原地伸手，轿厢把人整个吞掉了。）
     for (const side of [1, -1]) {
-      const g = addPerson(bin, M, {
+      const bx = pt.x + nx * side * 1.45;
+      const bz = pt.z + nz * side * 1.45;
+      const Mb = new THREE.Matrix4().compose(
+        new THREE.Vector3(bx, H(bx, bz), bz),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0)),
+        new THREE.Vector3(1, 1, 1)
+      );
+      addPerson(bin, Mb, {
         height: DIM.bearer,
         robe: PAL.darkBrown,
         hat: 'gua',
@@ -1449,10 +2126,11 @@ export function buildFigures(sceneData, heightAt) {
         arms: 'up',
         handX: DIM.sedan.poleX,
         handY: DIM.sedan.poleY,
-        handZ: side * 1.42 + side * 0.10,
+        handZ: 0.02,
+        pose: nextPose('bearer'),
       });
       stats.bearer++;
-      rec('bearer', pt.x + nx * side * 1.5, pt.z + nz * side * 1.5, H(pt.x, pt.z), 1.9);
+      rec('bearer', bx, bz, H(bx, bz), 1.9);
     }
     sedanCount++;
     stats.sedan++;
@@ -1602,3 +2280,11 @@ export function buildFigures(sceneData, heightAt) {
 
   return group;
 }
+
+/* ================================================================== *
+ * 十二、诊断导出
+ *
+ * 供离线几何检查脚本（逐件测三角面/包围盒/NaN）使用。
+ * 运行时（main.js）只用 buildFigures，不受影响，draw call 仍是 4。
+ * ================================================================== */
+export { Bin, MATS, addPerson, addHat, addArms, addHorse, addSedan, addCart, addBoat };

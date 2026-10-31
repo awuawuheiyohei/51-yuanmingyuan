@@ -41,10 +41,12 @@ import {
   begoniaPool,
   begoniaShape,
   conformPool,
+  conformPoolCoping,
   waterTable,
   waterChannel,
   stoneNiche,
   fountainTower,
+  fountainTowerNozzles,
   caltrop,
 } from './fountain.js';
 
@@ -68,17 +70,35 @@ export function buildDaShuiFa(c, opts) {
   const wt = waterTable(8, 7, 0.62, 0.92);
   wt.geometry.translate(0, 0, NICHE_Z + 0.6);
   c.add('stone', wt.geometry);
+  // 逐层水膜：喷水从层口落到下一层的水膜上（原来七级台面上一点水都没有，
+  // "层层喷水"这件事在画面上完全读不出来）
+  if (wt.water) {
+    wt.water.translate(0, 0, NICHE_Z + 0.6);
+    c.add('water', wt.water);
+  }
 
   // 每层台面外沿的小喷水（层层喷水落入两岸泄水沟）
+  //
+  // ⚠ 2026-10-30 验收修：原来水柱按 ±0.85 rad 的斜角向外甩，落点在
+  // |x| = 5~9 m，而泄水沟在 |x| = 16.2 m —— **水根本没落进沟里**，
+  // 全喷在草地上。考据：「七层水台层层喷水，落入池旁两岸泄水沟」，
+  // 现在让每层的水柱明确落到沟线上（逐层沿沟错开落点）。
+  const CH_X = 16.2; // 泄水沟中心 |x|（与下面 waterChannel 的位置一致）
+  const CH_Z0 = POOL_Z + 1.4 - 6.75; // 沟的北端（沟长 13.5，中心 POOL_Z+1.4）
   const tierJets = [];
   for (let i = 0; i < 7; i++) {
     const rr = 8 - i * 0.92;
     const yy = (i + 1) * 0.62;
+    const zLand = CH_Z0 + 1.0 + i * 1.55; // 逐层沿沟错开
     for (const sx of [-1, 1]) {
       const a = sx * 0.85;
-      const from = [Math.cos(a) * rr * 0.96, yy + 0.1, NICHE_Z + 0.6 + Math.sin(a) * rr * 0.96];
-      const to = [Math.cos(a) * (rr + 5.5), yy - 1.1, NICHE_Z + 0.6 + Math.sin(a) * (rr + 5.5)];
-      tierJets.push(jetBetween(from, to, 0.06));
+      const from = [
+        Math.cos(a) * rr * 0.96,
+        yy + 0.1,
+        NICHE_Z + 0.6 + Math.sin(a) * rr * 0.96,
+      ];
+      const to = [sx * CH_X, 0.28, zLand];
+      tierJets.push(jetBetween(from, to, 0.11));
     }
   }
   c.addAll('water', tierJets);
@@ -110,9 +130,12 @@ export function buildDaShuiFa(c, opts) {
   pool.rim.translate(0, 0, POOL_Z);
   pool.floor.translate(0, 0, POOL_Z);
   pool.water.translate(0, 0, POOL_Z);
+  pool.coping.translate(0, 0, POOL_Z);
   conformPool(pool, ground);
+  conformPoolCoping(pool, ground);
   c.add('stone', pool.rim);
   c.add('stone', pool.floor);
+  c.add('stone', pool.coping);
   c.add('water', pool.water);
 
   /* ---------------------------------------------------------- 泄水沟 */
@@ -137,12 +160,12 @@ export function buildDaShuiFa(c, opts) {
     // 上鱼吐水落入下鱼口
     c.add(
       'water',
-      jetBetween([sx * 22.2, 1.65, POOL_Z + 2.4], [sx * 22.2, 0.95, POOL_Z + 5.2], 0.08)
+      jetBetween([sx * 22.2, 1.65, POOL_Z + 2.4], [sx * 22.2, 0.95, POOL_Z + 5.2], 0.11)
     );
     // 下鱼把水激回池中
     c.add(
       'water',
-      jetBetween([sx * 22.2, 1.05, POOL_Z + 6.4], [sx * 19.0, 0.0, POOL_Z + 10.5], 0.07)
+      jetBetween([sx * 22.2, 1.05, POOL_Z + 6.4], [sx * 19.0, 0.0, POOL_Z + 10.5], 0.10)
     );
   }
   // 池中左右亦有石鱼
@@ -153,7 +176,7 @@ export function buildDaShuiFa(c, opts) {
     c.add('stone', f);
     c.add(
       'water',
-      jetBetween([sx * 11.5, 1.35, POOL_Z + 11.8], [sx * 9.5, 0.05, POOL_Z + 8.5], 0.07)
+      jetBetween([sx * 11.5, 1.35, POOL_Z + 11.8], [sx * 9.5, 0.05, POOL_Z + 8.5], 0.10)
     );
   }
 
@@ -164,7 +187,7 @@ export function buildDaShuiFa(c, opts) {
     pig.translate(sx * 28.5, gy(sx * 28.5, POOL_Z - 1.5) + 0.4, POOL_Z - 1.5);
     c.add('stone', pig);
     // 口中喷水三丈余（约 9 m，推定）
-    c.add('water', jetBetween([sx * 28.5, 2.9, POOL_Z - 0.4], [sx * 27.0, 9.2, POOL_Z + 1.6], 0.1));
+    c.add('water', jetBetween([sx * 28.5, 2.9, POOL_Z - 0.4], [sx * 27.0, 9.2, POOL_Z + 1.6], 0.12));
     c.add('water', spray(0.34, 0.8).translate(sx * 27.0, 9.2, POOL_Z + 1.6));
   }
 
@@ -174,10 +197,14 @@ export function buildDaShuiFa(c, opts) {
   deer.translate(0, gy(0, deerZ) + 0.1, deerZ);
   c.add('metal', deer);
   // 八杈鹿角各喷一道水
+  //
+  // ⚠ 2026-10-30 验收修：鹿角每侧四杈（共八杈），但喷水柱只取了每侧三处
+  // → 画出来是**六道**，与考据「其角分为八杈，由各角尖上喷水八道」不符。
+  // 现在按八杈逐一喷水。
   const antlerTips = [];
   for (const sx of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const t = i / 3;
+    for (let i = 0; i < 4; i++) {
+      const t = i / 4;
       antlerTips.push([
         sx * (0.09 + 0.08 + t * 0.16) * 2.6 + sx * 0.25,
         (1.86 + 0.3 + t * 0.1) * 2.6 + 0.1,
@@ -186,7 +213,7 @@ export function buildDaShuiFa(c, opts) {
     }
   }
   for (const p of antlerTips) {
-    c.add('water', jetBetween(p, [p[0] * 0.55, p[1] + 3.2, p[2] + 0.9], 0.045));
+    c.add('water', jetBetween(p, [p[0] * 0.55, p[1] + 3.2, p[2] + 0.9], 0.10));
   }
 
   /* ---------------------------------------------------------- 铜猎犬十只 */
@@ -201,18 +228,19 @@ export function buildDaShuiFa(c, opts) {
       c.add('metal', dog);
       // 犬口喷水射向铜鹿
       const mouth = [hx - Math.sin(yaw) * 0.95 * 1.5, 1.3, hz + Math.cos(yaw) * 0.95 * 1.5];
-      c.add('water', jetBetween(mouth, [sx * 1.4, 1.9, deerZ + 1.2], 0.05));
+      c.add('water', jetBetween(mouth, [sx * 1.4, 1.9, deerZ + 1.2], 0.11));
     }
   }
 
   /* ---------------------------------------------------------- 十三层喷水塔 */
   for (const sx of [-1, 1]) {
     const tower = fountainTower(13);
-    tower.translate(sx * 31, gy(sx * 31, POOL_Z + 17), POOL_Z + 17);
+    const towerY = gy(sx * 31, POOL_Z + 17);
+    tower.translate(sx * 31, towerY, POOL_Z + 17);
     c.add('stone', tower);
     // 塔顶铜蒺藜十六角
     const cal = caltrop(1.5);
-    cal.translate(sx * 31, 9.6, POOL_Z + 17);
+    cal.translate(sx * 31, towerY + 9.6, POOL_Z + 17);
     c.add('metal', cal);
     // 蒺藜十六道喷水
     for (let i = 0; i < 16; i++) {
@@ -220,20 +248,34 @@ export function buildDaShuiFa(c, opts) {
       c.add(
         'water',
         jetBetween(
-          [sx * 31 + Math.cos(a) * 0.8, 9.9, POOL_Z + 17 + Math.sin(a) * 0.8],
-          [sx * 31 + Math.cos(a) * 2.4, 6.6, POOL_Z + 17 + Math.sin(a) * 2.4],
+          [sx * 31 + Math.cos(a) * 0.8, towerY + 9.9, POOL_Z + 17 + Math.sin(a) * 0.8],
+          [sx * 31 + Math.cos(a) * 2.4, towerY + 6.6, POOL_Z + 17 + Math.sin(a) * 2.4],
           0.035
         )
       );
     }
-    // 塔身小喷水管的水
+    // 塔身八十根小喷水管：**水射高六尺**（约 2 m）——原先一根水都没画，
+    // 只有管口几何；现在按 `fountainTowerNozzles` 的出水口逐一喷水。
+    for (const n of fountainTowerNozzles(13)) {
+      const bx = sx * 31 + n.x;
+      const bz = POOL_Z + 17 + n.z;
+      c.add(
+        'water',
+        jetBetween(
+          [bx, towerY + n.y, bz],
+          [bx + n.dx * 1.5, towerY + n.y + 1.85, bz + n.dz * 1.5],
+          0.028
+        )
+      );
+    }
+    // 池底大喷水管八根
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       c.add(
         'water',
         jetBetween(
-          [sx * 31 + Math.cos(a) * 2.4, 1.4, POOL_Z + 17 + Math.sin(a) * 2.4],
-          [sx * 31 + Math.cos(a) * 4.2, 0.1, POOL_Z + 17 + Math.sin(a) * 4.2],
+          [sx * 31 + Math.cos(a) * (3.8 / 2 + 0.55), towerY + 0.85, POOL_Z + 17 + Math.sin(a) * (3.8 / 2 + 0.55)],
+          [sx * 31 + Math.cos(a) * 4.4, towerY + 0.1, POOL_Z + 17 + Math.sin(a) * 4.4],
           0.035
         )
       );

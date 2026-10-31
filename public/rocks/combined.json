@@ -1,0 +1,114 @@
+{
+  "file": "stones.glb",
+  "bytes": 1126600,
+  "stones": [
+    {
+      "name": "spire-0",
+      "kind": "spire",
+      "variant": 0,
+      "triangles": 2199
+    },
+    {
+      "name": "spire-1",
+      "kind": "spire",
+      "variant": 1,
+      "triangles": 2199
+    },
+    {
+      "name": "spire-2",
+      "kind": "spire",
+      "variant": 2,
+      "triangles": 2200
+    },
+    {
+      "name": "strata-0",
+      "kind": "strata",
+      "variant": 0,
+      "triangles": 2200
+    },
+    {
+      "name": "strata-1",
+      "kind": "strata",
+      "variant": 1,
+      "triangles": 2198
+    },
+    {
+      "name": "strata-2",
+      "kind": "strata",
+      "variant": 2,
+      "triangles": 2200
+    },
+    {
+      "name": "cavern-0",
+      "kind": "cavern",
+      "variant": 0,
+      "triangles": 2200
+    },
+    {
+      "name": "cavern-1",
+      "kind": "cavern",
+      "variant": 1,
+      "triangles": 2200
+    },
+    {
+      "name": "cavern-2",
+      "kind": "cavern",
+      "variant": 2,
+      "triangles": 2200
+    },
+    {
+      "name": "reclining-0",
+      "kind": "reclining",
+      "variant": 0,
+      "triangles": 2200
+    },
+    {
+      "name": "reclining-1",
+      "kind": "reclining",
+      "variant": 1,
+      "triangles": 2200
+    },
+    {
+      "name": "reclining-2",
+      "kind": "reclining",
+      "variant": 2,
+      "triangles": 2200
+    },
+    {
+      "name": "shoot-0",
+      "kind": "shoot",
+      "variant": 0,
+      "triangles": 2199
+    },
+    {
+      "name": "shoot-1",
+      "kind": "shoot",
+      "variant": 1,
+      "triangles": 2200
+    },
+    {
+      "name": "shoot-2",
+      "kind": "shoot",
+      "variant": 2,
+      "triangles": 2200
+    },
+    {
+      "name": "cluster-0",
+      "kind": "cluster",
+      "variant": 0,
+      "triangles": 2200
+    },
+    {
+      "name": "cluster-1",
+      "kind": "cluster",
+      "variant": 1,
+      "triangles": 2199
+    },
+    {
+      "name": "cluster-2",
+      "kind": "cluster",
+      "variant": 2,
+      "triangles": 2200
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import {
   caihuaMaterial,
   woodMaterial,
   dougongMaterial,
+  boardMaterial,
 } from '../buildings/materials.js';
 import { roofTilesNormal } from '../buildings/textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
@@ -154,7 +155,57 @@ export function normalizeGeo(g) {
   return g;
 }
 
-/** 合并一组几何（失败时退回第一件，保证不丢东西） */
+/**
+ * 手动拼接几何（`mergeGeometries` 失败时的兜底）。
+ *
+ * 为什么要有它：原实现失败时 `return valid[0]` —— **只留下第一件，其余全丢**。
+ * 一旦某个桶里混进属性集不一致的几何（例如带 uv2 的 BoxGeometry），
+ * 整桶建筑就会凭空消失，而且只在控制台留一句 warn。
+ * 这里改成自己拼：宁可慢一点也不丢东西。
+ */
+function concatGeos(geos) {
+  const ATTRS = [
+    ['position', 3],
+    ['normal', 3],
+    ['uv', 2],
+    ['color', 3],
+  ];
+  let total = 0;
+  let idxTotal = 0;
+  for (const g of geos) {
+    total += g.attributes.position.count;
+    idxTotal += g.index ? g.index.count : g.attributes.position.count;
+  }
+  const out = new THREE.BufferGeometry();
+  for (const [name, itemSize] of ATTRS) {
+    const arr = new Float32Array(total * itemSize);
+    let off = 0;
+    for (const g of geos) {
+      const n = g.attributes.position.count;
+      const src = g.attributes[name];
+      if (src) arr.set(src.array.subarray(0, n * itemSize), off);
+      else arr.fill(name === 'color' ? 1 : 0, off, off + n * itemSize);
+      off += n * itemSize;
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(arr, itemSize));
+  }
+  const idx = total > 65535 ? new Uint32Array(idxTotal) : new Uint16Array(idxTotal);
+  let io = 0;
+  let vo = 0;
+  for (const g of geos) {
+    const n = g.attributes.position.count;
+    if (g.index) {
+      for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.getX(i) + vo;
+    } else {
+      for (let i = 0; i < n; i++) idx[io++] = vo + i;
+    }
+    vo += n;
+  }
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
+/** 合并一组几何（失败时手动拼接，**保证不丢几何**） */
 export function mergeAll(geos) {
   const valid = (geos || []).filter((g) => g && g.attributes && g.attributes.position);
   if (!valid.length) return null;
@@ -166,8 +217,8 @@ export function mergeAll(geos) {
   } catch {
     /* 落到下面的兜底 */
   }
-  console.warn('西洋楼：几何合并失败，退回单件');
-  return valid[0];
+  console.warn('西洋楼：mergeGeometries 失败，改用手动拼接（不丢几何）');
+  return concatGeos(valid);
 }
 
 /* ------------------------------------------------------------------ 水波纹 */
@@ -183,17 +234,61 @@ function rippleNormalTexture() {
   c.height = S;
   const g = c.getContext('2d');
   const img = g.createImageData(S, S);
+
+  /**
+   * **可平铺的值噪声**（周期 = S）。
+   *
+   * ⚠ 原来用的是几组正弦叠加（sin(u*2)+sin(v*3)+sin(u*7+v*5)）。
+   *   正弦的主频是**整数**，图案必然有强烈的格状周期 ——
+   *   池面 UV 是米、法线又在天地色之间翻转反射，
+   *   远看就是一个**蓝绿相间的棋盘格**（一格 1.2m）。
+   *   换成**多倍频值噪声**：没有单一主频 ⇒ 没有格纹。
+   */
+  const hash = (x, y) => {
+    // 周期取模 ⇒ 左右/上下无缝
+    const xi = ((x % S) + S) % S;
+    const yi = ((y % S) + S) % S;
+    let h = Math.imul(xi, 374761393) + Math.imul(yi, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const smooth = (t) => t * t * (3 - 2 * t);
+  const valueNoise = (x, y) => {
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = smooth(x - x0);
+    const fy = smooth(y - y0);
+    const a = hash(x0, y0);
+    const b = hash(x0 + 1, y0);
+    const cc = hash(x0, y0 + 1);
+    const d = hash(x0 + 1, y0 + 1);
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (cc * (1 - fx) + d * fx) * fy;
+  };
+  /** 多倍频 fbm，周期仍是 S ⇒ 无缝 */
+  const fbm = (x, y) => {
+    let v = 0;
+    let amp = 0.55;
+    let freq = 1 / S;
+    for (let o = 0; o < 3; o++) {
+      v += amp * valueNoise(x * freq, y * freq);
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return v;
+  };
+
+  const H = new Float32Array(S * S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) H[y * S + x] = fbm(x, y);
+  }
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
-      const u = (x / S) * Math.PI * 2;
-      const v = (y / S) * Math.PI * 2;
-      // 两组交叉的波 + 一点细碎扰动
-      const h =
-        Math.sin(u * 2 + Math.cos(v) * 1.3) * 0.5 +
-        Math.sin(v * 3 - u) * 0.3 +
-        Math.sin(u * 7 + v * 5) * 0.12;
-      const dx = Math.cos(u * 2 + Math.cos(v) * 1.3) * 0.5 + Math.cos(u * 7 + v * 5) * 0.12;
-      const dy = Math.cos(v * 3 - u) * 0.3 + Math.cos(u * 7 + v * 5) * 0.12;
+      const xm = (x - 1 + S) % S;
+      const xp = (x + 1) % S;
+      const ym = (y - 1 + S) % S;
+      const yp = (y + 1) % S;
+      const dx = (H[y * S + xp] - H[y * S + xm]) * 2.4;
+      const dy = (H[yp * S + x] - H[ym * S + x]) * 2.4;
       const len = Math.hypot(dx, dy, 1);
       const i = (y * S + x) * 4;
       img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
@@ -205,7 +300,9 @@ function rippleNormalTexture() {
   g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / 3.5, 1 / 3.5);
+  // 池面 UV 是**米** ⇒ repeat 决定贴图覆盖多少米。
+  // 1.6m 一张 ⇒ 波纹细节 0.2~0.5m，是水波而不是格子。
+  tex.repeat.set(1 / 1.6, 1 / 1.6);
   return tex;
 }
 
@@ -251,14 +348,18 @@ function plasterTexture() {
   g.fillStyle = '#f2ded3';
   g.fillRect(0, 0, S, S);
   // 批灰的大块深浅（石灰浆不匀）
-  for (let i = 0; i < 90; i++) {
+  //
+  // ⚠ 半径不能大：贴图被平铺到整面墙上，一个 46px 的斑放大后
+  // 就是半米宽的"霉斑"，近看满墙都是蘑菇圈。
+  // 压到 6~20px，并降低不透明度 → 变成细腻的批灰质感。
+  for (let i = 0; i < 150; i++) {
     const x = r() * S;
     const y = r() * S;
-    const rad = 12 + r() * 46;
+    const rad = 6 + r() * 14;
     const light = r() > 0.45;
     wrapDraw(g, S, S, (gg) => {
       const grd = gg.createRadialGradient(x, y, 0, x, y, rad);
-      grd.addColorStop(0, light ? 'rgba(255,244,236,0.30)' : 'rgba(198,158,142,0.22)');
+      grd.addColorStop(0, light ? 'rgba(255,244,236,0.20)' : 'rgba(198,158,142,0.16)');
       grd.addColorStop(1, 'rgba(0,0,0,0)');
       gg.fillStyle = grd;
       gg.beginPath();
@@ -366,7 +467,10 @@ export function makeWesternMaterials() {
   plasterTex.repeat.set(1, 1);
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
-    color: 0xffffff,
+    // ⚠ 不能给纯白（0xffffff）：贴图底色本身就是浅粉白 #f2ded3，
+    // 再乘白 + 太阳直射 → 整面墙过曝成**死白**，看不出是墙还是空。
+    // 西洋楼的主立面是大面积墙，这个固有色必须压暗。
+    color: 0xa39a94,
     roughness: 0.95,
   });
 
@@ -375,6 +479,14 @@ export function makeWesternMaterials() {
 
   // 斗栱：彩画木件
   const dougong = dougongMaterial();
+
+  // 望板：屋面之下的铺板。
+  //
+  // 为什么必须补：西洋楼用的是**清式屋面**（`buildings/parts/roof.js` 的 buildRoof），
+  // 屋面本身是单面网格，从檐下往上看会直接看穿到天上；`roof.js` 专门生成了一
+  // 层 'board' 桶来补这个底。西洋楼原先没有 'board' 材质桶，控制台一直报
+  // 「西洋楼：未知材质桶 board」——**所有西洋楼的屋面底板都被丢掉了**。
+  const board = boardMaterial();
 
   // 木作（隔扇/窗框/栏杆）
   const wood = woodMaterial();
@@ -389,11 +501,25 @@ export function makeWesternMaterials() {
     envMapIntensity: 2.4,
   });
 
-  // 植被（线法松、矮松树篱、湘妃竹亭）
+  // 植被（线法松、矮松树篱、湘妃竹亭、庭院观赏树）
+  //
+  // ⚠ **不能开 flatShading**。叶簇是 8×6 段的压扁椭球，
+  //   平面着色时每个面都是硬边 ⇒ 一团叶子看着像**叠起来的绿锥子**
+  //   （就是"绿球树"那个老问题的根源）。
+  //   平滑着色 + 稍多的段数 ⇒ 叶团才像一团 foliage。
+  //   颜色也压一点饱和度：0x4f7a3c 太鲜，远看像塑料草。
   const green = new THREE.MeshStandardMaterial({
-    color: 0x4f7a3c,
-    roughness: 0.92,
-    flatShading: true,
+    color: 0x5c7c4a,
+    roughness: 0.95,
+    flatShading: false,
+  });
+
+  // **树干**：不能复用 wood（那是中式建筑的红漆柱身，涂在树干上是暗红色，
+  // 像一根红蜡烛）。树干是**树皮**：褐色、粗糙。
+  const bark = new THREE.MeshStandardMaterial({
+    color: 0x6b5a48,
+    roughness: 0.96,
+    metalness: 0,
   });
 
   // 铜活（铜狮/铜鹿/铜犬/铜鹤/铜蒺藜/黄铜门）
@@ -435,7 +561,7 @@ export function makeWesternMaterials() {
   });
 
   const mats = {
-    stone, rock, plaster, paint, dougong, wood, glass, metal, green, water, tile,
+    stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, tile,
   };
   return mats;
 }

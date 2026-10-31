@@ -28,6 +28,7 @@ import {
   falsePediment,
   cornice,
   pilaster,
+  columnCapital,
   acanthusBand,
   balustrade,
   steps,
@@ -38,18 +39,29 @@ import {
 const WALL_T = 0.62;
 
 /**
- * 汉白玉番花柱：柱身 + 覆盆础 + 柱头 + 环身番花浮雕。
+ * 汉白玉番花柱：柱身 + 覆盆础 + **西洋柱头** + 环身番花浮雕。
  *
  * 考据：谐奇趣「楼柱用汉白玉**深雕**西洋番花番草花纹」；
  *       海晏堂「立柱为汉白玉精刻西洋番花石柱」。
  *
- * 形制简化：浮雕做三圈番叶 + 两对卷涡，不做整柱满雕的缠枝。
+ * ⚠ 2026-10-31 验收改（两处）：
+ *  ① **浮雕原来是"鱼鳍"** —— 叶长取 `shaftH * 0.22`（5 m 柱上就是 1.15 m 的叶片），
+ *     切向贴在半径 0.4 m 的柱身上，梢端离柱面近 1 m，远看柱子上插了一圈刀片。
+ *     现在叶片缩到 ≈ 1.05 r，并绕柱面成圈密排，梢端只离柱面 ~0.05 m，
+ *     读作"深雕番花"而不是"插着的鳍"。
+ *  ② **柱头是中式车削的覆盆顶**，不是西洋柱式 —— 柱头是西洋立面最认得出的元素，
+ *     现在换成 `kit.columnCapital`（颈线脚 + 圆转 + 番花叶 + 卷涡 + 顶板）。
  */
 export function carvedColumn(h, r = 0.42, relief = true) {
   const parts = [];
-  const shaftH = h - 0.55;
-  const shaft = cyl(r * 0.88, r, shaftH, 12);
-  shaft.translate(0, 0.28 + shaftH / 2, 0);
+  const BASE_H = 0.3; // 柱础（覆盆）高
+  const CAP_H = Math.max(0.36, r * 1.15); // 西洋柱头高
+  const shaftH = Math.max(0.6, h - BASE_H - CAP_H);
+  const rTop = r * 0.88;
+
+  // 柱身（带收分）
+  const shaft = cyl(rTop, r, shaftH, 12);
+  shaft.translate(0, BASE_H + shaftH / 2, 0);
   parts.push(shaft);
   // 柱础（覆盆）
   const prof = [
@@ -61,40 +73,44 @@ export function carvedColumn(h, r = 0.42, relief = true) {
   ];
   parts.push(
     lathe(
-      prof.map(([t, rs]) => new THREE.Vector2(r * rs, t * 0.3)),
+      prof.map(([t, rs]) => new THREE.Vector2(r * rs, t * BASE_H)),
       12
     )
   );
-  // 柱头
-  const cap = lathe(
-    [
-      [0.0, 1.0],
-      [0.35, 1.28],
-      [0.62, 1.05],
-      [0.85, 1.5],
-      [1.0, 1.62],
-    ].map(([t, rs]) => new THREE.Vector2(r * rs, t * 0.26)),
-    12
-  );
-  cap.translate(0, h - 0.28, 0);
+  // 柱础顶的一道方线脚
+  parts.push(boxAt(r * 1.66, 0.05, r * 1.66, 0, BASE_H - 0.02, 0));
+
+  // **柱头**：西洋柱式
+  const cap = columnCapital(rTop, { h: CAP_H, order: 'composite' });
+  cap.translate(0, BASE_H + shaftH, 0);
   parts.push(cap);
+
   if (relief) {
-    // 柱身三圈番花（叶 + 卷涡）
-    for (const y of [shaftH * 0.28, shaftH * 0.5, shaftH * 0.72]) {
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2 + (y === shaftH * 0.5 ? 0.6 : 0);
-        const lf = leaf(shaftH * 0.22, r * 0.46, 0.07);
-        lf.rotateZ(Math.PI / 2);
-        lf.rotateY(-a);
-        lf.translate(Math.sin(a) * r * 0.92, 0.3 + y, Math.cos(a) * r * 0.92);
+    // 柱身三圈番花（叶 + 卷涡 + 界格线脚）
+    for (const bt of [0.26, 0.52, 0.78]) {
+      const y = BASE_H + shaftH * bt;
+      const rr = rTop + (r - rTop) * (1 - bt); // 该高度处的柱身半径
+      // 界格：一圈凸起的线脚，给浮雕分出"横带"
+      const ringY = y - r * 0.62;
+      const ringFrac = Math.max(0, Math.min(1, (ringY - BASE_H) / shaftH));
+      const rrRing = rTop + (r - rTop) * (1 - ringFrac);
+      parts.push(torus(rrRing + 0.005, 0.028, 5, 12).rotateX(Math.PI / 2).translate(0, ringY, 0));
+      // 六片番花叶（密排成圈，梢端只微微离柱面）
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + bt * 1.3;
+        const lf = leaf(r * 1.05, r * 0.58, 0.055);
+        lf.rotateZ(Math.PI / 2); // 叶长转为切向
+        lf.rotateY(a); // 法线转为径向（朝外）
+        lf.translate(Math.sin(a) * (rr - 0.02), y, Math.cos(a) * (rr - 0.02));
         parts.push(lf);
       }
-      // 两卷涡（夹在番叶之间）
+      // 两枚卷涡（夹在叶之间）
       for (let i = 0; i < 2; i++) {
-        const a = (i / 2) * Math.PI * 2 + 0.6 + (y === shaftH * 0.5 ? 0.6 : 0);
-        const v = volute(r * 0.5, 0.06, 1.4);
-        v.rotateY(-a);
-        v.translate(Math.sin(a) * r * 0.92, 0.3 + y + r * 0.4, Math.cos(a) * r * 0.92);
+        const a = (i / 2) * Math.PI * 2 + Math.PI / n + bt * 1.3;
+        const v = volute(r * 0.58, 0.055, 1.45, 22);
+        v.rotateY(a);
+        v.translate(Math.sin(a) * (rr - 0.03), y + r * 0.18, Math.cos(a) * (rr - 0.03));
         parts.push(v);
       }
     }
@@ -233,66 +249,66 @@ export function buildHall(c, opts) {
     // 从侧后方看就是一片破面）
     const frameParts = [];
     const metalMirror = [];
-    const addWindow = (o, faceZ, faceYaw, list) => {
+
+    /**
+     * 立面开窗：券花窗套 + 玻璃 + 法式铜棂。
+     *
+     * ⚠ 深度关系原来做错了（2026-10-30 验收发现）：
+     *   玻璃被放在**墙外皮之外**（浮在墙面前面的一块平板），
+     *   而铜棂落在玻璃**后面** —— 玻璃材质是不透明的，等于把"法式铜窗"的棂条
+     *   全部遮住，每个窗洞只剩一块蓝灰色板子，近看根本不是窗。
+     * 现在改成：墙外皮 ─┬─ 铜棂（退进 0.05 m，最靠外，在洞口里看得见）
+     *                 └─ 玻璃（退进 0.12 m，在棂条之后）
+     *
+     * @param o    洞口 {x,y,w,h,door}
+     * @param face 墙外皮坐标（带符号：正面 +ld/2，背面 -ld/2，侧墙 ±lw/2）
+     * @param out  外法线方向（+1 / -1）
+     * @param yaw  墙面朝向（0 / π / ±π/2）
+     */
+    const addWindow = (o, face, out, yaw) => {
       const sw = windowSurround(o.w, o.h, WALL_T * 1.25);
-      if (faceYaw) sw.rotateY(faceYaw);
-      sw.translate(o.x, floorY + o.y, faceZ);
+      if (yaw) sw.rotateY(yaw);
+      sw.translate(o.x, floorY + o.y, face - out * 0.186);
       c.add(trimBucket, sw);
       if (o.door) {
-        // 门洞：铜雕花门 + 暗底
+        // 门洞：铜雕花门 + 暗底（暗底退到墙里，铜门扇在暗底之前）
         const dark = box(o.w - 0.3, o.h - 0.2, 0.08);
-        if (faceYaw) dark.rotateY(faceYaw);
-        dark.translate(o.x, floorY + o.y + (o.h - 0.2) / 2, faceZ);
+        if (yaw) dark.rotateY(yaw);
+        dark.translate(o.x, floorY + o.y + (o.h - 0.2) / 2, face - out * 0.3);
         c.add(glassBucket, dark);
         for (const sx of [-1, 1]) {
           const leafG = box(o.w * 0.42, o.h * 0.86, 0.1);
           leafG.translate(sx * o.w * 0.23, o.h * 0.45, 0);
-          if (faceYaw) leafG.rotateY(faceYaw);
-          leafG.translate(o.x, floorY + o.y, faceZ + (faceYaw ? -0.08 : 0.08));
+          if (yaw) leafG.rotateY(yaw);
+          leafG.translate(o.x, floorY + o.y, face - out * 0.22);
           c.add(metalBucket, leafG);
           const v = volute(o.w * 0.16, 0.05, 1.4);
-          if (faceYaw) v.rotateY(faceYaw);
-          v.translate(o.x + sx * o.w * 0.23, floorY + o.y + o.h * 0.5, faceZ + (faceYaw ? -0.08 : 0.08));
+          if (yaw) v.rotateY(yaw);
+          v.translate(o.x + sx * o.w * 0.23, floorY + o.y + o.h * 0.5, face - out * 0.22);
           c.add(metalBucket, v);
         }
         return;
       }
       // 玻璃：跟着券口形状走（矩形会戳进券洞两侧的墙）
       const pane = archedPane(o.w, o.h, 0.12);
-      if (faceYaw) pane.rotateY(faceYaw);
-      pane.translate(o.x, floorY + o.y, faceZ + (faceYaw ? -0.26 : 0.26));
+      if (yaw) pane.rotateY(yaw);
+      pane.translate(o.x, floorY + o.y, face - out * 0.12);
       c.add(glassBucket, pane);
-      // 铜窗棂：法式铜窗是细棂条
+      // 铜窗棂：法式铜窗是细棂条（必须排在玻璃**之前**，否则被遮住）
       const mt = frenchMuntins(o.w, o.h, 0.09);
-      if (faceYaw) mt.rotateY(faceYaw);
-      mt.translate(o.x, floorY + o.y, faceZ + (faceYaw ? -0.19 : 0.19));
+      if (yaw) mt.rotateY(yaw);
+      mt.translate(o.x, floorY + o.y, face - out * 0.05);
       frameParts.push(mt);
     };
 
-    const frontZ = ld / 2 - WALL_T / 2 + WALL_T * 0.2;
-    const backZ = -(ld / 2 - WALL_T / 2 + WALL_T * 0.2);
     for (const o of openingsF) {
-      addWindow(o, frontZ, 0);
-      addWindow(o, backZ, Math.PI);
+      addWindow(o, ld / 2, 1, 0); // 正面（朝 +Z）
+      addWindow(o, -ld / 2, -1, Math.PI); // 背面（朝 -Z）
     }
-    // 两侧墙的窗
+    // 两侧墙的窗（洞口的局部 x 与墙板一致，旋转后自然落到 ±Z 上）
     for (const sx of [1, -1]) {
       for (const o of sideOpen) {
-        const yaw = (Math.PI / 2) * sx;
-        const sw = windowSurround(o.w, o.h, WALL_T * 1.25);
-        sw.rotateY(yaw);
-        // 侧墙洞口沿 Z 排列：绕 Y 转 90° 后 local x → world ∓z
-        const wz = sx > 0 ? -o.x : o.x;
-        sw.translate(sx * (lw / 2 - WALL_T / 2 + WALL_T * 0.2), floorY + o.y, wz);
-        c.add(trimBucket, sw);
-        const pane = archedPane(o.w, o.h, 0.12);
-        pane.rotateY(yaw);
-        pane.translate(sx * (lw / 2 - WALL_T / 2 - 0.06), floorY + o.y, wz);
-        c.add(glassBucket, pane);
-        const mt = frenchMuntins(o.w, o.h, 0.09);
-        mt.rotateY(yaw);
-        mt.translate(sx * (lw / 2 - WALL_T / 2 + 0.01), floorY + o.y, wz);
-        frameParts.push(mt);
+        addWindow(o, (sx * lw) / 2, sx, (Math.PI / 2) * sx);
       }
     }
     c.addAll(metalBucket, frameParts);
@@ -306,27 +322,28 @@ export function buildHall(c, opts) {
       for (let i = 0; i < n - 1; i++) {
         const px = -lw / 2 + bay * (i + 1);
         for (const face of [
-          { z: ld / 2 - WALL_T / 2, yaw: 0 },
-          { z: -(ld / 2 - WALL_T / 2), yaw: Math.PI },
+          { f: ld / 2, out: 1, yaw: 0 },
+          { f: -ld / 2, out: -1, yaw: Math.PI },
         ]) {
-          // 大玻璃镜
+          // 大玻璃镜：**贴在墙外皮上**。
+          // 原先放在墙皮之内（墙皮 -0.2 m），整块镜子埋在砖里，等于没有镜子。
           const mh = h - 1.4;
           const mir = boxAt(pierW * 0.72, mh, 0.08, 0, floorY + 0.7 + mh / 2, 0);
           if (face.yaw) mir.rotateY(face.yaw);
-          mir.translate(px, 0, face.z + (face.yaw ? -0.2 : 0.2));
+          mir.translate(px, 0, face.f + face.out * 0.04);
           c.add(glassBucket, mir);
-          // 镜框（铜）
+          // 镜框（铜）：压在镜子上下
           const fr = boxAt(pierW * 0.78, 0.1, 0.12, 0, floorY + 0.66, 0);
           const fr2 = boxAt(pierW * 0.78, 0.1, 0.12, 0, floorY + 0.74 + mh, 0);
           for (const g2 of [fr, fr2]) {
             if (face.yaw) g2.rotateY(face.yaw);
-            g2.translate(px, 0, face.z + (face.yaw ? -0.2 : 0.2));
+            g2.translate(px, 0, face.f + face.out * 0.09);
             metalMirror.push(g2);
           }
-          // 镜子上方的三角式巴洛克假门楣
+          // 镜子上方的三角式巴洛克假门楣：挑出墙面
           const ped = falsePediment(pierW * 0.86, Math.min(1.5, bay * 0.4), 0.26);
           if (face.yaw) ped.rotateY(face.yaw);
-          ped.translate(px, floorY + 0.8 + mh, face.z + (face.yaw ? -0.24 : 0.24));
+          ped.translate(px, floorY + 0.8 + mh, face.f + face.out * 0.13);
           c.add(trimBucket, ped);
         }
       }
@@ -527,13 +544,18 @@ export function marbleMainHall(c, opts) {
     panel.translate(sx * (w / 2 - WALL_T / 2), baseY, 0);
     c.add('stone', panel);
   }
-  // 出廊（前后各出一步廊）：柱 + 额枋
+  // 出廊（前后各出一步廊）：柱 + 柱头 + 额枋
   for (const sz of [1, -1]) {
     for (let i = 0; i <= mian; i++) {
       const x = -w / 2 + bay * i;
-      const col = cyl(0.26, 0.28, h * 0.92, 10);
-      col.translate(x, baseY + h * 0.46, sz * (d / 2 + 1.7));
+      const shaftH = h * 0.92 - 0.4;
+      const col = cyl(0.26, 0.28, shaftH, 10);
+      col.translate(x, baseY + shaftH / 2, sz * (d / 2 + 1.7));
       c.add('stone', col);
+      // **柱头**：西洋柱式（原来出廊的柱是一根光杆）
+      const cap = columnCapital(0.26, { h: 0.4, order: 'composite' });
+      cap.translate(x, baseY + shaftH, sz * (d / 2 + 1.7));
+      c.add('stone', cap);
     }
     const beam = boxAt(w + 1.2, 0.55, 0.42, 0, baseY + h * 0.94, sz * (d / 2 + 1.7));
     c.add('stone', beam);

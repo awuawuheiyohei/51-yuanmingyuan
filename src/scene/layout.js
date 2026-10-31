@@ -7,10 +7,17 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildBuilding, specFromFootprint, defaultForm, ringArea } from './buildings/index.js';
 import { mergeGroupByMaterial } from './buildings/merge.js';
-import { stoneMaterial, roofMaterial, brickMaterial } from './buildings/materials.js';
+import {
+  stoneMaterial,
+  roofMaterial,
+  brickMaterial,
+  paveMaterial,
+  flagstoneMaterial,
+} from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM, TILE_COLORS } from './scenes-program.js';
+import { deriveDimensions } from './buildings/modular.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -145,20 +152,49 @@ function buildSceneCluster(scene, heightAt, rnd) {
   /* ---- 主建筑 ---- */
   const m = program.main;
   const form = defaultForm(program.rank);
-  const bayW = m.mian * 3.6; // 通面阔
-  const bayD = m.jin * 3.3; // 进深
-  const platformH =
-    m.platform === 'xumizuo' ? 1.8 : m.platform === 'simple' ? 1.0 : 0;
+
+  /**
+   * 尺寸由**斗口制模数**推导，不再手填。
+   *
+   * ⚠ 原来这里是 `bayW = m.mian * 3.6`、`eaveY = platformH + m.eave`：
+   *   面阔按固定 3.6m/间、檐高是 scenes-program.js 里手填的绝对米数，
+   *   两者**没有任何数学关系** —— 七间大殿可能比五间配殿还矮。
+   *
+   * 现在：开间数/进深数/等级（有考据依据）→ 斗口 → 整套尺寸自洽推导。
+   * 详见 `src/scene/buildings/modular.js`。
+   */
+  const D = deriveDimensions({
+    mian: m.mian,
+    jin: m.jin,
+    rank: program.rank,
+    platform: m.platform,
+    roof: m.roof,
+  });
+  const bayW = D.width;
+  const bayD = D.depth;
 
   const mainSpec = {
     rank: program.rank,
-    width: bayW,
-    depth: bayD,
+    width: D.width,
+    depth: D.depth,
     mian: m.mian,
     jin: m.jin,
-    platformH,
+    platformH: D.platformH,
     platform: m.platform,
-    eaveY: platformH + m.eave,
+    eaveY: D.eaveY,
+    // 模数派生的构件尺度（柱径、柱高、墙厚、斗栱跳数、斗口）
+    colDia: D.colDia,
+    colH: D.colH,
+    wallThick: D.wallThick,
+    dougongJumps: D.dougongJumps,
+    dougongScale: D.dougongScale,
+    dougongHeight: D.dougongHeight,
+    hasDougong: D.hasDougong,
+    doukou: D.doukou,
+    beamH: D.beamH,
+    // **非等宽柱网**：明间居中最大，向两翼逐间递减（攒当法）
+    colXs: D.colXs,
+    bayWidths: D.bayWidths,
     roof: m.roof,
     caihua: m.caihua,
     tile: m.tile,
@@ -175,7 +211,7 @@ function buildSceneCluster(scene, heightAt, rnd) {
     couplet: program.couplet || null,
     doors: centerDoors(m.mian),
     caojing: m.mian >= 5,
-    rise: Math.max(2.0, bayW * 0.26),
+    rise: Math.max(2.0, D.bayW * 0.26),
   };
 
   if (m.plan && PLAN_PARTS[m.plan]) {
@@ -187,8 +223,18 @@ function buildSceneCluster(scene, heightAt, rnd) {
     for (const p of parts) {
       extW = Math.max(extW, Math.abs(p.dx) + p.w / 2);
       extD = Math.max(extD, Math.abs(p.dz) + p.d / 2);
-      const pm = Math.max(1, Math.round(p.w / 3.6));
-      const pj = Math.max(1, Math.round(p.d / 3.3));
+      // 每个体量按**自己的开间数**重新走一遍模数推导 ——
+      // 卍字/田字各体量大小不同，柱高与台基要跟着各自的开间数走，
+      // 不能共用主体的檐高。
+      const pm = Math.max(1, Math.round(p.w / D.bayW));
+      const pj = Math.max(1, Math.round(p.d / D.bayD));
+      const PD = deriveDimensions({
+        mian: pm,
+        jin: pj,
+        rank: program.rank,
+        platform: 'none',
+        roof: m.roof,
+      });
       place(
         {
           ...mainSpec,
@@ -198,7 +244,18 @@ function buildSceneCluster(scene, heightAt, rnd) {
           jin: pj,
           platform: 'none',
           platformH: 0,
-          eaveY: platformH + m.eave,
+          eaveY: PD.eaveY,
+          colDia: PD.colDia,
+          colH: PD.colH,
+          wallThick: PD.wallThick,
+          dougongScale: PD.dougongScale,
+          dougongHeight: PD.dougongHeight,
+          hasDougong: PD.hasDougong,
+          doukou: PD.doukou,
+          beamH: PD.beamH,
+          // 每个体量按**自己的**开间数重新算柱网（各体量大小不同）
+          colXs: PD.colXs,
+          bayWidths: PD.bayWidths,
           doors: centerDoors(pm),
           caojing: pm >= 5,
           rise: Math.max(1.6, p.w * 0.26),
@@ -209,10 +266,10 @@ function buildSceneCluster(scene, heightAt, rnd) {
       );
     }
     // 整座建筑共用一个台基（万方安和"基础筑在水底"）
-    if (platformH > 0.05) {
-      const g = new THREE.BoxGeometry(extW * 2 + 2.6, platformH, extD * 2 + 2.6);
+    if (D.platformH > 0.05) {
+      const g = new THREE.BoxGeometry(extW * 2 + 2.6, D.platformH, extD * 2 + 2.6);
       const y = heightAt(scene.x, scene.z);
-      g.translate(scene.x, y + platformH / 2, scene.z);
+      g.translate(scene.x, y + D.platformH / 2, scene.z);
       const mesh = new THREE.Mesh(g, stoneMaterial());
       mesh.name = 'stone';
       mesh.castShadow = true;
@@ -224,16 +281,84 @@ function buildSceneCluster(scene, heightAt, rnd) {
   }
 
   /* ---- 配建筑群 ---- */
+  /**
+   * 配建筑的**碰撞规避**。
+   *
+   * `scenes-program.js` 里的 `a.x / a.z` 是**平面布局的意图**
+   * （"茶膳房在正殿西北方"），但那些数值是照着**旧尺寸**手填的。
+   * 现在主建筑按斗口制变大了（原 23.1m → 32.5m），
+   * 手填偏移就可能让配殿的屋面与主殿屋面**交叠**。
+   *
+   * 这里保留作者写下的**方位意图**（象限、朝向），
+   * 但把距离拉到"刚好不重叠"——不改变构图关系，只修尺度。
+   *
+   * ⚠ 判据用**屋面外轮廓**（含出檐），不是柱网：
+   *   穿模的是屋面，不是墙体。
+   */
+  const OVERHANG_PAD = 1.6; // 出檐 + 翼角起翘的余量（米）
+  /** 已放置建筑的包围盒（含出檐） */
+  const placed = [];
+  const mainHalfW = D.width / 2;
+  const mainHalfD = D.depth / 2;
+  placed.push({
+    x: 0,
+    z: 0,
+    halfW: mainHalfW + OVERHANG_PAD,
+    halfD: mainHalfD + OVERHANG_PAD,
+  });
+
+  /** 把 (x,z) 推到与所有已放置建筑都不重叠的位置（保持方位意图） */
+  const separate = (x, z, halfW, halfD) => {
+    let nx = x;
+    let nz = z;
+    for (let iter = 0; iter < 8; iter++) {
+      let moved = false;
+      for (const p of placed) {
+        // X 方向重叠？
+        if (Math.abs(nx - p.x) < halfW + p.halfW) {
+          // Z 方向也重叠？→ 沿**较近的轴**推开
+          const overlapX = halfW + p.halfW - Math.abs(nx - p.x);
+          const overlapZ = halfD + p.halfD - Math.abs(nz - p.z);
+          if (overlapZ > 0) {
+            if (overlapX >= overlapZ) {
+              const dir = nx >= p.x ? 1 : -1;
+              nx = p.x + dir * (halfW + p.halfW);
+            } else {
+              const dir = nz >= p.z ? 1 : -1;
+              nz = p.z + dir * (halfD + p.halfD);
+            }
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+    return [nx, nz];
+  };
+
   for (const a of program.aux || []) {
     const af = defaultForm(a.rank);
     const mian = a.mian ?? af.mian;
     const jin = a.jin ?? af.jin;
-    const w = mian * (a.rank === 'pavilion' ? 3.0 : 3.5);
-    const d = jin * 3.2;
-    const ph = a.rank === 'pavilion' ? 0.7 : 1.0;
-    const eh =
-      a.eave ??
-      (a.rank === 'tower' ? 8.5 : a.rank === 'pavilion' ? 4.2 : a.rank === 'gate' ? 5.2 : 5.6);
+    // 配建筑同样走斗口制：等级定尺度，开间数定大小。
+    // 原来这里是 `mian * 3.5` + 手填檐高（8.5/4.2/5.2/5.6），
+    // 与主建筑、与彼此都没有关系。
+    const AD = deriveDimensions({
+      mian,
+      jin,
+      rank: a.rank,
+      platform: a.rank === 'pavilion' ? 'none' : 'simple',
+      roof: af.roof,
+    });
+    const w = AD.width;
+    const d = AD.depth;
+    const ph = AD.platformH;
+    // 考据实记了檐高的才用实记值（`a.eave`），否则用模数推导
+    const eh = a.eave != null ? a.eave : AD.eaveY - AD.platformH;
+
+    // 碰撞规避：保持方位意图，只把距离拉开到不重叠
+    const [ax, az] = separate(a.x, a.z, w / 2 + OVERHANG_PAD, d / 2 + OVERHANG_PAD);
+
     const b = place(
       {
         rank: a.rank,
@@ -243,6 +368,17 @@ function buildSceneCluster(scene, heightAt, rnd) {
         jin,
         platformH: ph,
         eaveY: ph + eh,
+        colDia: AD.colDia,
+        colH: AD.colH,
+        wallThick: AD.wallThick,
+        dougongJumps: AD.dougongJumps,
+        dougongScale: AD.dougongScale,
+        dougongHeight: AD.dougongHeight,
+        hasDougong: AD.hasDougong,
+        doukou: AD.doukou,
+        beamH: AD.beamH,
+        colXs: AD.colXs,
+        bayWidths: AD.bayWidths,
         roof: af.roof,
         caihua: af.caihua,
         // 配建筑默认随主建筑的瓦色等级；考据里另有实记的用 a.tile 覆盖
@@ -256,10 +392,17 @@ function buildSceneCluster(scene, heightAt, rnd) {
         doors: centerDoors(mian),
         rise: Math.max(1.6, w * 0.26),
       },
-      a.x,
-      a.z,
+      ax,
+      az,
       a.rot || 0
     );
+    // 登记入已放置集合，供后续配殿避让
+    placed.push({
+      x: ax,
+      z: az,
+      halfW: w / 2 + OVERHANG_PAD,
+      halfD: d / 2 + OVERHANG_PAD,
+    });
     // 有实名者把名字挂到建筑上，便于巡游与核查
     if (a.name) {
       b.name = a.name;
@@ -279,7 +422,11 @@ function buildSceneCluster(scene, heightAt, rnd) {
 
   /* ---- 院内地面：墁砖地 + 十字甬路 ----
    * 官式院落里地面不是草地，而是**方砖墁地**，中间压一道十字甬路（石板）。
-   * 一片空草地在近景里既不真实，也让建筑"浮"在地面上。 */
+   * 一片空草地在近景里既不真实，也让建筑"浮"在地面上。
+   *
+   * ⚠ 贴图密度必须按**真实米数**算（`paveMaterial`），
+   *   否则 48m 的墁砖地一张贴图铺 4.8m，砖块大得像巨石。
+   */
   {
     const y0 = heightAt(scene.x, scene.z);
     const halfY = Math.max(14, half * 0.92);
@@ -296,34 +443,48 @@ function buildSceneCluster(scene, heightAt, rnd) {
     }
     pave.computeVertexNormals();
     pave.translate(scene.x, y0, scene.z);
-    const paveMesh = new THREE.Mesh(pave, brickMaterial());
+    const paveMesh = new THREE.Mesh(pave, paveMaterial(halfY * 2, halfY * 1.72));
     paveMesh.name = 'paving';
     paveMesh.receiveShadow = true;
     group.add(paveMesh);
 
-    // 十字甬路：南北 + 东西两道石板，略高于墁砖
-    const slabMat = stoneMaterial();
+    // 十字甬路：一道石板路（南北 + 东西）
+    //
+    // 石板是**一块块独立的几何体**，板与板之间留真实接缝 ——
+    // 不是在一张贴图上画格子。
+    // 单块约 1.15m × 0.53m（御路石板的实际量级）。
     const roadW = 3.2;
+    const SLAB_L = 1.15; // 单块石板长（沿路方向）
+    const SLAB_W = 0.53; // 单块石板宽（横跨路宽）
+    const cols = Math.max(1, Math.round(roadW / SLAB_W));
+    const slabW = roadW / cols;
+    const flagMat = flagstoneMaterial();
     for (const [dx, dz, lx, lz] of [
       [0, 0, roadW, halfY * 1.7],
       [0, 0, halfY * 1.9, roadW],
     ]) {
-      const n = Math.max(3, Math.round((lx > lz ? lx : lz) / 1.15));
+      const alongX = lx > lz;
+      const n = Math.max(3, Math.round((alongX ? lx : lz) / SLAB_L));
+      const segLen = (alongX ? lx : lz) / n;
       for (let i = 0; i < n; i++) {
         const t = (i + 0.5) / n - 0.5;
-        const sx = lx > lz ? t * lx : 0;
-        const sz = lx > lz ? 0 : t * lz;
-        const slab = new THREE.BoxGeometry(
-          lx > lz ? lx / n - 0.04 : roadW,
-          0.13,
-          lx > lz ? roadW : lz / n - 0.04
-        );
-        slab.translate(scene.x + sx, y0 + 0.12, scene.z + sz);
-        const m = new THREE.Mesh(slab, slabMat);
-        m.name = 'paving';
-        m.receiveShadow = true;
-        m.castShadow = true;
-        group.add(m);
+        for (let c = 0; c < cols; c++) {
+          const s = (c + 0.5) / cols - 0.5;
+          const sx = scene.x + (alongX ? t * lx : s * roadW);
+          const sz = scene.z + (alongX ? s * roadW : t * lz);
+          // 留 4cm 接缝（板与板之间能看见土/砖底）
+          const slab = new THREE.BoxGeometry(
+            alongX ? segLen - 0.04 : slabW - 0.04,
+            0.13,
+            alongX ? slabW - 0.04 : segLen - 0.04
+          );
+          slab.translate(sx, y0 + 0.12, sz);
+          const m = new THREE.Mesh(slab, flagMat);
+          m.name = 'paving';
+          m.receiveShadow = true;
+          m.castShadow = true;
+          group.add(m);
+        }
       }
     }
   }

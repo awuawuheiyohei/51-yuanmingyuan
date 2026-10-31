@@ -231,7 +231,7 @@ export function buildYuanYingGuan(c, opts) {
     c.add('stone', pool.floor);
     c.add('water', pool.water);
     // 池中喷水
-    c.add('water', waterJet(3.4, 0.07).translate(sx * (W / 2 + 6.0), 0, D / 2 + 1.0));
+    c.add('water', waterJet(3.4, 0.11).translate(sx * (W / 2 + 6.0), 0, D / 2 + 1.0));
     c.add('water', spray(0.26, 0.6).translate(sx * (W / 2 + 6.0), 3.4, D / 2 + 1.0));
   }
 

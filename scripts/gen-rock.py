@@ -567,14 +567,30 @@ def vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 
 def planar_uv(verts: np.ndarray, normals: np.ndarray, scale: float) -> np.ndarray:
-    """主轴平面投影 UV —— 避免球面 UV 在石头上绕成"年轮"。"""
-    ax = np.abs(normals)
-    u = np.where(ax[:, 1] >= np.maximum(ax[:, 0], ax[:, 2]), verts[:, 0], 0.0)
-    v = np.where(ax[:, 1] >= np.maximum(ax[:, 0], ax[:, 2]), verts[:, 2], 0.0)
-    m = ax[:, 1] >= np.maximum(ax[:, 0], ax[:, 2])
-    m2 = ~m & (ax[:, 0] >= ax[:, 2])
-    u = np.where(m, verts[:, 0], np.where(m2, verts[:, 2], verts[:, 0]))
-    v = np.where(m, verts[:, 2], np.where(m2, verts[:, 1], verts[:, 1]))
+    """球面投影 UV。
+
+    ⚠ 为什么不用主轴平面投影：
+    平面投影在曲面上会**撕裂**（相邻顶点法线跨过 45° 分界时突然换投影），
+    而三平面加权混合虽然没接缝，但在**低模**（420 面）上，
+    每个三角形跨越的法线范围太大，混合结果被拉成羽毛/编织状怪纹。
+    球面投影是**连续**的（只有极点奇点，石头上看不出来），
+    且不依赖面数 —— 低模高模表现一致。
+
+    极点奇点：用"绕 Y 轴的方位角 + 到 Y 轴的角"作球面坐标。
+    """
+    x = verts[:, 0]
+    y = verts[:, 1]
+    z = verts[:, 2]
+    r = np.sqrt(x * x + z * z)
+    # 方位角 [-pi, pi]
+    u = np.arctan2(z, x) / (2 * math.pi) + 0.5
+    # 纬度 [-pi/2, pi/2] → [0,1]
+    v = np.arcsin(np.clip(y / np.maximum(np.linalg.norm(verts, axis=1), 1e-6),
+                           -1.0, 1.0)) / math.pi + 0.5
+    # 极点附近方位角变化剧烈 → 那里会出现挤在一起的纹理。
+    # 用到 Y 轴的距离做一点缓和（把极点压缩），减轻极点奇点。
+    pole = 1.0 - np.clip(r / np.maximum(np.linalg.norm(verts, axis=1), 1e-6), 0, 1)
+    u = u * (1.0 - pole * 0.85) + 0.5 * pole * 0.85
     return np.stack([u * scale, v * scale], axis=1).astype(np.float32)
 
 
@@ -626,6 +642,36 @@ def export_glb(path: Path, verts: np.ndarray, faces: np.ndarray, normals: np.nda
     mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals, process=False)
     mesh.visual = trimesh.visual.TextureVisuals(uv=uv)
     mesh.export(path, file_type="glb")
+    return path.stat().st_size
+
+
+def read_glb_geometry(path: Path):
+    """读回自己导出的 GLB 的几何（顶点/面/法线/UV）。"""
+    import trimesh
+
+    mesh = trimesh.load(path, file_type="glb", process=False)
+    if isinstance(mesh, trimesh.Scene):
+        mesh = trimesh.util.concatenate([g for g in mesh.geometry.values()])
+    return (np.asarray(mesh.vertices, np.float32),
+            np.asarray(mesh.faces, np.uint32),
+            np.asarray(mesh.vertex_normals, np.float32),
+            np.asarray(mesh.visual.uv, np.float32))
+
+
+def export_combined_glb(path: Path, stones) -> int:
+    """把所有石头合并成**一个** GLB（每个石头一个 node）。
+
+    node 名 = "<kind>-<variant>"，浏览器端按名字分组还原。
+    """
+    import trimesh
+
+    scene = trimesh.Scene()
+    for s in stones:
+        mesh = trimesh.Trimesh(vertices=s["verts"], faces=s["faces"],
+                               vertex_normals=s["normals"], process=False)
+        mesh.visual = trimesh.visual.TextureVisuals(uv=s["uv"])
+        scene.add_geometry(mesh, node_name=s["name"], geom_name=s["name"])
+    scene.export(path, file_type="glb")
     return path.stat().st_size
 
 
@@ -806,6 +852,42 @@ def main():
     total_bytes = sum(s["bytes"] for s in manifest["stones"])
     print(f"· 共 {len(manifest['stones'])} 块石头 / {total_bytes/1024:.1f} KB / "
           f"耗时 {manifest['totalSeconds']}s → {out}")
+
+    # ------------------------------------------------------------------
+    # 合并导出：**一个** GLB 装下所有石头。
+    #
+    # ⚠ 为什么必须合并：
+    #   逐个文件加载（30 个 GLB）在 dev server 上要 **200 秒** ——
+    #   静态文件请求被串行排队，每个文件 10 秒级的延迟。
+    #   合成一个文件后只请求一次，秒级完成。
+    #   （实测：18 个高模文件 = 138s，12 个低模文件 = 63s）
+    #
+    # 合并方式：每个石头一个 node，名字 = "<kind>-<variant>"，
+    # 浏览器端按 node 名分组，与原来的 per-file 逻辑等价。
+    # ------------------------------------------------------------------
+    combined = {"generator": "scripts/gen-rock.py", "stones": []}
+    for s in manifest["stones"]:
+        v, f, n, uv = read_glb_geometry(out / s["file"])
+        combined["stones"].append({
+            "name": f"{s['kind']}-{s['variant']}",
+            "kind": s["kind"],
+            "variant": s["variant"],
+            "triangles": s["triangles"],
+            "verts": v,
+            "faces": f,
+            "normals": n,
+            "uv": uv,
+        })
+    cpath = out / "stones.glb"
+    csize = export_combined_glb(cpath, combined["stones"])
+    with open(out / "combined.json", "w", encoding="utf-8") as fh:
+        json.dump({
+            "file": "stones.glb",
+            "bytes": int(csize),
+            "stones": [{"name": s["name"], "kind": s["kind"], "variant": s["variant"],
+                        "triangles": s["triangles"]} for s in combined["stones"]],
+        }, fh, ensure_ascii=False, indent=2)
+    print(f"· 合并导出 {cpath.name}（{csize/1024:.1f} KB，含 {len(combined['stones'])} 块石头）")
 
 
 if __name__ == "__main__":

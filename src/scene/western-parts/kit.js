@@ -27,23 +27,137 @@ export function worldUV(geo, scale = UVK) {
     const nx = Math.abs(nrm.getX(i));
     const ny = Math.abs(nrm.getY(i));
     const nz = Math.abs(nrm.getZ(i));
-    let u;
-    let v;
-    if (nx >= ny && nx >= nz) {
-      u = z;
-      v = y;
-    } else if (ny >= nx && ny >= nz) {
-      u = x;
-      v = z;
-    } else {
-      u = x;
-      v = y;
-    }
+    // **加权混合**而不是硬切换主轴。
+    // 硬切换（法线跨过 45° 分界就换一套投影）会在曲面上**撕裂**，
+    // 贴图被拉成放射状怪纹 —— 大曲面（墙面、柱身、球）上尤其明显。
+    // 权重取分量三次方：过渡平滑，但仍接近原来硬切换的效果。
+    const wx = nx * nx * nx;
+    const wy = ny * ny * ny;
+    const wz = nz * nz * nz;
+    const ws = wx + wy + wz || 1;
+    // X 面 → (z,y)；Y 面 → (x,z)；Z 面 → (x,y)
+    const u = (wx * z + wy * x + wz * x) / ws;
+    const v = (wx * y + wy * z + wz * y) / ws;
     uv[i * 2] = u * scale;
     uv[i * 2 + 1] = v * scale;
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   return geo;
+}
+
+/**
+ * 观赏树（西洋楼前的庭院树）。
+ *
+ * ⚠ 为什么不用"一个球"：之前海晏堂前的树就是一个半径 1.5m 的**实心绿球**，
+ * 远看像插了根棒棒糖，完全不像树。
+ *
+ * 正确做法：树干有**分枝**（一级枝 + 二级枝），树冠是**多个不规则叶簇**
+ * 围着枝端分布 —— 叶簇本身也不是正球，而是几个压扁椭球叠成的团。
+ *
+ * @param {number} h 树高（米）
+ * @param {number} [seed=1] 随机种子
+ * @returns {{wood: THREE.BufferGeometry[], green: THREE.BufferGeometry[]}}
+ */
+export function ornamentalTree(h = 5, seed = 1) {
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const wood = [];
+  const green = [];
+  const trunkR = h * 0.045;
+
+  // 主干：下粗上细，带轻微弯曲
+  const segs = 4;
+  let px = 0;
+  let pz = 0;
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs;
+    const segH = (h * 0.55) / segs;
+    const r0 = trunkR * (1 - t * 0.45);
+    const g = cyl(r0 * 0.86, r0, segH, 8);
+    const dx = (rnd() - 0.5) * h * 0.03;
+    const dz = (rnd() - 0.5) * h * 0.03;
+    g.rotateZ(dx * 0.6);
+    g.rotateX(dz * 0.6);
+    g.translate(px, h * 0.02 + segH * (i + 0.5), pz);
+    wood.push(g);
+    px += dx;
+    pz += dz;
+  }
+
+  // 一级枝：从主干上段伸出，分叉成二级枝
+  const nBranch = 4 + Math.floor(rnd() * 3);
+  for (let i = 0; i < nBranch; i++) {
+    const t = 0.35 + (i / nBranch) * 0.55;
+    const y0 = h * 0.55 * t + h * 0.02;
+    const az = (i / nBranch) * Math.PI * 2 + rnd() * 0.7;
+    const len = h * (0.2 + rnd() * 0.18);
+    const tilt = 0.55 + rnd() * 0.4; // 与竖直方向的夹角
+    const br = trunkR * (0.45 + rnd() * 0.25);
+
+    // 一级枝
+    const g1 = cyl(br * 0.6, br, len, 6);
+    g1.rotateZ(tilt);
+    g1.rotateY(az);
+    g1.translate(px * t, y0, pz * t);
+    wood.push(g1);
+
+    // 枝端位置（一级枝末端）
+    const ex = px * t + Math.sin(az) * Math.sin(tilt) * len;
+    const ez = pz * t + Math.cos(az) * Math.sin(tilt) * len;
+    const ey = y0 + Math.cos(tilt) * len;
+
+    // 二级枝 + 叶簇
+    const nLeaf = 2 + Math.floor(rnd() * 2);
+    for (let k = 0; k < nLeaf; k++) {
+      const lx = ex + (rnd() - 0.5) * len * 0.8;
+      const lz = ez + (rnd() - 0.5) * len * 0.8;
+      const ly = ey + (rnd() - 0.3) * len * 0.5;
+      // 二级枝
+      const g2 = cyl(br * 0.3, br * 0.6, len * 0.45, 5);
+      g2.rotateZ(tilt * 0.8);
+      g2.rotateY(az + (rnd() - 0.5));
+      g2.translate((ex + lx) / 2, (ey + ly) / 2, (ez + lz) / 2);
+      wood.push(g2);
+
+      // 叶簇：几个压扁椭球围成一团，不是正球
+      const nBlob = 3 + Math.floor(rnd() * 2);
+      const cr = h * (0.085 + rnd() * 0.045);
+      for (let b = 0; b < nBlob; b++) {
+        const blob = new THREE.SphereGeometry(cr * (0.72 + rnd() * 0.5), 12, 9);
+        blob.scale(1, 0.62 + rnd() * 0.24, 1);
+        blob.rotateY(rnd() * Math.PI * 2);
+        blob.rotateX((rnd() - 0.5) * 0.6);
+        blob.translate(
+          lx + (rnd() - 0.5) * cr * 1.5,
+          ly + (rnd() - 0.5) * cr * 0.9,
+          lz + (rnd() - 0.5) * cr * 1.5
+        );
+        green.push(worldUV(blob));
+      }
+    }
+  }
+
+  // 树顶叶簇（收头，避免顶部秃头）
+  for (let b = 0; b < 3; b++) {
+    const cr = h * 0.1;
+    const blob = new THREE.SphereGeometry(cr * (0.75 + rnd() * 0.4), 12, 9);
+    blob.scale(1, 0.7, 1);
+    blob.rotateY(rnd() * Math.PI * 2);
+    blob.translate(
+      px + (rnd() - 0.5) * cr * 1.6,
+      h * (0.58 + rnd() * 0.16),
+      pz + (rnd() - 0.5) * cr * 1.6
+    );
+    green.push(worldUV(blob));
+  }
+
+  return { wood, green };
 }
 
 export function box(w, h, d) {
@@ -109,9 +223,14 @@ export function rotZ(geo, a) {
 /**
  * 卷涡（volute）：阿基米德螺线带，末端收细。
  * 巴洛克最认得出的一个符号，谐奇趣番花柱、远瀛观门楣都用它。
+ *
+ * @param {number} size  螺旋外径（米）
+ * @param {number} depth  浮雕厚度（米）
+ * @param {number} turns  圈数
+ * @param {number} steps  采样步数 —— **成组出现**的构件（柱头卷涡）要调小，
+ *                        单只（门楣、山花）保持默认，否则三角面翻倍。
  */
-export function volute(size = 1, depth = 0.14, turns = 1.55) {
-  const steps = 34;
+export function volute(size = 1, depth = 0.14, turns = 1.55, steps = 34) {
   const outer = [];
   const inner = [];
   for (let i = 0; i <= steps; i++) {
@@ -254,20 +373,242 @@ export function cornice(len, depth, h = 0.5, dirZ = 1) {
   return mergeAll(parts);
 }
 
-/** 壁柱：柱身 + 柱础 + 柱头（三段式，不是光板） */
+/**
+ * 壁柱：柱础 + 柱身 + 柱头（三段式，不是光板）。
+ *
+ * ⚠ 2026-10-30 验收补：柱础原先只是两块方板（像垫在墙根的砖），
+ * 柱头也只有两块叠板 + 一枚卷涡。现在按西洋古典柱式补齐：
+ *   柱础 = 方座 + 圆转收分（车削）+ 束腰
+ *   柱头 = 颈线脚 + 柱头盘 + **两枚正对观众的卷涡** + 顶板 + 垫线脚
+ *
+ * ⚠ 2026-10-31 修：原来的卷涡被 `rotateY(π/2)` 转到了**侧面** ——
+ * 壁柱的正面是 +Z（朝观众），卷涡必须朝 +Z 才看得见，
+ * 否则从正面看只有一条边线，柱头还是"光板"。
+ */
 export function pilaster(h, w = 0.6, d = 0.34) {
   const parts = [];
-  parts.push(boxAt(w, h - 0.5, d, 0, h / 2, 0));
-  // 柱础
-  parts.push(boxAt(w * 1.45, 0.2, d * 1.5, 0, 0.1, 0));
-  parts.push(boxAt(w * 1.22, 0.1, d * 1.3, 0, 0.25, 0));
-  // 柱头
-  parts.push(boxAt(w * 1.1, 0.12, d * 1.2, 0, h - 0.44, 0));
-  parts.push(boxAt(w * 1.32, 0.1, d * 1.42, 0, h - 0.33, 0));
-  const v = volute(w * 0.3, 0.07, 1.4);
-  v.rotateY(Math.PI / 2);
-  v.translate(0, h - 0.24, d * 0.72);
-  parts.push(v);
+  const BASE_H = 0.42; // 柱础总高
+  const CAP_H = 0.46; // 柱头总高
+  const shaftH = Math.max(0.4, h - BASE_H - CAP_H);
+
+  // 柱身
+  parts.push(boxAt(w, shaftH, d, 0, BASE_H + shaftH / 2, 0));
+  // 柱础：方座
+  parts.push(boxAt(w * 1.5, 0.12, d * 1.55, 0, 0.06, 0));
+  // 柱础：圆转收分（车削的覆盆）
+  parts.push(
+    lathe(
+      [
+        [0.0, 1.0],
+        [0.32, 0.94],
+        [0.62, 0.76],
+        [0.86, 0.62],
+        [1.0, 0.6],
+      ].map(([t, rs]) => new THREE.Vector2(w * 0.55 * rs, 0.12 + t * 0.2)),
+      10
+    )
+  );
+  // 柱础：束腰
+  parts.push(boxAt(w * 1.16, 0.1, d * 1.2, 0, BASE_H - 0.05, 0));
+
+  // 柱头（自下而上：颈线脚 → 柱头盘 → 垫线脚 → 顶板）
+  const capY = h - CAP_H;
+  parts.push(boxAt(w * 1.06, 0.09, d * 1.1, 0, capY + 0.045, 0));
+  parts.push(boxAt(w * 1.24, 0.15, d * 1.3, 0, capY + 0.165, 0));
+  parts.push(boxAt(w * 1.5, 0.08, d * 1.62, 0, capY + 0.28, 0));
+  parts.push(boxAt(w * 1.4, 0.1, d * 1.5, 0, capY + 0.37, 0));
+  // 柱头盘正面的两枚卷涡（朝 +Z —— 壁柱的正面）
+  for (const sx of [-1, 1]) {
+    const v = volute(w * 0.24, 0.07, 1.45, 20);
+    v.translate(sx * w * 0.27, capY + 0.165, d * 0.62);
+    parts.push(v);
+  }
+  return mergeAll(parts);
+}
+
+/* ============================================================ 西洋柱式 */
+
+/**
+ * 西洋古典**柱头**（Ionic / Composite 柱式）：全部是实体几何。
+ *
+ * ⚠ 为什么必须单独做：原先西洋楼的柱子顶端只有一块叠板 / 一圈车削，
+ * 近看就是"一根光杆顶个方块"，完全没有柱式的样子 —— 柱头是西洋立面
+ * 最认得出的元素之一（AGENTS §4.1：远看像不像真的）。
+ *
+ * 形制（自下而上）：
+ *   颈线脚 astragal → 圆转（钟形）echinus → 番花叶 acanthus
+ *   → 卷涡 volute（Ionic 正背各两枚 / Composite 四角各一枚）→ 顶板 abacus
+ *
+ * 考据：谐奇趣「楼柱用汉白玉**深雕**西洋番花番草花纹」、海晏堂「立柱为
+ * 汉白玉精刻西洋番花石柱」——柱身是中式覆盆础 + 汉白玉番花，
+ * **柱头则是西洋柱式**，故这里把柱头单列成一个可复用的构件。
+ *
+ * @param {number} r  柱身半径（米）
+ * @param {object} opts
+ *   h     柱头总高（米），缺省 ≈ 1.15 r（真实柱头高约 0.3~0.5 m）
+ *   order 'ionic'（正背两枚卷涡 + 四片番花叶）
+ *         | 'composite'（四角卷涡 + 八片番花叶）
+ * @returns {THREE.BufferGeometry} 原点在**柱头底面**（即柱身顶面），轴心在原点
+ */
+export function columnCapital(r, opts = {}) {
+  const { h = Math.max(0.3, r * 1.15), order = 'composite' } = opts;
+  const parts = [];
+
+  // 顶板（abacus）：方板 + 板下的一道垫线脚
+  const ab = r * 2.95;
+  const abY = h * 0.87;
+  parts.push(boxAt(ab * 1.06, h * 0.045, ab * 1.06, 0, abY - h * 0.02, 0));
+  parts.push(boxAt(ab, h * 0.1, ab, 0, abY + h * 0.05, 0));
+
+  // 颈线脚 + 圆转（车削剖面）
+  // Ionic 没有钟形杯，Composite 有 —— 这里按 order 给不同的剖面。
+  const prof = [
+    [0.0, 0.97],
+    [0.08, 1.08],
+    [0.14, 1.01],
+    [0.23, 1.12],
+    [0.36, 1.28],
+    [0.48, 1.36],
+  ];
+  if (order === 'composite') {
+    // 钟形杯（bell）
+    prof.push([0.58, 1.44], [0.68, 1.47], [0.78, 1.4], [0.84, 1.24]);
+  } else {
+    prof.push([0.6, 1.34], [0.72, 1.24], [0.84, 1.12]);
+  }
+  parts.push(
+    lathe(
+      prof.map(([t, rs]) => new THREE.Vector2(r * rs, t * h)),
+      12
+    )
+  );
+
+  // 卷涡：Ionic 正背各两枚；Composite 四角各一枚（45° 斜置）
+  const vSize = h * 0.42;
+  const vDepth = h * 0.1;
+  const vY = h * (order === 'composite' ? 0.63 : 0.66);
+  const vR = r * (order === 'composite' ? 1.08 : 1.42);
+  if (order === 'composite') {
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      const v = volute(vSize, vDepth, 1.5, 20);
+      v.rotateY(a);
+      v.translate(Math.sin(a) * vR, vY, Math.cos(a) * vR);
+      parts.push(v);
+    }
+  } else if (order === 'ionic') {
+    for (const sz of [1, -1]) {
+      for (const sx of [-1, 1]) {
+        const v = volute(vSize, vDepth, 1.5, 20);
+        v.rotateY(sz > 0 ? 0 : Math.PI);
+        v.translate(sx * (ab / 2 - vSize * 0.86), vY, sz * (vR - vDepth));
+        parts.push(v);
+      }
+    }
+  }
+
+  // 番花叶：贴着柱头圆转立起来的一圈（Ionic 四片 / Composite 八片）
+  if (order !== 'plain') {
+    const nLeaf = order === 'composite' ? 8 : 4;
+    for (let i = 0; i < nLeaf; i++) {
+      const a = (i / nLeaf) * Math.PI * 2 + (order === 'composite' ? Math.PI / 8 : 0);
+      const lf = leaf(h * 0.46, h * 0.2, h * 0.055);
+      lf.rotateX(0.22); // 叶尖向外倾
+      lf.rotateY(a);
+      lf.translate(Math.sin(a) * r * 1.16, h * 0.3, Math.cos(a) * r * 1.16);
+      parts.push(lf);
+    }
+  }
+
+  return mergeAll(parts);
+}
+
+/**
+ * **方柱柱头**（square capital）：方柱 / 角柱用（八角亭的石柱、石亭的角柱）。
+ *
+ * 形制：颈线脚 → 柱头盘（正面两枚卷涡）→ 垫线脚 → 顶板。
+ * 方柱不能用圆柱头（车削的圆转贴在方柱上是错的），所以单独做一个。
+ *
+ * @param {number} w 方柱宽（米）
+ * @param {number} d 方柱厚（米）
+ * @param {number} h 柱头总高（米）
+ */
+export function squareCapital(w, d, h = 0.4) {
+  const parts = [];
+  parts.push(boxAt(w * 1.06, h * 0.16, d * 1.06, 0, h * 0.08, 0));
+  parts.push(boxAt(w * 1.22, h * 0.3, d * 1.28, 0, h * 0.31, 0));
+  parts.push(boxAt(w * 1.5, h * 0.16, d * 1.62, 0, h * 0.54, 0));
+  parts.push(boxAt(w * 1.38, h * 0.2, d * 1.48, 0, h * 0.72, 0));
+  for (const sx of [-1, 1]) {
+    const v = volute(h * 0.26, 0.05, 1.4, 18);
+    v.translate(sx * w * 0.24, h * 0.31, d * 0.62);
+    parts.push(v);
+  }
+  return mergeAll(parts);
+}
+
+/**
+ * 西洋**檐部**（entablature）：额枋 + 齿饰 + 檐壁 + 檐口三道线脚。
+ *
+ * 用在**纯西洋构件**上（八角亭、牌楼、角门、小塔、石亭）。
+ * 中式屋面下的楼身走清式额枋 + 斗栱，不用这一套。
+ *
+ * 形制（自下而上）：下枋 → 上枋 → 齿饰带 → 檐壁 → 檐口（垫木/檐板/滴水线脚）。
+ *
+ * @param {number} len  沿墙长度（米）
+ * @param {number} depth 出挑深度（米）
+ * @param {object} opts  h 总高（米，缺省 0.6）、dentils 是否做齿饰
+ * @returns {THREE.BufferGeometry} 原点在**檐部底面**、墙面处；出挑方向 +Z
+ */
+export function entablature(len, depth, opts = {}) {
+  const { h = 0.6, dentils = true } = opts;
+  const parts = [];
+  const band = (y0, y1, z0, z1) => {
+    parts.push(boxAt(len, y1 - y0, z1 - z0, 0, (y0 + y1) / 2, (z0 + z1) / 2));
+  };
+  // 额枋：下枋 + 上枋
+  band(0, h * 0.26, 0, depth * 0.8);
+  band(h * 0.26, h * 0.5, 0, depth * 0.95);
+  // 齿饰带（dentils）：一排小方齿，是西洋檐部最好认的细节之一
+  band(h * 0.5, h * 0.58, 0, depth * 0.98);
+  if (dentils) {
+    const n = Math.max(2, Math.round(len / 0.34));
+    const step = len / n;
+    for (let i = 0; i < n; i++) {
+      const x = -len / 2 + step * (i + 0.5);
+      parts.push(boxAt(step * 0.52, h * 0.09, depth * 0.4, x, h * 0.54, depth * 0.78));
+    }
+  }
+  // 檐壁（frieze）：内收的一段平板
+  band(h * 0.58, h * 0.78, 0, depth * 0.72);
+  // 檐口：垫木 → 檐板 → 滴水线脚
+  band(h * 0.78, h * 0.85, 0, depth * 1.02);
+  band(h * 0.85, h * 0.94, 0, depth * 1.2);
+  band(h * 0.94, h, 0, depth * 0.88);
+  return mergeAll(parts);
+}
+
+/**
+ * 八角形**檐部环**（八角亭、石亭的檐口）：把直的 `entablature` 沿八边形排一圈。
+ *
+ * 角度约定与 `octagonalPavilion` 的柱子一致：a 从 +X 转向 +Z，
+ * 第 i 根柱子在 (cos a, sin a) 上。
+ *
+ * @param {number} radius 外接圆半径（米）
+ * @param {number} depth  出挑（米）
+ */
+export function octagonalEntablature(radius, depth, opts = {}) {
+  const { h = 0.55 } = opts;
+  const parts = [];
+  const apothem = radius * Math.cos(Math.PI / 8);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const seg = apothem * 2 + 0.08;
+    const e = entablature(seg, depth, { h, dentils: false });
+    e.rotateY(Math.PI / 2 - a);
+    e.translate(Math.cos(a) * apothem, 0, Math.sin(a) * apothem);
+    parts.push(e);
+  }
   return mergeAll(parts);
 }
 
@@ -430,9 +771,27 @@ export function windowSurround(w, h, d = 0.22, opts = {}) {
   parts.push(boxAt(t, y1, d, r + t / 2, y1 / 2, 0));
   // 券脚 + 券石 + 拱心石 + 券面线脚
   parts.push(archTrim(r, y1, d, { t, count: 9 }));
-  // 窗楣线脚
-  parts.push(boxAt(w + t * 3, 0.16, d * 1.3, 0, h + 0.12, 0));
-  parts.push(boxAt(w + t * 2.2, 0.09, d * 1.5, 0, h + 0.245, 0));
+  // 窗楣线脚：承托线脚 + 檐口三道（挑出的窗檐，不是贴墙的板）
+  parts.push(boxAt(w + t * 2.6, 0.12, d * 1.2, 0, h + 0.1, 0));
+  parts.push(boxAt(w + t * 3.0, 0.1, d * 1.45, 0, h + 0.21, 0));
+  parts.push(boxAt(w + t * 3.3, 0.08, d * 1.6, 0, h + 0.3, 0));
+  parts.push(boxAt(w + t * 2.9, 0.06, d * 1.15, 0, h + 0.37, 0));
+  // **拱心石**（keystone）：从窗楣下垂、压在券面线脚上的梯形石，
+  // 比券石环上的那一枚更靠前 —— 没有它，券口远看就是一道平拱。
+  {
+    const ks = new THREE.Shape();
+    ks.moveTo(-t * 0.62, 0);
+    ks.lineTo(t * 0.62, 0);
+    ks.lineTo(t * 0.46, t * 1.25);
+    ks.lineTo(-t * 0.46, t * 1.25);
+    ks.closePath();
+    const kg = new THREE.ExtrudeGeometry(ks, { depth: d * 0.46, bevelEnabled: false });
+    kg.translate(0, 0, d * 0.3);
+    kg.computeVertexNormals();
+    worldUV(kg);
+    kg.translate(0, h - t * 0.3, 0);
+    parts.push(kg);
+  }
   // **窗台**（承雨石 + 挑出的台面 + 线脚）——巴洛克窗下必有一道，
   // 没有窗台，窗就是墙上一个洞。
   parts.push(boxAt(w + t * 2.6, 0.12, d * 1.7, 0, -0.06, 0));
@@ -620,6 +979,11 @@ export function balustrade(len, h = 0.95, r = 0.11, opts = {}) {
 /**
  * 台阶（无垂带，西洋式）：顶踏步贴着 z=0，向 +Z（南）逐级降到地面。
  * 每级踏步前缘加一道**踏步线脚**（nosing），否则远看是一整块斜坡。
+ *
+ * ⚠ 2026-10-30 验收补：两侧的**侧石（垂带）**原先完全没有——
+ * 台阶就是几块横板，从侧面看是"一叠薄板"，不像石头砌的踏跺。
+ * 现在两侧各加一道斜切的侧石（实体几何，断面为直角三角形，
+ * 上口是斜面，贴着踏步的踏面线），近看有厚度、有收分。
  */
 export function steps(w, h, d, n = 5) {
   const parts = [];
@@ -630,6 +994,21 @@ export function steps(w, h, d, n = 5) {
     parts.push(boxAt(w, top + 0.01, sd * 1.04, 0, (top + 0.01) / 2, sd * (i + 0.5)));
     // 踏步线脚（踏面前缘凸出的薄板）
     parts.push(boxAt(w + 0.1, 0.07, sd * 0.18, 0, top - 0.03, sd * (i + 0.09)));
+  }
+  // 侧石（垂带）：断面为直角三角形的斜石，两侧各一道
+  for (const sx of [-1, 1]) {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.lineTo(0, h + 0.07);
+    s.lineTo(d, 0.07);
+    s.closePath();
+    const cheek = new THREE.ExtrudeGeometry(s, { depth: 0.36, bevelEnabled: false });
+    cheek.rotateY(-Math.PI / 2); // shape 的 x → 世界 +z；挤出方向 → 世界 -x
+    cheek.translate(0.18, 0, 0); // 厚度居中（-0.18 ~ +0.18）
+    cheek.translate(sx * (w / 2 + 0.18), 0, 0);
+    cheek.computeVertexNormals();
+    worldUV(cheek);
+    parts.push(cheek);
   }
   return mergeAll(parts);
 }
@@ -688,7 +1067,12 @@ export function pavementField(w, d, cell, groundAt) {
   return { a: mergeAll(a), b: mergeAll(b), edge: mergeAll(edge) };
 }
 
-/** 弧形（半环）石阶：方外观的半环形石阶、远瀛观的弧形石梯 */
+/**
+ * 弧形（半环）石阶：方外观的半环形石阶、远瀛观的弧形石梯。
+ *
+ * ⚠ 2026-10-30 验收补：外缘加了一道**侧石（挡边）**——原先弧形梯只有一圈横板，
+ * 从外侧看是一叠薄板，没有石阶的体量感。
+ */
 export function curvedSteps(rInner, rOuter, a0, a1, y0, y1, n = 10) {
   const parts = [];
   const seg = 4;
@@ -697,20 +1081,36 @@ export function curvedSteps(rInner, rOuter, a0, a1, y0, y1, n = 10) {
     const t0 = i / n;
     const am = a0 + (a1 - a0) * (t0 + 0.5 / n);
     const y = y0 + (y1 - y0) * t0;
+    const stepH = (y1 - y0) / n;
     for (let k = 0; k < seg; k++) {
       const aa = am + ((k + 0.5) / seg - 0.5) * ((a1 - a0) / n);
-      const b = box(rOuter - rInner, (y1 - y0) / n + 0.02, arcLen * 1.08);
-      b.translate((rInner + rOuter) / 2, y + (y1 - y0) / n / 2, 0);
+      const b = box(rOuter - rInner, stepH + 0.02, arcLen * 1.08);
+      b.translate((rInner + rOuter) / 2, y + stepH / 2, 0);
       b.rotateY(-aa);
       parts.push(b);
+      // 外缘侧石（挡边）
+      const kerb = box(0.42, 0.34, arcLen * 1.08);
+      kerb.translate(rOuter + 0.21, y + stepH + 0.17, 0);
+      kerb.rotateY(-aa);
+      parts.push(kerb);
     }
   }
   return mergeAll(parts);
 }
 
-/** 螺旋马道（线法山四面盘旋马道）：沿圆周盘旋的坡道 */
+/**
+ * 螺旋马道（线法山四面盘旋马道）：沿圆周盘旋的坡道。
+ *
+ * ⚠ 2026-10-30 验收修：原来只返回一个合并件，调用方把它**整份**加进石桶、
+ * 又**整份**加进琉璃桶 —— 于是马道面也变成了绿琉璃，而且两份几何完全重合
+ * （z-fighting，近看一片闪）。考据：「四面有盘旋马道，护以**黄绿琉璃砖矮墙**」
+ * —— 马道是石路，琉璃砖的是矮墙。所以这里把三件分开返回：
+ *   deck   马道面（石）／wall 矮墙墙身（绿琉璃）／coping 矮墙压顶（黄琉璃）
+ */
 export function spiralRamp(r, y0, y1, turns = 1.6, width = 3.2, seg = 40) {
-  const parts = [];
+  const deck = [];
+  const wall = [];
+  const coping = [];
   for (let i = 0; i < seg; i++) {
     const t0 = i / seg;
     const t1 = (i + 1) / seg;
@@ -722,16 +1122,21 @@ export function spiralRamp(r, y0, y1, turns = 1.6, width = 3.2, seg = 40) {
     const b = box(width, 0.5, arc * 1.05);
     b.translate(0, y, 0);
     b.rotateY(-am);
-    parts.push(b);
-    // 挡土矮墙
+    deck.push(b);
+    // 挡土矮墙（马道两侧 = 内外缘）
     for (const s of [-1, 1]) {
-      const wall = box(0.4, 0.8, arc * 1.05);
-      wall.translate(s * (width / 2 + 0.2), y + 0.6, 0);
-      wall.rotateY(-am);
-      parts.push(wall);
+      const wl = box(0.4, 0.8, arc * 1.05);
+      wl.translate(s * (width / 2 + 0.2), y + 0.6, 0);
+      wl.rotateY(-am);
+      wall.push(wl);
+      // 压顶（黄琉璃）
+      const cp = box(0.52, 0.14, arc * 1.05);
+      cp.translate(s * (width / 2 + 0.2), y + 1.06, 0);
+      cp.rotateY(-am);
+      coping.push(cp);
     }
   }
-  return mergeAll(parts);
+  return { deck: mergeAll(deck), wall: mergeAll(wall), coping: mergeAll(coping) };
 }
 
 /* ============================================================ 动物 */
@@ -1703,8 +2108,14 @@ export function stoneTripod(size = 1, height = 2.6) {
 
 /* ============================================================ 水 */
 
-/** 水柱：从 y=0 向上射到 y=len，细而略带锥度 */
-export function waterJet(len, r = 0.05, seg = 6) {
+/**
+ * 水柱：从 y=0 向上射到 y=len，细而略带锥度。
+ *
+ * ⚠ 半径不能太小：0.05m 的水柱在 30m 外只有 1~2 像素，
+ *   远看就是一圈**白色铁丝**。真实的喷泉水柱在这个距离上
+ *   应当是一道**能读出粗细的白线**，所以取 0.10m 起步。
+ */
+export function waterJet(len, r = 0.10, seg = 6) {
   const g = new THREE.CylinderGeometry(r * 0.7, r, len, seg, 1, true);
   g.translate(0, len / 2, 0);
   g.computeVertexNormals();
@@ -1712,7 +2123,7 @@ export function waterJet(len, r = 0.05, seg = 6) {
 }
 
 /** 从 A 射到 B 的水柱（兽首喷水用） */
-export function jetBetween(a, b, r = 0.05) {
+export function jetBetween(a, b, r = 0.10) {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const dz = b[2] - a[2];
@@ -1729,11 +2140,33 @@ export function jetBetween(a, b, r = 0.05) {
 }
 
 /** 落水花（水柱顶端的散花） */
-export function spray(r = 0.14, h = 0.4) {
+export function spray(r = 0.24, h = 0.55) {
   const g = new THREE.ConeGeometry(r, h, 7, 1, true);
   g.translate(0, h / 2, 0);
   g.computeVertexNormals();
   return tint(worldUV(g), 0xffffff);
+}
+
+/**
+ * 冲天水柱（**束状**）。
+ *
+ * ⚠ 2026-10-30 验收改：原来是一根实心白柱（r=0.14，高 15.5 m），
+ * 远看像一根白玉碑插在池里。真实的喷泉是一**束**细流：中间高、四周略低，
+ * 顶端散成花。现在按束状建模，近看是一簇水线，不是一根棍子。
+ */
+export function fountainPlume(len, r = 0.05, strands = 5, spread = 0.22) {
+  const parts = [];
+  for (let i = 0; i < strands; i++) {
+    const a = (i / strands) * Math.PI * 2;
+    const h = len * (i % 2 === 0 ? 1 : 0.86);
+    const g = new THREE.CylinderGeometry(r * 0.55, r, h, 5, 1, true);
+    g.translate(Math.cos(a) * spread, h / 2, Math.sin(a) * spread);
+    g.computeVertexNormals();
+    parts.push(tint(worldUV(g), 0xffffff));
+  }
+  // 顶端散花
+  parts.push(spray(r * 3.4, len * 0.06).translate(0, len, 0));
+  return mergeAll(parts);
 }
 
 /* ============================================================ 组合件 */
@@ -1759,7 +2192,15 @@ export function baroqueGate(width = 8, height = 9, depth = 1.4) {
   return mergeAll(parts);
 }
 
-/** 八角亭（谐奇趣奏乐亭 / 方外观八角亭 / 线法山山顶石亭） */
+/**
+ * 八角亭（谐奇趣奏乐亭 / 方外观八角亭 / 线法山山顶石亭）
+ *
+ * ⚠ 2026-10-31 验收改：柱头原先只是一块 0.42 m 的方板，檐枋是一圈**圆环**
+ * （torus）——近看就是"八根光杆顶八个方块，中间套个轮胎"。
+ * 现在按西洋柱式补齐：柱身 → **西洋柱头**（卷涡 + 番花叶 + 顶板）
+ * → **八角檐部**（额枋 + 檐壁 + 檐口线脚）。
+ * 柱身高度相应缩短，保证亭子的**总高不变**（屋面位置不动）。
+ */
 export function octagonalPavilion(opts = {}) {
   const {
     radius = 4,
@@ -1789,21 +2230,29 @@ export function octagonalPavilion(opts = {}) {
     const wall = cyl(radius * 0.94, radius * 0.94, postH, 8, true);
     wall.translate(0, base + postH / 2, 0);
     parts.push(wall);
+    const ent = octagonalEntablature(radius * 0.94, 0.42, { h: 0.5 });
+    ent.translate(0, base + postH - 0.5, 0);
+    parts.push(ent);
   } else {
+    const capH = 0.3; // 柱头高
+    const entH = 0.5; // 檐部高
+    const shaftH = Math.max(0.8, postH - capH - entH);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      const p = cyl(0.17, 0.19, postH, 8);
-      p.translate(Math.cos(a) * radius * 0.88, base + postH / 2, Math.sin(a) * radius * 0.88);
+      const px = Math.cos(a) * radius * 0.88;
+      const pz = Math.sin(a) * radius * 0.88;
+      const p = cyl(0.17, 0.19, shaftH, 8);
+      p.translate(px, base + shaftH / 2, pz);
       parts.push(p);
-      // 柱头
-      const cap = boxAt(0.42, 0.2, 0.42, Math.cos(a) * radius * 0.88, base + postH, Math.sin(a) * radius * 0.88);
+      // **柱头**：西洋柱式（卷涡 + 番花叶 + 顶板）
+      const cap = columnCapital(0.175, { h: capH, order: 'composite' });
+      cap.translate(px, base + shaftH, pz);
       parts.push(cap);
     }
-    // 檐枋
-    const ring = torus(radius * 0.88, 0.13, 6, 8);
-    ring.rotateX(Math.PI / 2);
-    ring.translate(0, base + postH, 0);
-    parts.push(ring);
+    // **檐部**：八角形的额枋 + 檐口（原来只是一圈圆环）
+    const ent = octagonalEntablature(radius * 0.88, 0.42, { h: entH });
+    ent.translate(0, base + shaftH + capH, 0);
+    parts.push(ent);
   }
   // 攒尖顶（八角锥）
   const roofBase = base + postH;
@@ -1856,20 +2305,50 @@ export function semicircleScreen(radius = 6, height = 4.4) {
   return mergeAll(parts);
 }
 
-/** 屏风上的五件石刻屏心（浮雕板） */
+/**
+ * 屏风上的五件石刻屏心（浮雕板）。
+ *
+ * ⚠ 2026-10-30 验收改：原来每块屏心只是一块平板 + 一枚卷涡，
+ * 而且 `rotateY` 写在 `translate` **之后** —— 旋转是绕原点的，
+ * 屏心被转到了别处，和屏框根本对不上。现在改成「先在局部坐标系里做好，
+ * 再整体旋转 + 平移」，并补上：
+ *   凸起边框线脚 + 中央卷草浮雕（卷涡 + 两侧番叶）。
+ */
 export function screenPanels(radius = 6, height = 4.4) {
   const parts = [];
   for (let i = 0; i < 5; i++) {
     const a = Math.PI * (0.16 + (0.68 * i) / 4);
     const x = -Math.cos(a) * radius;
     const z = -Math.sin(a) * radius * 0.42;
-    const p = boxAt(1.5, height * 0.62, 0.2, x, height * 0.45, z + 0.2);
-    p.rotateY(-(a - Math.PI / 2));
-    parts.push(p);
-    const v = volute(0.5, 0.08, 1.5);
-    v.rotateY(-(a - Math.PI / 2));
-    v.translate(x, height * 0.45, z + 0.34);
-    parts.push(v);
+    const yaw = -(a - Math.PI / 2);
+    const pw = 1.5;
+    const ph = height * 0.62;
+    const local = [];
+    // 屏心板
+    local.push(boxAt(pw, ph, 0.2, 0, 0, 0));
+    // 凸起的边框线脚
+    for (const [bw, bh, bx, by] of [
+      [pw + 0.16, 0.12, 0, ph / 2],
+      [pw + 0.16, 0.12, 0, -ph / 2],
+      [0.12, ph, -pw / 2, 0],
+      [0.12, ph, pw / 2, 0],
+    ]) {
+      local.push(boxAt(bw, bh, 0.1, bx, by, 0.1));
+    }
+    // 中央卷草浮雕
+    const v = volute(0.42, 0.08, 1.5);
+    v.translate(0, 0, 0.12);
+    local.push(v);
+    for (const sx of [-1, 1]) {
+      const lf = leaf(0.55, 0.2, 0.06);
+      lf.rotateZ(sx * 0.5);
+      lf.translate(sx * 0.52, -0.1, 0.12);
+      local.push(lf);
+    }
+    const g = mergeAll(local);
+    g.rotateY(yaw);
+    g.translate(x, height * 0.45, z + 0.2);
+    parts.push(g);
   }
   return mergeAll(parts);
 }
