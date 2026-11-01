@@ -485,6 +485,7 @@ async function main() {
     // 质心与最大半径，用于估算深度剖面
     let maxR = 1;
     for (const [x, z] of ring) maxR = Math.max(maxR, Math.hypot(x - cx, z - cz));
+    w.maxR = maxR;
 
     // 开凿
     const depth = Math.min(9, Math.sqrt(w.area) * 0.09 + 1.2);
@@ -997,6 +998,65 @@ async function main() {
     }
   }
   console.log(`  ✓ 树木 ${trees.length} 棵（其中逐景林相 ${groveCount} 棵）`);
+
+  /**
+   * 剔除**同高程且部分重叠**的水面。
+   *
+   * ⚠ 前面那次去重只处理"小水面 85% 落在大水面内"（完全包含），
+   *   **部分重叠**的两片水会活下来。而它们的**水位由各自岸线最低点决定**，
+   *   常常正好相同 —— 两片水面在同一高度重叠 ⇒ **z-fighting**，
+   *   渲染出来就是**蓝绿相间的棋盘格**（草皮/另一片水从缝里透出来）。
+   *
+   *   这里按**水位相同 + 边界真相交**再清一遍（保留面积大的那片）。
+   */
+  {
+    const ringCross = (A, B) => {
+      // A 的顶点落在 B 内
+      for (const [x, z] of A) if (pointInRing(x, z, B)) return true;
+      for (const [x, z] of B) if (pointInRing(x, z, A)) return true;
+      // 边相交
+      const d = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      for (let i = 0; i < A.length; i++) {
+        const a1 = A[i];
+        const a2 = A[(i + 1) % A.length];
+        for (let j = 0; j < B.length; j++) {
+          const b1 = B[j];
+          const b2 = B[(j + 1) % B.length];
+          const d1 = d(b1, b2, a1);
+          const d2 = d(b1, b2, a2);
+          const d3 = d(a1, a2, b1);
+          const d4 = d(a1, a2, b2);
+          if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+              ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+        }
+      }
+      return false;
+    };
+    const levelTol = 0.15; // 水位差 < 15cm 视为同高程（与人眼可辨的 2cm 台阶无关）
+    let removed = 0;
+    for (let i = 0; i < waterKeep.length; i++) {
+      const w = waterKeep[i];
+      if (!w || w.level == null) continue;
+      for (let j = 0; j < waterKeep.length; j++) {
+        if (i === j) continue;
+        const o = waterKeep[j];
+        if (!o || o.level == null) continue;
+        if (Math.abs(w.level - o.level) > levelTol) continue;
+        // 保留**更大**的那片；面积相等时保留序号靠前的
+        // （否则两片面积相同会互相"让位"，谁也删不掉）
+        if (w.area < o.area) continue;
+        if (w.area === o.area && j > i) continue;
+        if (!ringCross(w.ring, o.ring)) continue;
+        waterKeep[i] = null;
+        removed++;
+        break;
+      }
+    }
+    const kept = waterKeep.filter(Boolean);
+    waterKeep.length = 0;
+    waterKeep.push(...kept);
+    if (removed) console.log(`  ✓ 剔除同高程重叠水面 ${removed} 片（防 z-fighting）`);
+  }
 
   /* ---- 福海中的仙山（岛）----
    * 蓬岛瑶台、同天深处是福海里的仙山楼阁。

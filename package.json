@@ -10,7 +10,10 @@
     "preview": "vite preview --port 4173",
     "fetch": "node scripts/fetch-osm.mjs && node scripts/fetch-dem.mjs && node scripts/fetch-guide.mjs",
     "scene": "node scripts/build-scene.mjs",
-    "setup": "npm install && npm run fetch && npm run scene"
+    "setup": "npm install && npm run fetch && npm run scene",
+    "check": "node scripts/check-proportions.mjs && node scripts/check-interpenetration.mjs",
+    "check:props": "node scripts/check-proportions.mjs",
+    "check:clash": "node scripts/check-interpenetration.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
