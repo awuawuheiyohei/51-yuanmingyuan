@@ -47,6 +47,30 @@ HF_HUB_DISABLE_XET=1 .venv-ai/bin/python scripts/gen-textures.py
 
 首次拉取后，`data/raw/` 已缓存全部原始数据，之后 `npm run scene && npm run dev` 即可离线重建。
 
+### 渲染后端（实测）
+
+本机走 **ANGLE → Metal**，即 Apple GPU 原生路径，不是软件光栅：
+
+```
+vendor   : Google Inc. (Apple)
+renderer : ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)
+version  : WebGL 2.0 (OpenGL ES 3.0 Chromium)
+```
+
+启动参数需带 `--use-angle=metal --enable-gpu`（headless 截图时同理）。
+假山网格的 SDF + marching cubes 生成也在 MPS 上跑（`scripts/gen-rock.py`）。
+
+### 版本控制
+
+仓库：`https://github.com/awuawuheiyohei/51-yuanmingyuan`
+
+> ⚠ 本机到 `github.com` 的 **git-over-HTTPS** 通道会返回
+>   `Empty reply from server`（REST API 正常）。**走 SSH 推送**：
+>   ```bash
+>   git remote set-url origin git@github.com:awuawuheiyohei/51-yuanmingyuan.git
+>   git push -u origin master
+>   ```
+
 调试视角：
 
 | 视角 | 用途 |

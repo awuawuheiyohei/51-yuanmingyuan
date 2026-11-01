@@ -292,6 +292,16 @@ const KEY = {
   //   近看每座殿的柱子上都挂着一块惨白的板，没有黑漆金字。
   couplet: 'couplet',
   couplet2: 'couplet2',
+  /**
+   * 素漆（无花纹的大漆面）。
+   *
+   * ⚠ **柱子与槅扇的素漆板不能走 'wood' 桶** —— 那个桶贴的是一张
+   *   AI 生成的**雕花木门照片**，贴到柱子上就是"柱上画了半扇门"，
+   *   同一花纹在每根柱上原样重复 ⇒ **浓的贴图感**。
+   *   真实清式：柱身素朱红、槅扇绦环板/裙板素漆，雕花只出现在额枋斗栱。
+   */
+  lacquer: 'lacquer',
+  lacquerDark: 'lacquerDark',
 };
 
 function bucket(map, key) {
@@ -439,7 +449,8 @@ export function buildStructure(spec) {
   const addColumn = (x, z, h) => {
     const g = new THREE.CylinderGeometry(colDia / 2, colDia / 2 * 1.02, h, 12);
     g.translate(x, floorY + h / 2, z);
-    bucket(geoms, KEY.column).push(g);
+    // 柱身 = 素朱红漆（不是雕花木门照片）
+    bucket(geoms, KEY.lacquer).push(g);
     // 柱础：覆盆式（真建筑是圆转收分的，不是方柱墩）
     const b = buildColumnBase(colDia);
     b.translate(x, floorY, z);
@@ -490,7 +501,8 @@ export function buildStructure(spec) {
     for (let i = 0; i < mian; i++) {
       const g = new THREE.BoxGeometry(bayWidths[i] - 0.02, banH, beamD * 0.8);
       g.translate((colXs[i] + colXs[i + 1]) / 2, banY, colZs[j]);
-      bucket(geoms, KEY.wall).push(g);
+      // 垫板 = 素漆（不是红砖墙）
+      bucket(geoms, KEY.lacquerDark).push(g);
     }
   }
 
@@ -630,7 +642,7 @@ export function buildStructure(spec) {
       for (let j = 0; j < jin; j++) {
         const cz = (colZs[j] + colZs[j + 1]) / 2;
         const win = buildShanGeParts(bayD * 0.52, wallH * 0.46);
-        for (const part of [win.frame, win.lattice]) {
+        for (const part of [win.frame, win.lattice, win.panel]) {
           part.rotateY((sx * Math.PI) / 2);
           part.translate(
             sx * (width / 2 - wallThick / 2 + 0.05),
@@ -638,7 +650,9 @@ export function buildStructure(spec) {
             cz
           );
         }
-        bucket(geoms, KEY.wood).push(win.frame);
+        // 槛窗同样：框料素朱红、绦环板/裙板素黑、格心棂条
+        bucket(geoms, KEY.lacquer).push(win.frame);
+        bucket(geoms, KEY.lacquerDark).push(win.panel);
         bucket(geoms, KEY.lattice).push(win.lattice);
       }
     }
@@ -660,11 +674,13 @@ export function buildStructure(spec) {
         const leafW = (bw - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
           const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
-          const { frame, lattice } = buildShanGeParts(leafW * 0.94, wallH * 0.96);
+          const { frame, lattice, panel } = buildShanGeParts(leafW * 0.94, wallH * 0.96);
           frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          // 框料上红漆，格心是棂条 + 背后的暗色门洞——分成两个材质桶
-          bucket(geoms, KEY.wood).push(frame);
+          panel.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+          // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
+          bucket(geoms, KEY.lacquer).push(frame);
+          bucket(geoms, KEY.lacquerDark).push(panel);
           bucket(geoms, KEY.lattice).push(lattice);
         }
         // 门楣

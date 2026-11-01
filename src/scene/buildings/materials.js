@@ -14,6 +14,7 @@ import {
   variantRough,
   variantTexture,
   columnPaint,
+  lacquer,
   brickWall,
   stone,
   wood,
@@ -160,6 +161,35 @@ export function ornateStoneMaterial() {
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(2, 2);
     return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
+  });
+}
+
+/**
+ * 素漆（大漆）：柱身、槅扇框料、绦环板、裙板、垫板。
+ *
+ * ⚠ **不能用 AI 的 `wood.png`**。那张是一整幅**雕花木门照片**，
+ *   贴到 0.48m 的柱子上就成了"柱子上画了半扇门"，
+ *   而且同一块花纹在每根柱上原样重复 —— 这就是"浓的贴图感"的根源。
+ *
+ * 这里用程序化**素漆**：漆底 + 极淡竖纹 + 涂刷不匀，
+ * 没有图案、不可辨识，只提供"漆面"质感。
+ *
+ * @param {'red'|'black'} kind 漆色
+ * @param {number} seed 种子（不同构件给不同种子）
+ */
+export function lacquerMaterial(kind = 'red', seed = 1) {
+  const base = kind === 'black' ? '#2a211b' : '#9e2f27';
+  return make(`lacquer-${kind}`, () => {
+    const map = lacquer(base, seed).clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    // 一张漆纹覆盖约 0.6m：竖纹细到看不出是纹，只感到"漆面"
+    map.repeat.set(1, 1);
+    return new THREE.MeshStandardMaterial({
+      map,
+      roughness: kind === 'black' ? 0.55 : 0.42,
+      metalness: 0.04,
+    });
   });
 }
 
@@ -328,18 +358,25 @@ export function woodMaterial(variant = 0) {
   });
 }
 
+/**
+ * 槅扇的**格心**（棂条）。
+ *
+ * ⚠ **必须去掉 map**。
+ *   棂条本身已经是**实体几何**（`parts/lattice.js → buildBubuJin`，
+ *   一根根小方料拼出步步锦）。若再叠一张画着同样花纹的贴图，
+ *   就会出现"图案印在图案上"，而且贴图花纹会**逐扇原样重复** ——
+ *   这正是"浓的贴图感"的第二个来源。
+ *   现在只给素漆色，棂条由几何自己说话，缝里透出背后的暗色门洞。
+ */
 export function latticeMaterial(kind = 'bubu') {
-  return make(`lattice-${kind}`, () => {
-    const map = latticeWindow(kind);
-    return new THREE.MeshStandardMaterial({
-      map,
-      transparent: true,
-      alphaTest: 0.4,
+  return make(`lattice-${kind}`, () =>
+    new THREE.MeshStandardMaterial({
+      color: 0x6d4a3a, // 棂条：紫檀/栗色素木
+      roughness: 0.72,
+      metalness: 0.0,
       side: THREE.DoubleSide,
-      roughness: 0.85,
-      color: 0xffffff,
-    });
-  });
+    })
+  );
 }
 
 export function ceilingMaterial() {
@@ -454,6 +491,10 @@ function materialForBase(key, spec, glazed, tileColor, tileSpec) {
       return stoneMaterial(spec.variant ?? 0);
     case 'column':
       return columnMaterial(spec.columnColor);
+    case 'lacquer':
+      return lacquerMaterial('red');
+    case 'lacquerDark':
+      return lacquerMaterial('black');
     case 'caihua':
       return caihuaMaterial(spec.caihua);
     case 'dougong':

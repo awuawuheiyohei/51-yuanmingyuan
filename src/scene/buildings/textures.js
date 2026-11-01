@@ -557,6 +557,84 @@ export function caihua(style = 'xuanzi') {
 }
 
 /** 柱身：红底沥粉彩画（柱头缠枝 + 柱身素面） */
+/**
+ * **素漆**（大漆）：柱身、槅扇框料、绦环板、裙板、垫板用的漆面。
+ *
+ * ## 为什么要单独做一张
+ *
+ * `public/textures/wood.png` 是 AI 生成的**一张雕花木门照片**（红漆地 +
+ * 密集的金龙/花板浮雕）。它被贴到：
+ *   · 0.48m 直径的**柱子**上（一张门的局部）；
+ *   · 0.4m × 0.5m 的**槅扇裙板**上；
+ *   · 额枋下的**垫板**上。
+ *
+ * 结果就是**"浓的贴图感"**：一个柱子上出现半扇门的花纹，
+ * 同一块花纹在每根柱、每片裙板上原样重复 —— 一眼是贴图，不是构件。
+ *
+ * ## 真实的做法
+ *
+ * 清式官式建筑里：
+ *   · **柱子** = 素朱红漆（柱头一圈做彩画），柱身没有花纹；
+ *   · **槅扇框料** = 素朱红；**绦环板/裙板** = 素漆（多素黑）；
+ *   · 雕花与彩画只出现在**额枋、斗栱、檐檩**上 —— 那几处本来就该有彩画。
+ *
+ * 所以这里做一张**程序化素漆**：漆底 + 极淡的竖向木纹 + 轻微不匀，
+ * 没有图案、不可辨识、只提供"漆面"这个质感。
+ *
+ * @param {string} base 漆色（sRGB hex）
+ * @param {number} seed 随机种子（不同构件给不同种子，避免一模一样）
+ */
+export function lacquer(base = '#a8302a', seed = 1) {
+  const key = `lacquer-${base}-${seed}`;
+  if (cache.has(key)) return cache.get(key);
+  const W = 128;
+  const H = 256;
+  const c = makeCanvas(W, H);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(seed * 7919 + base.length * 131);
+  const col = new THREE.Color(base);
+
+  g.fillStyle = `#${col.getHexString()}`;
+  g.fillRect(0, 0, W, H);
+
+  // 竖向木纹：漆下隐约的木条纹理（官式大木是通长木料，纹是竖的）
+  for (let i = 0; i < 260; i++) {
+    const x = rnd() * W;
+    const y0 = rnd() * H;
+    const len = 30 + rnd() * 150;
+    const dark = rnd() < 0.5;
+    // ⚠ 对比要压得很低：漆下的木纹只是"隐约"，不是拉丝。
+    //   原来深色到 0.065，柱身在阳光下像金属管。
+    g.strokeStyle = dark
+      ? `rgba(0,0,0,${0.008 + rnd() * 0.018})`
+      : `rgba(255,255,255,${0.005 + rnd() * 0.012})`;
+    g.lineWidth = 0.7 + rnd() * 1.6;
+    g.beginPath();
+    g.moveTo(x, y0);
+    g.bezierCurveTo(x + (rnd() - 0.5) * 3, y0 + len * 0.4, x + (rnd() - 0.5) * 3, y0 + len * 0.7, x, y0 + len);
+    g.stroke();
+  }
+
+  // 漆面不匀：涂刷的厚薄不匀（大漆的常态）
+  for (let i = 0; i < 70; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = 12 + rnd() * 46;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    const up = rnd() < 0.5;
+    grd.addColorStop(0, up ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.05)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  const tex = toTexture(c);
+  cache.set(key, tex);
+  return tex;
+}
+
 export function columnPaint(color = '#a8302a') {
   const key = `col-${color}`;
   if (cache.has(key)) return cache.get(key);

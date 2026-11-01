@@ -1024,12 +1024,21 @@ export function steps(w, h, d, n = 5) {
  * 做法：一格一格**实体砖**（不是一张带花纹的贴图）；
  *      每格顶点贴地（按地面高程回调），不会浮在草皮上或穿帮。
  *
+ * ⚠ 2026-10-31 修：原来"最外一圈琉璃收边"是**整格蓝琉璃砖**（1.7m 一块），
+ *    每块之间还留 6% 的缝 —— 草皮从缝里透出来，
+ *    远看就是**一大片蓝绿相间的棋盘格**（蓝=琉璃、绿=草）。
+ *    真实做法是**一条窄的琉璃压边条**（约 0.4m 宽），砖与砖**相接无缝**。
+ *    现在：
+ *      · 收边改成 **0.42m 宽的连续压边带**（沿四边，不是整格）；
+ *      · 压边带由**逐块琉璃方砖相接**（缝隙 1cm，只露灰浆色）；
+ *      · 场地砖缝收到 1.5%，读作灰浆缝而不是草缝。
+ *
  * @param {number} w  铺装宽（X）
  * @param {number} d  铺装深（Z）
  * @param {number} cell 砖格边长
  * @param {Function} groundAt 局部坐标 → 地面高
  * @returns {{a:THREE.BufferGeometry, b:THREE.BufferGeometry, edge:THREE.BufferGeometry}}
- *          a/b 为奇偶两色铺地，edge 为最外一圈的琉璃收边
+ *          a/b 为奇偶两色铺地，edge 为四周的琉璃压边带
  */
 export function pavementField(w, d, cell, groundAt) {
   const a = [];
@@ -1040,8 +1049,10 @@ export function pavementField(w, d, cell, groundAt) {
   const sx = w / nx;
   const sz = d / nz;
   const lift = 0.07;
+  /** 砖缝：1.5% —— 读作灰浆缝，不是草缝 */
+  const GAP = 0.015;
   const tile = (cx, cz, tw, td) => {
-    const g = new THREE.PlaneGeometry(tw * 0.94, td * 0.94);
+    const g = new THREE.PlaneGeometry(tw * (1 - GAP), td * (1 - GAP));
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
     for (let k = 0; k < pos.count; k++) {
@@ -1058,12 +1069,53 @@ export function pavementField(w, d, cell, groundAt) {
       const cx = -w / 2 + sx * (i + 0.5);
       const cz = -d / 2 + sz * (j + 0.5);
       const border = i === 0 || j === 0 || i === nx - 1 || j === nz - 1;
+      // 边框不铺场地砖（琉璃压边带会盖住），避免两层重叠 z-fighting
+      if (border) continue;
       const g = tile(cx, cz, sx, sz);
-      if (border) edge.push(g);
-      else if ((i + j) % 2 === 0) a.push(g);
+      if ((i + j) % 2 === 0) a.push(g);
       else b.push(g);
     }
   }
+
+  /**
+   * 琉璃压边带：沿四边各铺一排**小琉璃方砖**（约 0.42m 一块），
+   * 砖与砖相接（缝隙 1cm），高度略高于场地砖（压边）。
+   */
+  const EDGE_W = 0.42;
+  const EDGE_LIFT = lift + 0.035;
+  const edgeTile = (cx, cz, tw, td, rot) => {
+    const g = new THREE.PlaneGeometry(tw, td);
+    g.rotateX(-Math.PI / 2);
+    if (rot) g.rotateY(rot);
+    const pos = g.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      const gy = groundAt ? groundAt(pos.getX(k) + cx, pos.getZ(k) + cz) : 0;
+      pos.setY(k, gy + EDGE_LIFT);
+    }
+    g.computeVertexNormals();
+    worldUV(g);
+    g.translate(cx, 0, cz);
+    return g;
+  };
+  // 南北两条（沿 X 排）
+  const nEdgeX = Math.max(1, Math.round(w / 0.42));
+  const ex = w / nEdgeX;
+  for (const sz0 of [-d / 2 + EDGE_W / 2, d / 2 - EDGE_W / 2]) {
+    for (let i = 0; i < nEdgeX; i++) {
+      edge.push(edgeTile(-w / 2 + ex * (i + 0.5), sz0, ex * 0.99, EDGE_W, 0));
+    }
+  }
+  // 东西两条（沿 Z 排），避开已铺的南北角
+  const nEdgeZ = Math.max(1, Math.round((d - EDGE_W * 2) / 0.42));
+  const ez = (d - EDGE_W * 2) / nEdgeZ;
+  for (const sx0 of [-w / 2 + EDGE_W / 2, w / 2 - EDGE_W / 2]) {
+    for (let j = 0; j < nEdgeZ; j++) {
+      edge.push(
+        edgeTile(sx0, -d / 2 + EDGE_W + ez * (j + 0.5), EDGE_W, ez * 0.99, Math.PI / 2)
+      );
+    }
+  }
+
   return { a: mergeAll(a), b: mergeAll(b), edge: mergeAll(edge) };
 }
 
