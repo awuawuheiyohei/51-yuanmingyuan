@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { BBOX, LON0, LAT0 } from './config.mjs';
 import { SCENE_PROGRAM } from '../src/scene/scenes-program.js';
-import { deriveDimensions } from '../src/scene/buildings/modular.js';
+import { deriveDimensions, separateFootprints } from '../src/scene/buildings/modular.js';
 import { defaultForm } from '../src/scene/buildings/index.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -666,10 +666,86 @@ async function main() {
     corridorCandidates.push({ line, len });
   }
   corridorCandidates.sort((a, b) => b.len - a.len);
-  // 成线后再切掉跨水段：长廊不能从湖面上架过去
+  /**
+   * 四十景建筑的**占地**（主殿 + 配殿）。
+   *
+   * ⚠ 游廊必须避开它们：长廊从殿宇里穿过去，就是**穿模**——
+   *   廊的屋面与殿的屋面交叠，廊柱插进殿身，远看是"廊穿殿"。
+   *   游廊选线只看"离景点近不近"，不看"会不会撞上殿" ⇒ 必须补这一刀。
+   *
+   * 尺寸由斗口制模数推导（`modular.js`），所以建筑变宽变高时
+   * 这里自动跟着变，不会漏判。
+   */
+  /** 与 layout.js 的 OVERHANG_PAD 必须一致（出檐 + 翼角起翘余量） */
+  const PAD = 1.6;
+  const sceneFootprints = [];
+  for (const s2 of sceneOut) {
+    const prog = SCENE_PROGRAM[s2.name];
+    if (!prog || !prog.main) continue;
+    const D = deriveDimensions({
+      mian: prog.main.mian,
+      jin: prog.main.jin,
+      rank: prog.rank,
+      platform: prog.main.platform,
+      roof: prog.main.roof,
+    });
+    const fp = [{ x: 0, z: 0, hw: D.width / 2 + PAD, hd: D.depth / 2 + PAD }];
+    for (const a of prog.aux || []) {
+      const af = defaultForm(a.rank);
+      const AD = deriveDimensions({
+        mian: a.mian ?? af.mian,
+        jin: a.jin ?? af.jin,
+        rank: a.rank,
+        platform: a.rank === 'pavilion' ? 'none' : 'simple',
+        roof: af.roof,
+      });
+      fp.push({ x: a.x, z: a.z, hw: AD.width / 2 + PAD, hd: AD.depth / 2 + PAD });
+    }
+    // ⚠ **必须用与布局同一份分离算法**（`modular.js → separateFootprints`）：
+    //   配殿会被推开，若这里还用原始方位去切游廊，
+    //   推开的配殿就正好落在没被切掉的游廊上 ⇒ 廊穿殿。
+    const sep = separateFootprints(fp, PAD);
+    for (let k = 0; k < fp.length; k++) {
+      sceneFootprints.push({
+        x: s2.x + sep[k].x,
+        z: s2.z + sep[k].z,
+        r: Math.hypot(fp[k].hw, fp[k].hd) - PAD, // 保守：取外接圆（去掉已计的余量）
+      });
+    }
+  }
+  /** 该点是否落在四十景建筑里（留 2.5m 余量给屋面出檐） */
+  const inSceneBuilding = (x, z) =>
+    sceneFootprints.some((f) => Math.hypot(x - f.x, z - f.z) < f.r + 2.5);
+
+  /**
+   * 切线之前先把折线**加密**。
+   *
+   * ⚠ `splitBy` 只在**折线顶点**上判定：OSM 的路径顶点可能相距十几米，
+   *   一座只有几米宽的殿宇正好落在两个顶点之间 —— 判定不到，
+   *   游廊就从殿里穿过去了（廊顶与殿顶交叠 = 穿模）。
+   *   先按 3m 加密，逐点判定就不会漏。
+   */
+  const densify = (line, step = 3) => {
+    const out = [line[0]];
+    for (let i = 0; i < line.length - 1; i++) {
+      const [x1, z1] = line[i];
+      const [x2, z2] = line[i + 1];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      const n = Math.max(1, Math.ceil(len / step));
+      for (let k = 1; k <= n; k++) {
+        out.push([x1 + ((x2 - x1) * k) / n, z1 + ((z2 - z1) * k) / n]);
+      }
+    }
+    return out;
+  };
+
+  // 成线后再切掉跨水段与穿殿段：长廊不能从湖面上架过去，也不能从殿里穿过去
   const corridors = [];
   for (const c of corridorCandidates.slice(0, 14)) {
-    for (const run of splitBy(c.line, (x, z) => inGarden(x, z) && !inAnyWater(x, z))) {
+    for (const run of splitBy(
+      densify(c.line),
+      (x, z) => inGarden(x, z) && !inAnyWater(x, z) && !inSceneBuilding(x, z)
+    )) {
       let l = 0;
       for (let i = 0; i < run.length - 1; i++)
         l += Math.hypot(run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1]);

@@ -17,7 +17,7 @@ import {
 import { buildWesternEnsemble } from './western.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM, TILE_COLORS } from './scenes-program.js';
-import { deriveDimensions } from './buildings/modular.js';
+import { deriveDimensions, separateFootprints } from './buildings/modular.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -298,47 +298,18 @@ function buildSceneCluster(scene, heightAt, rnd) {
    * ⚠ 判据用**屋面外轮廓**（含出檐），不是柱网：
    *   穿模的是屋面，不是墙体。
    */
-  const OVERHANG_PAD = 1.6; // 出檐 + 翼角起翘的余量（米）
-  /** 已放置建筑的包围盒（含出檐） */
-  const placed = [];
-  const mainHalfW = D.width / 2;
-  const mainHalfD = D.depth / 2;
-  placed.push({
-    x: 0,
-    z: 0,
-    halfW: mainHalfW + OVERHANG_PAD,
-    halfD: mainHalfD + OVERHANG_PAD,
-  });
+  const OVERHANG_PAD = 1.6; // 屋面出檐 + 翼角起翘的余量（米）
 
-  /** 把 (x,z) 推到与所有已放置建筑都不重叠的位置（保持方位意图） */
-  const separate = (x, z, halfW, halfD) => {
-    let nx = x;
-    let nz = z;
-    for (let iter = 0; iter < 8; iter++) {
-      let moved = false;
-      for (const p of placed) {
-        // X 方向重叠？
-        if (Math.abs(nx - p.x) < halfW + p.halfW) {
-          // Z 方向也重叠？→ 沿**较近的轴**推开
-          const overlapX = halfW + p.halfW - Math.abs(nx - p.x);
-          const overlapZ = halfD + p.halfD - Math.abs(nz - p.z);
-          if (overlapZ > 0) {
-            if (overlapX >= overlapZ) {
-              const dir = nx >= p.x ? 1 : -1;
-              nx = p.x + dir * (halfW + p.halfW);
-            } else {
-              const dir = nz >= p.z ? 1 : -1;
-              nz = p.z + dir * (halfD + p.halfD);
-            }
-            moved = true;
-          }
-        }
-      }
-      if (!moved) break;
-    }
-    return [nx, nz];
-  };
-
+  /**
+   * 配建筑群：先算每座配殿的尺寸，**再统一做占地分离**，
+   * 最后按分离后的位置摆放。
+   *
+   * ⚠ 分离算法只有一份（`modular.js → separateFootprints`）：
+   *   数据构建脚本（`scripts/build-scene.mjs`）要用同一份结果
+   *   去把游廊从殿宇旁边切走 —— 两边各写一份，配殿被推开后
+   *   就会压在游廊上 ⇒ **廊穿殿**。
+   */
+  const auxSpecs = [];
   for (const a of program.aux || []) {
     const af = defaultForm(a.rank);
     const mian = a.mian ?? af.mian;
@@ -353,14 +324,29 @@ function buildSceneCluster(scene, heightAt, rnd) {
       platform: a.rank === 'pavilion' ? 'none' : 'simple',
       roof: af.roof,
     });
+    // 考据实记了檐高的才用实记值（`a.eave`），否则用模数推导
+    const eh = a.eave != null ? a.eave : AD.eaveY - AD.platformH;
+    auxSpecs.push({ a, af, mian, jin, AD, eh });
+  }
+
+  // 占地：主殿在原点，配殿按各自的方位意图
+  const footprints = [
+    { x: 0, z: 0, hw: D.width / 2 + OVERHANG_PAD, hd: D.depth / 2 + OVERHANG_PAD },
+    ...auxSpecs.map((s2) => ({
+      x: s2.a.x,
+      z: s2.a.z,
+      hw: s2.AD.width / 2 + OVERHANG_PAD,
+      hd: s2.AD.depth / 2 + OVERHANG_PAD,
+    })),
+  ];
+  const separated = separateFootprints(footprints, OVERHANG_PAD);
+
+  for (let i = 0; i < auxSpecs.length; i++) {
+    const { a, af, mian, jin, AD, eh } = auxSpecs[i];
     const w = AD.width;
     const d = AD.depth;
     const ph = AD.platformH;
-    // 考据实记了檐高的才用实记值（`a.eave`），否则用模数推导
-    const eh = a.eave != null ? a.eave : AD.eaveY - AD.platformH;
-
-    // 碰撞规避：保持方位意图，只把距离拉开到不重叠
-    const [ax, az] = separate(a.x, a.z, w / 2 + OVERHANG_PAD, d / 2 + OVERHANG_PAD);
+    const { x: ax, z: az } = separated[i + 1];
 
     const b = place(
       {
@@ -399,13 +385,6 @@ function buildSceneCluster(scene, heightAt, rnd) {
       az,
       a.rot || 0
     );
-    // 登记入已放置集合，供后续配殿避让
-    placed.push({
-      x: ax,
-      z: az,
-      halfW: w / 2 + OVERHANG_PAD,
-      halfD: d / 2 + OVERHANG_PAD,
-    });
     // 有实名者把名字挂到建筑上，便于巡游与核查
     if (a.name) {
       b.name = a.name;

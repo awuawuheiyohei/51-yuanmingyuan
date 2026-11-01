@@ -493,6 +493,51 @@ export function deriveAnnex(p) {
   return deriveDimensions({ ...p, rank });
 }
 
+/**
+ * **占地分离**：把配殿推到不与主殿（及彼此）重叠的位置。
+ *
+ * ⚠ 这个算法**必须只有一份**：布局（`layout.js`）与数据构建
+ *   （`scripts/build-scene.mjs`，用来让游廊避开建筑）都要用它。
+ *   两边各写一份的话，配殿被推开后就会压在游廊上 ⇒ **廊穿殿**。
+ *
+ * @param {{x:number,z:number,hw:number,hd:number}[]} footprints
+ *        第一项是主殿（原地不动），其余是配殿
+ * @param {number} pad 屋面出檐余量（米）
+ * @returns {{x:number,z:number}[]} 各占地的最终位置（局部坐标）
+ */
+export function separateFootprints(footprints, pad = 1.6) {
+  const placed = footprints.map((f) => ({ ...f }));
+  const out = [];
+  for (let i = 0; i < placed.length; i++) {
+    const f = placed[i];
+    let nx = f.x;
+    let nz = f.z;
+    for (let iter = 0; iter < 8; iter++) {
+      let moved = false;
+      for (let k = 0; k < placed.length; k++) {
+        if (k === i) continue;
+        const q = placed[k];
+        if (Math.abs(nx - q.x) < f.hw + q.hw + pad) {
+          const overlapX = f.hw + q.hw + pad - Math.abs(nx - q.x);
+          const overlapZ = f.hd + q.hd + pad - Math.abs(nz - q.z);
+          if (overlapZ > 0) {
+            if (overlapX >= overlapZ) {
+              nx = q.x + (nx >= q.x ? 1 : -1) * (f.hw + q.hw + pad);
+            } else {
+              nz = q.z + (nz >= q.z ? 1 : -1) * (f.hd + q.hd + pad);
+            }
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+    placed[i] = { ...f, x: nx, z: nz };
+    out.push({ x: nx, z: nz });
+  }
+  return out;
+}
+
 /* ================================================================== *
  * 四、校验
  * ================================================================== */
