@@ -107,6 +107,9 @@ function buildSceneCluster(scene, heightAt, rnd) {
     buildSeq++;
     const b = buildBuilding({
       ...spec,
+      // 每座建筑一个稳定的 UV 种子：彩画带/铺地在贴图里错开起点，
+      // 避免"每栋殿都是同一条印上去的带子"（不动材质，不加 draw call）
+      uvSeed: (hash(scene.name) + buildSeq * 7919) % 100000,
       rise: (spec.rise ?? 3) * (0.94 + r() * 0.13),
       eaveY: spec.eaveY != null ? spec.eaveY * (0.975 + r() * 0.05) : spec.eaveY,
       position: [
@@ -431,17 +434,38 @@ function buildSceneCluster(scene, heightAt, rnd) {
     const y0 = heightAt(scene.x, scene.z);
     const halfY = Math.max(14, half * 0.92);
     // 墁砖地：一张略带起伏的砖面（起伏交给顶点，边缘下沉埋进土里）
-    const pave = new THREE.PlaneGeometry(halfY * 2, halfY * 1.72, 6, 5);
+    const pave = new THREE.PlaneGeometry(halfY * 2, halfY * 1.72, 26, 22);
     pave.rotateX(-Math.PI / 2);
     const pos = pave.attributes.position;
+    // 顶点色：大尺度色偏，打散"一张贴图铺满全院"的重复感。
+    // 波长取 30~80m（**不能用低频**：波长 180m 会变成"地毯上一块块深浅"）。
+    const pcol = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       const px = pos.getX(i);
       const pz = pos.getZ(i);
       const edge = Math.max(Math.abs(px) / halfY, Math.abs(pz) / (halfY * 0.86));
       const bump = Math.sin(px * 1.7) * Math.cos(pz * 1.9) * 0.012;
       pos.setY(i, 0.06 + bump - edge * edge * 0.10);
+      const low = Math.sin(px * 0.038 + 1.1) * 0.5 + Math.cos(pz * 0.041 - 0.6) * 0.5;
+      const mid = Math.sin(px * 0.021 - 0.3) * 0.5 + Math.cos(pz * 0.026 + 0.9) * 0.4;
+      const k = 1 + low * 0.030 + mid * 0.018;
+      pcol[i * 3] = k * (1 + mid * 0.012);
+      pcol[i * 3 + 1] = k;
+      pcol[i * 3 + 2] = k * (1 - low * 0.012);
     }
+    pave.setAttribute('color', new THREE.BufferAttribute(pcol, 3));
     pave.computeVertexNormals();
+    // 逐景错开贴图起点：否则每个院子的墁砖地是同一张贴图，
+    // 俯视时全园是一张铺满的"花地毯"。
+    {
+      const uv = pave.attributes.uv;
+      const su = (hash(scene.name) % 97) / 97;
+      const sv = (hash(scene.name) % 61) / 61;
+      for (let k = 0; k < uv.count; k++) {
+        uv.setXY(k, uv.getX(k) + su, uv.getY(k) + sv);
+      }
+      uv.needsUpdate = true;
+    }
     pave.translate(scene.x, y0, scene.z);
     const paveMesh = new THREE.Mesh(pave, paveMaterial(halfY * 2, halfY * 1.72));
     paveMesh.name = 'paving';

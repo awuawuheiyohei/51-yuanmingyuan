@@ -281,6 +281,9 @@ export function paveMaterial(sizeX, sizeZ) {
       normalMap: nrm || null,
       normalScale: new THREE.Vector2(0.55, 0.55),
       color: 0xa9a49a,
+      // 顶点色用来**打散贴图的重复感**（大尺度明暗/色偏），
+      // 与地形用的是同一套办法。逐顶点调制，不改贴图、不加 draw call。
+      vertexColors: true,
       roughness: 0.97,
     });
   });

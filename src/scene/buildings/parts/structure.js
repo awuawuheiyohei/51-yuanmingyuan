@@ -475,17 +475,50 @@ export function buildStructure(spec) {
   /* ------------------------------------------------------- 额枋 + 彩画 */
   const beamY = floorY + colH + beamH / 2;
 
-  const addBeam = (len, x, z, alongX) => {
+  /**
+   * 额枋（彩画）。
+   *
+   * ⚠ **每座建筑的彩画带必须在贴图里错开起点**。
+   *   否则整条檐口是**同一段贴图原样重复** —— 远看就是一条
+   *   "印上去的彩画带"，每栋殿一模一样，一眼假。
+   *
+   *   做法：按 `spec.uvSeed`（每座建筑一个稳定的随机种子）
+   *   给这组几何的 UV 加一个偏移。**UV 是逐几何的**，
+   *   不动材质实例 ⇒ **draw call 不增加**。
+   */
+  const uvSeed = spec.uvSeed ?? 0;
+  const uOff = ((uvSeed * 37) % 97) / 97;
+  const vOff = ((uvSeed * 61) % 89) / 89;
+  const offsetUV = (g) => {
+    const uv = g.attributes.uv;
+    if (!uv) return g;
+    for (let k = 0; k < uv.count; k++) {
+      uv.setXY(k, uv.getX(k) + uOff, uv.getY(k) + vOff);
+    }
+    uv.needsUpdate = true;
+    return g;
+  };
+
+  const addBeam = (len, x, z, alongX, extraOff = 0) => {
     const g = alongX
       ? new THREE.BoxGeometry(len, beamH, beamD)
       : new THREE.BoxGeometry(beamD, beamH, len);
+    // 每开间再错开一点：相邻两间的彩画也不能是同一段贴图
+    const uv = g.attributes.uv;
+    if (uv) {
+      for (let k = 0; k < uv.count; k++) {
+        uv.setXY(k, uv.getX(k) + uOff + extraOff, uv.getY(k) + vOff);
+      }
+      uv.needsUpdate = true;
+    }
     g.translate(x, beamY, z);
     bucket(geoms, KEY.caihua).push(g);
   };
   // 前后檐枋（沿 X）—— 每开间**按各自宽度**分段，明间枋自然最长
   for (const j of [0, jin]) {
     for (let i = 0; i < mian; i++) {
-      addBeam(bayWidths[i], (colXs[i] + colXs[i + 1]) / 2, colZs[j], true);
+      // 相邻开间的彩画在贴图里也错开（明间与次间的彩画内容本就不同）
+      addBeam(bayWidths[i], (colXs[i] + colXs[i + 1]) / 2, colZs[j], true, (i % 7) * 0.137);
     }
   }
   // 两山檐枋（沿 Z）
