@@ -683,6 +683,73 @@ export function columnPaint(color = '#a8302a') {
 /* -------------------------------------------------------------- 墙 / 石 */
 
 /** 灰砖墙 */
+/**
+ * **墁砖地**（官式方砖铺地）的专用贴图。
+ *
+ * ## 为什么不能用 `brickWall()`
+ *
+ * `brickWall()` 是**墙面**贴图：顺砖砌、每皮错半砖。
+ * 把它铺在地上 —— 砖的长边是横向的、砖缝是横向通长的 ——
+ * 读着像"乱石地/花地毯"，根本不是官式**方砖墁地**。
+ * 官式院落的墁砖地是**方砖**（约 0.4~0.5m 见方）**正缝对格**铺设。
+ *
+ * ## 规格
+ *   · 1024px = 16×16 块方砖 ⇒ 每块 64px
+ *   · 一块方砖 = 0.5m ⇒ **一张贴图覆盖 8m × 8m**
+ *   · 砖缝 5px ≈ 4cm（真实的灰浆缝）
+ *   · **每块砖有独立的色偏**（不同窑口的方砖颜色本就有差），
+ *     这也是打散 8m 贴图周期的主要手段
+ *
+ * @param {string} tint 砖色（sRGB hex）
+ */
+export function paveBrick(tint = '#9c968b') {
+  // ⚠ **刻意不用 AI 覆盖**：AI 的 brick 是**墙面顺砖图**，
+  //   铺在地上读着是"乱石地"。墁砖地必须用方砖正缝网格。
+  const key = `pavebrick-${tint}`;
+  if (cache.has(key)) return cache.get(key);
+  const S = 1024;
+  const N = 16; // 每边 16 块方砖
+  const cell = S / N;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(20261031);
+  const base = new THREE.Color(tint);
+
+  // 灰浆缝底色（比砖深）
+  g.fillStyle = '#6f6a62';
+  g.fillRect(0, 0, S, S);
+
+  for (let r = 0; r < N; r++) {
+    for (let q = 0; q < N; q++) {
+      // 逐块色偏：±7% 明度 + ±2% 色相 —— 真实方砖是分窑烧的
+      const v = 0.93 + rnd() * 0.14;
+      const warm = (rnd() - 0.5) * 0.06;
+      const col = base.clone();
+      col.offsetHSL(warm, (rnd() - 0.5) * 0.04, (v - 1) * 0.22);
+      const x = q * cell;
+      const y = r * cell;
+      g.fillStyle = `#${col.getHexString()}`;
+      g.fillRect(x + 2.5, y + 2.5, cell - 5, cell - 5);
+
+      // 砖面细颗粒 + 轻微磨光（方砖是磨过的，不像墙砖粗糙）
+      for (let k = 0; k < 90; k++) {
+        const px = x + 3 + rnd() * (cell - 6);
+        const py = y + 3 + rnd() * (cell - 6);
+        const a = rnd() * 0.05;
+        g.fillStyle = rnd() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
+        g.fillRect(px, py, 1 + rnd() * 2, 1 + rnd() * 2);
+      }
+      // 砖的四边微暗（磨圆的棱）
+      g.strokeStyle = 'rgba(0,0,0,0.10)';
+      g.lineWidth = 1.4;
+      g.strokeRect(x + 3.2, y + 3.2, cell - 6.4, cell - 6.4);
+    }
+  }
+  const tex = toTexture(c);
+  cache.set(key, tex);
+  return tex;
+}
+
 export function brickWall(tint = '#8d8a84') {
   if (OVERRIDE.brick) return OVERRIDE.brick;
   const key = `brick-${tint}`;
@@ -694,7 +761,10 @@ export function brickWall(tint = '#8d8a84') {
   const rnd = mulberry32(999);
   g.fillStyle = tint;
   g.fillRect(0, 0, W, H);
-  const rows = 16;
+  // ⚠ **8 皮砖**（原来 16 皮）：清式城砖约 0.4m × 0.2m，
+  //   8 皮 ⇒ 一张贴图 = 8 × 0.2 = **1.6m × 1.6m**。
+  //   16 皮时一张贴图是 3.2m，用在 5m 宽的墙上砖就小了一半。
+  const rows = 8;
   const bh = H / rows;
   for (let r = 0; r < rows; r++) {
     const offset = r % 2 ? bh : 0;
@@ -806,6 +876,75 @@ export function plaqueBoard(text, vertical = false) {
  *   ② 竖向的水痕——雨水从檐口冲下来留下的流痕
  *   ③ 墙根积尘、墙头被雨水冲淡
  */
+/**
+ * **抹红灰砖墙**（清式官墙）：红灰抹面 + 隐约的砖缝。
+ *
+ * ## 为什么不用 AI 的那张
+ *
+ * AI 的 `brick.png` 砖块大小不可控（不同变体不同），而"砖的真实尺寸"
+ * 必须**确定**：清式城砖约 **0.4m × 0.2m**。
+ * 这里固定成 **8 皮 × 4 块 = 一张贴图 1.6m × 1.6m**，
+ * 于是每块砖恒为 0.4m × 0.2m —— 无论墙有多大。
+ *
+ * 墙面 UV 由几何缩放（`structure.js → scaleBoxUV`，tile = 1.6m），
+ * 材质 repeat 归 (1,1)。
+ */
+export function redBrick() {
+  const key = 'redbrick';
+  if (cache.has(key)) return cache.get(key);
+  const S = 256;
+  const COURSES = 8;
+  const cell = S / COURSES; // 32px 一皮
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(31337);
+
+  g.fillStyle = '#9a4438';
+  g.fillRect(0, 0, S, S);
+
+  // 砖：每皮错半砖，每块 2:1
+  for (let r = 0; r < COURSES; r++) {
+    const off = r % 2 ? cell : 0;
+    for (let x = -cell; x < S; x += cell * 2) {
+      const v = 0.9 + rnd() * 0.2;
+      g.fillStyle = `rgba(${Math.floor(168 * v)},${Math.floor(72 * v)},${Math.floor(60 * v)},1)`;
+      g.fillRect(x + off + 1.2, r * cell + 1.2, cell * 2 - 2.4, cell - 2.4);
+    }
+  }
+  // 抹红灰：正片叠底压成砖红
+  g.globalCompositeOperation = 'multiply';
+  g.fillStyle = '#d7a396';
+  g.fillRect(0, 0, S, S);
+  g.globalCompositeOperation = 'source-over';
+  // 薄灰浆：砖缝的硬对比化掉（抹灰墙的砖缝是"隐约"，不是黑线）
+  g.fillStyle = 'rgba(206,150,138,0.30)';
+  g.fillRect(0, 0, S, S);
+  // 抹灰不匀：一块块的深浅
+  for (let i = 0; i < 80; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 14 + rnd() * 52;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    const dark = rnd() < 0.5;
+    grd.addColorStop(0, dark ? 'rgba(88,40,34,0.17)' : 'rgba(228,182,170,0.13)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  // 轻微竖向水痕（雨水从墙头流下）
+  for (let i = 0; i < 18; i++) {
+    const x = rnd() * S;
+    g.fillStyle = `rgba(120,80,72,${0.03 + rnd() * 0.05})`;
+    g.fillRect(x, 0, 1 + rnd() * 3, S);
+  }
+
+  const tex = toTexture(c);
+  cache.set(key, tex);
+  return tex;
+}
+
 export function redWall(variant = 0) {
   const key = `redwall-${variant}`;
   if (cache.has(key)) return cache.get(key);

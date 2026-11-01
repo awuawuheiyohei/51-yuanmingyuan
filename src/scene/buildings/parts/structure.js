@@ -272,6 +272,48 @@ import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
 import { buildShanGeParts } from './lattice.js';
 import { buildColumnBase } from './details.js';
 
+
+/**
+ * 把 BoxGeometry 的 UV 按**真实米数**缩放。
+ *
+ * ## 为什么必须做
+ *
+ * `brickWall()` / `redWall()` 一张贴图是 **16 皮砖**，
+ * 每皮砖高 = 贴图高/16，砖长 = 砖高的 2 倍 ⇒
+ * 若砖的真实尺寸是 0.4m × 0.2m，则**一张贴图 = 3.2m × 3.2m**。
+ *
+ * 原来材质上写死 `repeat.set(4, 2)`，贴到 5m 宽的墙板上 ⇒
+ * 一张贴图只占 1.25m × 2.5m ⇒ 砖变成 **0.156m 见方**（还丢了 2:1 长宽比）。
+ * 远看墙面像"红色马赛克"，不是砖墙。
+ *
+ * 现在把几何的 UV 缩放到「一张贴图 = 1.6m」，材质 repeat 归 (1,1)，
+ * 于是**每面墙的砖都是真实尺寸**，无论墙有多大。
+ *
+ * BoxGeometry 的 UV 分组顺序：px, nx, py, ny, pz, nz，每面 4 个顶点。
+ *   px/nx：u 沿 z，v 沿 y
+ *   py/ny：u 沿 x，v 沿 z
+ *   pz/nz：u 沿 x，v 沿 y
+ */
+function scaleBoxUV(geo, w, h, d, tile = 1.6) {
+  const uv = geo.attributes.uv;
+  if (!uv) return geo;
+  const per = 4;
+  const face = (start, su, sv) => {
+    for (let k = 0; k < per; k++) {
+      const i = start + k;
+      uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+    }
+  };
+  face(0, d / tile, h / tile); // +X
+  face(per, d / tile, h / tile); // -X
+  face(per * 2, w / tile, d / tile); // +Y
+  face(per * 3, w / tile, d / tile); // -Y
+  face(per * 4, w / tile, h / tile); // +Z（正面，最重要）
+  face(per * 5, w / tile, h / tile); // -Z
+  uv.needsUpdate = true;
+  return geo;
+}
+
 const KEY = {
   stone: 'stone',
   column: 'column',
@@ -662,12 +704,16 @@ export function buildStructure(spec) {
   const wallH = wallTop - floorY;
   if (wallH > 0.2) {
     // 后墙（北，-Z）/ 两侧山墙：实墙（收进柱径，露出角柱）
-    const back = new THREE.BoxGeometry(width - colDia, wallH, wallThick);
+    const backW = width - colDia;
+    const back = new THREE.BoxGeometry(backW, wallH, wallThick);
+    scaleBoxUV(back, backW, wallH, wallThick);
     back.translate(0, floorY + wallH / 2, -depth / 2 + wallThick / 2);
     bucket(geoms, KEY.wall).push(back);
 
     for (const sx of [-1, 1]) {
-      const side = new THREE.BoxGeometry(wallThick, wallH, depth - colDia);
+      const sideD = depth - colDia;
+      const side = new THREE.BoxGeometry(wallThick, wallH, sideD);
+      scaleBoxUV(side, wallThick, wallH, sideD);
       side.translate(sx * (width / 2 - wallThick / 2), floorY + wallH / 2, 0);
       bucket(geoms, KEY.wall).push(side);
 
@@ -759,7 +805,9 @@ export function buildStructure(spec) {
           bucket(geoms, KEY.plaque).push(board);
         }
       } else {
-        const panel = new THREE.BoxGeometry(bw - colDia, wallH, wallThick);
+        const panelW = bw - colDia;
+        const panel = new THREE.BoxGeometry(panelW, wallH, wallThick);
+        scaleBoxUV(panel, panelW, wallH, wallThick);
         panel.translate(cx, floorY + wallH / 2, frontZ);
         bucket(geoms, KEY.wall).push(panel);
       }

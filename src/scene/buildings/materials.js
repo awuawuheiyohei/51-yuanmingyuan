@@ -16,6 +16,8 @@ import {
   columnPaint,
   lacquer,
   brickWall,
+  paveBrick,
+  redBrick,
   stone,
   wood,
   caoJing,
@@ -217,14 +219,19 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
   return make(`wall-${type}-${tint || 'd'}-v${variant}`, () => {
     // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳、水痕都要在。
     if (type === 'red') {
-      const map = redWall(variant).clone();
+      // 抹红灰砖墙用**网格已知**的程序化贴图（8 皮 × 4 块 = 1.6m），
+      // AI 那张的砖块大小不可控 ⇒ 砖的真实尺寸定不下来。
+      const map = redBrick().clone();
       map.needsUpdate = true;
       map.wrapS = map.wrapT = THREE.RepeatWrapping;
-      map.repeat.set(4, 2);
+      // ⚠ repeat 归 (1,1)：**砖的真实尺寸由几何的 UV 决定**
+      //   （`structure.js → scaleBoxUV`，一张贴图 = 3.2m）。
+      //   材质上再乘 repeat 就会把砖缩到 0.16m 见方，远看是马赛克不是砖墙。
+      map.repeat.set(1, 1);
       const nrm = variantNormal('brick', variant);
       const rgh = variantRough('brick', variant);
-      if (nrm) nrm.repeat.set(4, 2);
-      if (rgh) rgh.repeat.set(4, 2);
+      if (nrm) nrm.repeat.set(1, 1);
+      if (rgh) rgh.repeat.set(1, 1);
       return new THREE.MeshStandardMaterial({
         map,
         normalMap: nrm || null,
@@ -237,7 +244,8 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
     const map = brickWall().clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(3, 2);
+    // 同红墙：砖的尺寸由几何 UV 决定（一张贴图 = 3.2m），材质不再缩放
+    map.repeat.set(1, 1);
     return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
   });
 }
@@ -267,10 +275,14 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
  * @param {number} sizeZ 铺装面 Z 向尺寸（米）
  */
 export function paveMaterial(sizeX, sizeZ) {
-  const rx = Math.max(1, Math.round(sizeX / 1.5));
-  const rz = Math.max(1, Math.round(sizeZ / 1.5));
+  // ⚠ **必须按真实米数算**：一张墁砖贴图 = 16×16 块方砖 = 8m × 8m。
+  //   原来用的是**墙面**砖贴图（顺砖、3 块 × 6 皮），一张只 1.5m ——
+  //   地面上铺的是"墙砖图案"，看着像乱石地。
+  const TILE_M = 8;
+  const rx = Math.max(1, Math.round(sizeX / TILE_M));
+  const rz = Math.max(1, Math.round(sizeZ / TILE_M));
   return make(`pave-${rx}x${rz}`, () => {
-    const map = (variantTexture('brick', 0) || brickWall()).clone();
+    const map = paveBrick().clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(rx, rz);
