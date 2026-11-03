@@ -266,7 +266,7 @@ function buildRoofFrame(opts) {
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { buildDougongSet, dougongProjection, dougongHeight } from './dougong.js';
+import { buildDougongParts, dougongProjection, dougongHeight } from './dougong.js';
 import { DK } from '../modular.js';
 import { buildXumizuo, buildSteps, buildRailing } from './platform.js';
 import { buildShanGeParts } from './lattice.js';
@@ -319,6 +319,12 @@ const KEY = {
   column: 'column',
   caihua: 'caihua',
   dougong: 'dougong',
+  /**
+   * 斗栱的**勾头线脚**单独一档材质（白粉沥粉贴金）。
+   * ⚠ 桶键必须与 `materials.js` 的 `materialFor` switch **一一对应**，
+   *   漏一个就落到 default 分支 ⇒ 0x999999 的灰板子。
+   */
+  dougongTrim: 'dougongTrim',
   wall: 'wall',
   wood: 'wood',
   lattice: 'lattice',
@@ -597,21 +603,64 @@ export function buildStructure(spec) {
      * 斗栱的模数就是斗口，与柱子同一模数（斗口制的核心）。
      */
     const dgScale = spec.dougongScale ?? (colDia / 0.3);
-    const unit = buildDougongSet(dgScale, 'x');
+    const unit = buildDougongParts(dgScale, 'x');
     /** 攒距（相邻斗栱中心距）= 11 斗口 */
     // ⚠ 必须防住 0：小式建筑没有斗口（doukou = 0），
     //   `span / 0` = Infinity → `Math.round(Infinity)` = Infinity
     //   → for 循环永不结束 ⇒ **整个场景构建挂死**（浏览器白屏）。
     const zanDang = DK.zanDang * (spec.doukou || colDia / 6);
 
+    /**
+     * **柱头枋（平板枋）** —— 清式斗栱的承托件。
+     *
+     * 高 1 斗口、宽 3 斗口，沿南北 / 东西双向通长，在柱头上十字相交，
+     * 端头正好承住 3 斗口见方的**坐斗**。
+     *
+     * ⚠ 没有它会怎样：坐斗（3 斗口见方 = 0.24m）坐在 0.48m 直径的**圆**柱顶上，
+     *   只有中间一小块有接触，两侧是悬空的 —— 近看就是"柱子顶着个悬空的斗"。
+     */
+    const dk = spec.doukou || colDia / 6;
+    const fangH = dk; // 高 1 斗口
+    const fangW = dk * 3; // 宽 3 斗口
+    /**
+     * 坐斗的外移量：让坐斗**骑在柱头枋的端头**上，
+     * 同时让斗栱探到额枋（彩画）**外侧** ——
+     * 否则密排斗栱与连续额枋在同一个平面上，攒间会被额枋填平，
+     * 檐下就看不出"一攒一攒"的层次（清式是攒间露额枋、攒位是斗栱）。
+     */
+    const out = Math.max(colDia * 0.6, dk * 3);
+    const fangY = floorY + colH + fangH / 2;
+    for (let i = 0; i <= mian; i++) {
+      const half = depth / 2 + out + fangW / 2;
+      const g = new THREE.BoxGeometry(fangW, fangH, half * 2);
+      g.translate(colXs[i], fangY, 0);
+      bucket(geoms, KEY.dougong).push(g);
+    }
+    for (let j = 0; j <= jin; j++) {
+      const half = width / 2 + out + fangW / 2;
+      const g = new THREE.BoxGeometry(half * 2, fangH, fangW);
+      g.translate(0, fangY, colZs[j]);
+      bucket(geoms, KEY.dougong).push(g);
+    }
+
     const placements = [];
     // 柱头科：每个柱位一攒
+    //
+    // ⚠⚠ **出挑方向必须朝各自的檐口外面**（局部 ENU：+X 东、+Z 南）。
+    //   原来北排、南排、两山檐**全都用同一组 rot**（0 / π/2），
+    //   等于所有斗栱都朝**东西**出挑 —— 从南面看过去，
+    //   每攒斗栱只剩一个薄侧面，"密排斗栱"变成一条黑线，完全看不出立体。
+    //   修法：rot 决定 dir = (sin rot, 0, cos rot)，
+    //     北排 colZs[0]  → -Z ⇒ rot = π
+    //     南排 colZs[jin] → +Z ⇒ rot = 0
+    //     西山 colXs[0]  → -X ⇒ rot = -π/2
+    //     东山 colXs[mian]→ +X ⇒ rot = π/2
     for (let i = 0; i <= mian; i++) {
-      placements.push([colXs[i], colZs[0], 0]);
+      placements.push([colXs[i], colZs[0], Math.PI]);
       placements.push([colXs[i], colZs[jin], 0]);
     }
     for (let j = 0; j <= jin; j++) {
-      placements.push([colXs[0], colZs[j], Math.PI / 2]);
+      placements.push([colXs[0], colZs[j], -Math.PI / 2]);
       placements.push([colXs[mian], colZs[j], Math.PI / 2]);
     }
     // 平身科：两柱之间按攒当等距插入
@@ -622,7 +671,7 @@ export function buildStructure(spec) {
         const n = Math.max(0, Math.min(maxPerBay, Math.round(span / zanDang) - 1));
         for (let k = 1; k <= n; k++) {
           const x = colXs[i] + (span * k) / (n + 1);
-          placements.push([x, colZs[0], 0]);
+          placements.push([x, colZs[0], Math.PI]);
           placements.push([x, colZs[jin], 0]);
         }
       }
@@ -631,43 +680,54 @@ export function buildStructure(spec) {
         const n = Math.max(0, Math.min(maxPerBay, Math.round(span / zanDang) - 1));
         for (let k = 1; k <= n; k++) {
           const z = colZs[j] + (span * k) / (n + 1);
-          placements.push([colXs[0], z, Math.PI / 2]);
+          placements.push([colXs[0], z, -Math.PI / 2]);
           placements.push([colXs[mian], z, Math.PI / 2]);
         }
       }
     }
 
     for (const [x, z, rot] of placements) {
-      const g = unit.clone();
-      // 斗栱坐在柱头，略微出柱心才看得见
       const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
-      const out = colDia * 0.55;
       const m = new THREE.Matrix4()
         .makeRotationY(rot)
-        .setPosition(x + dir.x * out, floorY + colH + beamH, z + dir.z * out);
+        .setPosition(x + dir.x * out, floorY + colH + fangH, z + dir.z * out);
+      // 主体（坐斗/拱/升/方料）—— 青绿彩画
+      const g = unit.body.clone();
       g.applyMatrix4(m);
       bucket(geoms, KEY.dougong).push(g);
+      // **勾头线脚**（昂嘴/卷杀/蚂蚱头/勾头）—— 白粉沥粉贴金
+      if (unit.trim) {
+        const t = unit.trim.clone();
+        t.applyMatrix4(m);
+        bucket(geoms, KEY.dougongTrim).push(t);
+      }
     }
-    unit.dispose();
+    unit.body.dispose();
+    unit.trim?.dispose();
 
     // 重檐：下檐（腰檐）再挑一层斗栱，坐在同一圈柱头的中段
     if (spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6) {
-      const lowerUnit = buildDougongSet(dgScale * 0.86, 'x');
+      const lowerUnit = buildDougongParts(dgScale * 0.86, 'x');
       for (const [x, z, rot] of placements) {
-        const g = lowerUnit.clone();
         const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
-        const out = colDia * 0.55;
         const m = new THREE.Matrix4()
           .makeRotationY(rot)
           .setPosition(
             x + dir.x * out,
-            spec.lowerEaveY - beamH - dgHeight * 0.86,
+            spec.lowerEaveY - fangH - dgHeight * 0.86,
             z + dir.z * out
           );
+        const g = lowerUnit.body.clone();
         g.applyMatrix4(m);
         bucket(geoms, KEY.dougong).push(g);
+        if (lowerUnit.trim) {
+          const t = lowerUnit.trim.clone();
+          t.applyMatrix4(m);
+          bucket(geoms, KEY.dougongTrim).push(t);
+        }
       }
-      lowerUnit.dispose();
+      lowerUnit.body.dispose();
+      lowerUnit.trim?.dispose();
     }
   }
 

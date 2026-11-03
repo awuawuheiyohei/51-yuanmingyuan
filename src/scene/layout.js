@@ -50,6 +50,24 @@ function pointInRing(x, z, ring) {
  * 各体量共用檐高与瓦色，视觉上是一座复合建筑。
  * 体量划分是**推定**（考据只说平面形状，没给开间分配）。
  */
+/**
+ * 屋面出檐 + 翼角起翘的水平余量（米）。
+ * ⚠ 必须在**模块级**：`place()` 在下面第 264 行就被调用，
+ *   放在函数体里会撞上 const 的暂时性死区（TDZ）。
+ */
+export const OVERHANG_PAD = 1.6;
+
+/**
+ * **机位避障用的余量**，比分离间距更保守。
+ *
+ * 屋面除了出檐，还有**翼角起翘**的水平伸出（可达 2~3m），
+ * 而 `OVERHANG_PAD = 1.6` 只够"两栋殿宇的屋面不打架"。
+ * 相机避障要用更大的余量，否则相机会站在别殿的**翼角底下** ——
+ * 实测九州清晏就漏了 0.9m，镜头直接怼进奉三无私殿的檐下，
+ * 拍出一堆裸露的梁架（看着像穿模，其实是机位问题）。
+ */
+export const AVOID_PAD = 2.8;
+
 const PLAN_PARTS = {
   // 田字：中心方殿 + 四向翼
   tian: (w, d) => {
@@ -87,7 +105,7 @@ const PLAN_PARTS = {
  * 主建筑形制取自 program.main（开间/进深/屋顶/彩画/台基/檐高/瓦色），
  * 配建筑群按 program.aux 的方位摆放，院落围墙按主建筑尺度围合。
  */
-function buildSceneCluster(scene, heightAt, rnd) {
+function buildSceneCluster(scene, heightAt, rnd, outFootprints = []) {
   const group = new THREE.Group();
   group.name = `scene-${scene.name}`;
 
@@ -120,6 +138,32 @@ function buildSceneCluster(scene, heightAt, rnd) {
       rotation: rot,
     });
     group.add(b);
+    /**
+     * 记录**建筑占地**（世界轴对齐矩形）。
+     *
+     * 用途：主程序的**机位避障**（相机不许落在建筑里、视线不许被挡）。
+     * ⚠ 不能靠场景对象图去反查 ——
+     *   `mergeGroupByMaterial` 合并后会把原建筑 group **清空**，
+     *   挂在 group 上的标记随之从场景图里消失 ⇒ 查不到任何建筑。
+     *   所以在**建的时候**就把占地记下来。
+     */
+    const rotC = Math.abs(Math.cos(rot || 0));
+    const rotS = Math.abs(Math.sin(rot || 0));
+    // ⚠ 必须加 **OVERHANG_PAD**（出檐 + 翼角起翘的水平伸出），
+    //   否则这张占地表比真实屋面小一圈 ⇒ 主程序的机位避障会漏判
+    //   （实测九州清晏就漏了 1.6m，镜头直接怼进奉三无私殿的屋檐底下）。
+    const hw = ((spec.width || 0) * rotC + (spec.depth || 0) * rotS) / 2 + AVOID_PAD;
+    const hd = ((spec.width || 0) * rotS + (spec.depth || 0) * rotC) / 2 + AVOID_PAD;
+    outFootprints.push({
+      minX: scene.x + dx - hw,
+      maxX: scene.x + dx + hw,
+      minZ: scene.z + dz - hd,
+      maxZ: scene.z + dz + hd,
+      // **檐口绝对高程** —— 避障要判"视线在多高的地方穿过这栋房子"：
+      // 视线在 3m 高处从一座 9m 高的殿前穿过 ⇒ 一定被挡；
+      // 只看平面占地会漏判（实测差 1.25m 就漏了）。
+      top: heightAt(scene.x + dx, scene.z + dz) + (spec.eaveY || 0),
+    });
     return b;
   };
 
@@ -298,7 +342,6 @@ function buildSceneCluster(scene, heightAt, rnd) {
    * ⚠ 判据用**屋面外轮廓**（含出檐），不是柱网：
    *   穿模的是屋面，不是墙体。
    */
-  const OVERHANG_PAD = 1.6; // 屋面出檐 + 翼角起翘的余量（米）
 
   /**
    * 配建筑群：先算每座配殿的尺寸，**再统一做占地分离**，
@@ -635,6 +678,8 @@ export function buildLayout(sceneData, heightAt) {
   group.name = 'layout';
   const rnd = mulberry32(20261101);
   const park = sceneData.park;
+  /** 建筑占地表（世界轴对齐矩形）—— 供主程序做机位避障 */
+  const footprints = [];
 
   /* ---- 现状建筑（限三园核心范围内） ---- */
   let existing = 0;
@@ -651,6 +696,15 @@ export function buildLayout(sceneData, heightAt) {
     const bld = buildExistingBuilding(b, heightAt);
     if (!bld) continue;
     existingGroup.add(bld);
+    // 现状建筑也占地方，机位避障要算进去
+    footprints.push({
+      minX: Math.min(...b.ring.map((p) => p[0])),
+      maxX: Math.max(...b.ring.map((p) => p[0])),
+      minZ: Math.min(...b.ring.map((p) => p[1])),
+      maxZ: Math.max(...b.ring.map((p) => p[1])),
+      // 现状建筑没有实测檐高，按 8m 估（够用来判"视线被挡住"）
+      top: (heightAt(b.cx, b.cz) || 0) + 8,
+    });
     existing++;
   }
   mergeGroupByMaterial(existingGroup);
@@ -663,7 +717,7 @@ export function buildLayout(sceneData, heightAt) {
   for (const s of sceneData.scenes || []) {
     if (s.western) continue;
     if (!SCENE_PROGRAM[s.name]) continue;
-    const g = buildSceneCluster(s, heightAt, mulberry32(hash(s.name)));
+    const g = buildSceneCluster(s, heightAt, mulberry32(hash(s.name)), footprints);
     if (g.children.length) {
       sceneGroup.add(g);
       sceneCount++;
@@ -675,7 +729,7 @@ export function buildLayout(sceneData, heightAt) {
   const western = buildWesternEnsemble(sceneData, heightAt);
   if (western) group.add(western);
 
-  return { group, existing, sceneCount };
+  return { group, existing, sceneCount, footprints };
 }
 
 function hash(str) {

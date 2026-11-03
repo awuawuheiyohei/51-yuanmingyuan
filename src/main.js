@@ -636,6 +636,112 @@ async function loadScene() {
   // 调试视角：?view=top 俯视全景 / ?view=scene 贴近正大光明
   const q = new URLSearchParams(location.search);
   const view = q.get('view');
+  if (q.get('dbgview')) {
+    console.log(`  [view] raw="${location.search}" view=${view} name=${q.get('name')}`);
+  }
+
+  /**
+   * **机位避障** —— 相机不许落在建筑里，视线也不许被别的建筑挡住。
+   *
+   * ⚠ 原来 `?view=close&name=九州清晏` 会把相机怼进三进殿群里：
+   *   拍出来是裸露的梁架、断掉的彩画带、一地碎瓦 —— 一看就是"穿模"。
+   *
+   * 数据源是 `layout.footprints`（建建筑时记下的**世界占地矩形**）。
+   * ⚠ 不能靠场景对象图反查：`mergeGroupByMaterial` 合并后会把原建筑
+   *   group 清空，挂在上面的标记随之从场景图消失 ⇒ 一座也查不到。
+   *
+   * 判定：
+   * ① 相机在建筑里？—— 点是否落在某个占地矩形内；
+   * ② 视线被挡？—— 平面上做**线段 × 矩形**相交（Liang-Barsky 裁剪），
+   *    终点所在的那座（目标建筑）不算。
+   */
+  const fps = layout.footprints || [];
+
+  /** 线段 (x0,z0)→(x1,z1) 与矩形的相交区间；返回 {t0,t1} 或 null */
+  const segRectHit = (x0, z0, x1, z1, minX, minZ, maxX, maxZ) => {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p, q) => {
+      if (Math.abs(p) < 1e-9) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    if (
+      !clip(-dx, x0 - minX) ||
+      !clip(dx, maxX - x0) ||
+      !clip(-dz, z0 - minZ) ||
+      !clip(dz, maxZ - z0)
+    ) {
+      return null;
+    }
+    return { t0, t1 };
+  };
+
+  /**
+   * 相机是否落在某座建筑里（含"在它的屋檐底下"）。
+   * ⚠ 必须带高度：平面占地之外的屋檐出挑、翼角起翘同样会挡镜头。
+   */
+  const inBuilding = (x, z, y) =>
+    fps.some(
+      (f) =>
+        x >= f.minX &&
+        x <= f.maxX &&
+        z >= f.minZ &&
+        z <= f.maxZ &&
+        y < (f.top ?? Infinity)
+    );
+
+  /**
+   * 视线是否被**别的**建筑挡住（终点所在的那座 = 目标建筑，不算）。
+   *
+   * ⚠ 必须按**高度**判：视线从 1.7m 走到 5.5m 的目标点，
+   *   若中途从一座 9m 高的殿前穿过，视线高度只有 3m ⇒ 一定被挡。
+   *   只看平面占地会漏判（实测九州清晏就漏了 1.25m，结果镜头怼进
+   *   奉三无私殿的屋檐底下，拍出一堆裸露的梁架）。
+   */
+  const viewBlocked = (x0, z0, x1, z1, y0, y1) => {
+    let target = null;
+    for (const f of fps) {
+      if (x1 >= f.minX && x1 <= f.maxX && z1 >= f.minZ && z1 <= f.maxZ) {
+        target = f;
+        break;
+      }
+    }
+    for (const f of fps) {
+      if (f === target) continue;
+      const hit = segRectHit(x0, z0, x1, z1, f.minX, f.minZ, f.maxX, f.maxZ);
+      if (!hit) continue;
+      const ya = y0 + hit.t0 * (y1 - y0);
+      const yb = y0 + hit.t1 * (y1 - y0);
+      if (Math.min(ya, yb) < (f.top ?? Infinity)) return true;
+    }
+    return false;
+  };
+
+  /** 视线上**第一座**挡路的建筑（返回它的占地矩形），没有则 null */
+  const firstBlocker = (x0, z0, x1, z1) => {
+    let best = null;
+    let bestT = Infinity;
+    for (const f of fps) {
+      const hit = segRectHit(x0, z0, x1, z1, f.minX, f.minZ, f.maxX, f.maxZ);
+      if (hit && hit.t0 < bestT) {
+        bestT = hit.t0;
+        best = f;
+      }
+    }
+    return best;
+  };
+
+
   // 焦距可用 URL 覆盖，方便对比：?focal=24 / 35 / 50 / 85
   if (q.get('focal')) setFocal(Number(q.get('focal')));
   if (view === 'top') {
@@ -667,21 +773,82 @@ async function loadScene() {
     const s = byName(q.get('name') || '正大光明');
     if (s) {
       const close = view === 'close';
-      // 三分角构图（斜约 40°）+ 移轴两点透视：建筑摄影的常规取景。
+      // 三分角构图（斜约 35~48°）+ 移轴两点透视：建筑摄影的常规取景。
       // 正对中轴的平视会把殿宇拍成一张"立面图"，看不出进深；
       // 相机一歪，竖线又收敛成"游戏截图"。
-      // 机位放在景区前的庭院空地里（构建期已把这一圈清空），
-      // 站人眼高度、斜 40° 取景——建筑摄影的常规机位。
-      // 机位抬到配建筑屋面之上，斜 40° 取景：
-      // 配建筑（勤政殿、飞云轩…）就摆在主殿两侧与轴线上，站低了必然被挡。
-      const d = close ? 62 : 96;
-      const yaw = 0.85; // 与正轴约 40°
-      const camX = s.x + Math.sin(yaw) * d;
-      const camZ = s.z + Math.cos(yaw) * d;
-      const eye = (heightAt(camX, camZ) || heightAt(s.x, s.z)) + (close ? 15 : 24);
-      const aim = heightAt(s.x, s.z) + (close ? 6 : 7);
-      frameTwoPoint({ x: camX, y: eye, z: camZ }, { x: s.x, y: aim, z: s.z });
+      //
+      // ⚠⚠ 机位高度必须是**人眼高度 1.70m**，不是 15~24m。
+      //   原来抬那么高是为"躲配殿屋面"，结果拍成鸟瞰图：
+      //   屋面占满画面，檐下斗栱、柱网、隔扇的层次全看不见。
+      //   正大光明殿正前方中轴是通的（两侧 x=±32m 才是配殿），
+      //   人眼高度站得进去，不需要抬。
+      const d0 = close ? Number(q.get('d') || 40) : Number(q.get('d') || 82);
+      const yaw0 = close ? 0.62 : 0.85; // 与正轴约 35° / 48°
+      /**
+       * 找机位：沿视线**拉远**、再**换角度**，直到
+       * ① 站到建筑之外、② 视线不被别的建筑挡住。
+       *
+       * ⚠ 有些景**注定拍不到主殿正面**（九州清晏是三进院落，
+       *   主殿南面被奉三无私殿、圆明园殿两进堵死，只剩 2m 院子）。
+       *   这时不能硬拍 —— 硬拍就是怼在殿墙上拍裸露梁架。
+       *   做法：退到最外围，**改拍视线上第一座建筑**（即最南那一进）。
+       */
+      const yawList = [yaw0, yaw0 - 0.3, yaw0 + 0.3, yaw0 - 0.55, yaw0 + 0.6];
+      let camX = 0;
+      let camZ = 0;
+      let tgtX = s.x;
+      let tgtZ = s.z;
+      let placed = false;
+      const eyeH = Number(q.get('ey') || 1.7);
+      const aimH = heightAt(s.x, s.z) + Number(q.get('aim') || (close ? 5.5 : 6.4));
+      const camEye = (cx, cz) => (heightAt(cx, cz) || heightAt(s.x, s.z)) + eyeH;
+      search: for (const yaw of yawList) {
+        for (let d = d0; d <= d0 + 96; d += 6) {
+          const cx = s.x + Math.sin(yaw) * d;
+          const cz = s.z + Math.cos(yaw) * d;
+          if (inBuilding(cx, cz, camEye(cx, cz))) continue;
+          if (viewBlocked(cx, cz, s.x, s.z, camEye(cx, cz), aimH)) continue;
+          camX = cx;
+          camZ = cz;
+          placed = true;
+          break search;
+        }
+      }
+      if (!placed) {
+        // 退到最外围，改为拍「视线上第一座建筑」
+        let outer = null;
+        for (const yaw of yawList) {
+          for (let d = d0; d <= d0 + 96; d += 6) {
+            const cx = s.x + Math.sin(yaw) * d;
+            const cz = s.z + Math.cos(yaw) * d;
+            if (inBuilding(cx, cz, camEye(cx, cz))) continue;
+            if (!outer || d > outer.d) outer = { cx, cz, d };
+          }
+        }
+        if (outer) {
+          camX = outer.cx;
+          camZ = outer.cz;
+          const blocker = firstBlocker(camX, camZ, s.x, s.z);
+          if (blocker) {
+            tgtX = (blocker.minX + blocker.maxX) / 2;
+            tgtZ = (blocker.minZ + blocker.maxZ) / 2;
+          }
+        } else {
+          camX = s.x + Math.sin(yaw0) * d0;
+          camZ = s.z + Math.cos(yaw0) * d0;
+        }
+      }
+      // 机位高程要用**机位自己的地面高**，不是目标点的。
+      const camGround = heightAt(camX, camZ) || heightAt(s.x, s.z);
+      const eye = camGround + Number(q.get('ey') || 1.7);
+      const aim = heightAt(tgtX, tgtZ) + Number(q.get('aim') || (close ? 5.5 : 6.4));
+      frameTwoPoint({ x: camX, y: eye, z: camZ }, { x: tgtX, y: aim, z: tgtZ });
       controls.update();
+      if (q.get('dbgview')) {
+        console.log(
+          `  [view] ${view} fps=${fps.length} cam=(${camX.toFixed(1)},${camZ.toFixed(1)}) tgt=(${tgtX.toFixed(1)},${tgtZ.toFixed(1)}) placed=${placed}`
+        );
+      }
     }
   } else if (view === 'plan' && q.get('name')) {
     // 正投影俯看某一景：查平面形制（卍字/田字这类）用
@@ -707,6 +874,35 @@ async function loadScene() {
     );
     controls.target.set(x, heightAt(x, z) + h * 0.3, z);
     controls.update();
+  } else if (view === 'look' && q.get('ex') != null) {
+    // 两点透视自由机位（建筑摄影式，竖线保持竖直）：
+    //   ?view=look&ex=<相机x>&ez=<相机z>&ey=<相机高>&tx=<目标x>&tz=<目标z>&ty=<目标高>
+    //
+    // `ey` / `ty` **以 `+` 开头表示相对该点地面高程**（米），
+    // 否则是绝对世界高。这样对准"檐下 6.4m 的斗栱"时不用先查地面高程。
+    const rel = (v, x, z) => {
+      const n = Number(v);
+      return String(v).trim().startsWith('+') ? (heightAt(x, z) || 0) + n : n;
+    };
+    const ex = Number(q.get('ex'));
+    const ez = Number(q.get('ez'));
+    const tx = Number(q.get('tx'));
+    const tz = Number(q.get('tz'));
+    const camY = rel(q.get('ey'), ex, ez);
+    const tgtY = rel(q.get('ty'), tx, tz);
+    frameTwoPoint({ x: ex, y: camY, z: ez }, { x: tx, y: tgtY, z: tz });
+    controls.update();
+    if (q.get('dbgview')) {
+      console.log(
+        `  [look] cam=(${ex}, ${camY.toFixed(1)}, ${ez}) tgt=(${tx}, ${tgtY.toFixed(1)}, ${tz}) ` +
+          `ground(cam)=${(heightAt(ex, ez) || 0).toFixed(1)} ground(tgt)=${(heightAt(tx, tz) || 0).toFixed(1)}`
+      );
+      setTimeout(() => {
+        console.log(
+          `  [look] 3帧后 cam=(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`
+        );
+      }, 120);
+    }
   } else if (view === 'rock') {
     // DEBUG（临时）：?view=rock&i=<序号> 或 &x=&z= 对准某座假山取近景。
     // 人眼高度 + 移轴两点透视，和拍建筑同一套取景逻辑。

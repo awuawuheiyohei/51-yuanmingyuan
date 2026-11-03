@@ -79,8 +79,11 @@ X → 东     Z → 南     Y → 上
 - 步道：全部合并成**一个** Mesh。
 - 院墙：分段贴地但**整院合并**成 2 个 Mesh（墙身 + 压顶）。
 - 改动后跑一次 `npm run dev`，看控制台里的 `draw calls` 与三角面数，
-  **当前基线（2026-10-31，视角=正大光明）：~33.6M 三角面 / 505 draw calls；
+  **当前基线（2026-11-03，视角=正大光明）：~33.7M 三角面 / 383 draw calls；
   场景构建约 1.0s**（假山资产 1.0s，其余各段 <20ms）。
+  ⚠ **draw call 数会随"哪些桶进入视野"变** —— 斗栱拆成主体/勾头线脚两档材质后，
+    同一视角的 draw call 从 235 变成 383（多了斗栱线脚一档）。
+    **比性能一定要拿同一机位比**，且先确认变化是"多了桶"而不是"合并丢了"。
   建筑 287 座（41 景 × 5~9 座，含考据实记的有名附属建筑）+ 西洋楼 8 处
   + 游廊 15 条 + 人物层（人 252 / 马 9 / 轿 12 / 执事 16 / 船 16，4 个 draw call）。
   ⚠ 控制台的三角面/draw call 只统计**当前视野内**渲染的对象，
@@ -212,9 +215,50 @@ X → 东     Z → 南     Y → 上
 | 手段 | 用途 |
 |---|---|
 | `node scripts/check-proportions.mjs` | 比例验收 + 实测回归；**先跑它再看图** |
+| `node scripts/check-interpenetration.mjs` | 水面/地形/建筑/游廊的**几何级**穿模与 z-fighting |
+| `node scripts/check-building-overlap.mjs` | 景内**主殿↔配殿屋面**是否重叠（数据源间距不足 + 分离后结果） |
+| `node scripts/check-roof-coverage.mjs` | **歇山屋面连续性**：从上方垂直打射线逐点检查有没有缺口 |
+| `node scripts/check-roof-built.mjs` | 每景每殿**是否真的生成了屋面**（桶为空 = 缺失） |
+| `node scripts/check-roof-winding.mjs` | 屋面**大面片三角形绕向**（法线朝下 ⇒ 背面剔除 ⇒ 看不见） |
 | `node /tmp/xxx.mjs` + `Raycaster` **自上往下打** | 找"戳出屋面"的构件。⚠ **从下往上打会误报**（屋面下的构件也在射线下方） |
 | `?mat=<材质桶>` | 把某个材质桶染色，定位"这块是什么"（`?roof=tile` 染屋面、`?mat=wood` 染木作…） |
+| `?view=look&ex=&ez=&ey=&tx=&tz=&ty=` | **两点透视自由机位**（`ey`/`ty` 以 `+` 开头 = 相对该点地面高程） |
 | 桶键完整性自检 | `structure.js` 的 `KEY` 与 `materials.js` 的 `materialFor` switch **必须一一对应**；漏一个就落到 `default` 分支 → 变成 **0x999999 的灰板子**（楹联曾因此变成惨白板） |
+
+⚠ **射线检测的两个前提**（不满足就会误判）：
+
+1. `Mesh.raycast` 会按 `material.side` **剔除背面** ⇒ 屋面法线朝上，
+   **从下往上打一律打不中** ⇒ 查屋面必须**从上方往下打**。
+2. 查**竖直面**（山花板、山墙）要用**水平射线** —— 垂直射线永远打不中。
+
+⚠ **`?pick=<x>,<y>` 探针在 `init()` 里同步取值 ⇒ 相机矩阵还没更新 ⇒ 射线方向是错的**
+（表现为"只打中天空穹顶"）。**别信它的结果**，改用 `?mat=` 染色或 `?view=look` 手动机位。
+
+### 4.1.7 几何层面的五个静默陷阱（2026-11-03 修，一处错全园错）
+
+这五条不会抛异常，只会让画面"莫名其妙地不对"：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| **整园白屏**，报 `Cannot read properties of null (reading 'scale')` | `mergeGeometries` 要求所有几何体**索引状态一致**（全 indexed 或全 non-indexed）。`BoxGeometry` 是 indexed、`ExtrudeGeometry`（侧影挤出）是 non-indexed ⇒ **返回 null**（只往 console 打一行 error），null 传播到渲染层才炸 | 合并前统一 `toNonIndexed()`；并**断言失败就抛指名道姓的错误**（`dougong.js → mergeParts`） |
+| **屋面缺瓦**，远看像铺了灰板 | 筒瓦的三角形**绕向反了**（法线朝内）⇒ `FrontSide` 背面剔除 ⇒ 整垄筒瓦从外面看不见 | `roof.js → buildTongWa` 交换索引顺序；`check-roof-winding.mjs` 可验 |
+| **翼角处黄琉璃与褐脊瓦互相穿插** | 戗脊线按直线走，**没跟屋面网格的翼角抬升/外扩**（`cn = (|x|/Wx)^5·(|z|/Wz)^5`）⇒ 戗脊沉在起翘后的屋面之下 | `roof.js → hipLine` 逐点复刻翼角公式 |
+| **屋面破洞，露出屋架** | 歇山 `|z|≤zBreak 且 |x|>xh` 的山面区域**既不铺屋面也不封墙**（山花三角只封了 yBreak 以上） | `roof.js` 补山花下的山墙板 + 南北侧板 |
+| **相机的避障判定"永远不命中"** | ① `Box3.setFromObject` 内部是 `updateWorldMatrix(false,false)` —— **不更新父链** ⇒ 世界 bbox 全堆在原点；② `mergeGroupByMaterial` 合并后**清空**原建筑 group ⇒ 挂在 group 上的标记从场景图消失 | 建筑占地表在**建的时候**就记下来（`layout.js → outFootprints`），并加**檐高**字段供 3D 视线判定 |
+
+**另外三个"自己踩自己"的坑**：
+
+- **手写 URL 百分号编码会错**：`%E6%99%8E`（晏）写成 `%E6%99%8E` 之外的任何变体都会解成
+  另一个字（`九州清晎`）⇒ `byName()` 匹配失败 ⇒ **调试分支根本没进**，还以为是几何坏了。
+  ⇒ 一律用 `python3 -c "import urllib.parse;print(urllib.parse.quote(sys.argv[1]))" "$NAME"` 生成。
+- **`const` 的暂时性死区**：`place()` 在第 264 行就被调用，而 `OVERHANG_PAD` 定义在第 327 行
+  ⇒ `ReferenceError: Cannot access 'OVERHANG_PAD' before initialization`。
+  ⇒ 常量放**模块级**。
+- **分离算法只保留一份，但"主殿锚定"必须自动成立**：
+  `separateFootprints()` 原来取**重叠量较大**的方向推开 ⇒ 前后排布的三进殿宇被沿 X 轴推开 37m；
+  且主殿也会被推走，而 `layout.js` 忽略 `separated[0]`、仍按原点摆主殿
+  ⇒ 分离算的是"假主殿"，运行时真主殿照旧压在配殿屋面上。
+  ⇒ 现在：沿**最小位移**方向推 + **离原点更远的那个让路**（主殿在原点 ⇒ 天然锚定）。
 
 ### 4.1.6 贴图密度要按**真实米数**算
 
@@ -290,11 +334,21 @@ X → 东     Z → 南     Y → 上
 | `?leaf=1` | 树冠贴图的 alpha 直方图 | 查"树冠稀/白卡片/绿噪点" |
 | `?rock=1` | 假山世界包围盒 + 三角面数 + 离地高度分布 | 查"假山悬空/爆面数" |
 | `?view=rock&x=&z=&d=&yaw=` | 对准某座假山取近景 | 配合 `scripts/pick-rock-view.mjs` 挑无遮挡机位 |
+| `?view=look&ex=&ez=&ey=&tx=&tz=&ty=` | **两点透视自由机位** | `ey`/`ty` 以 `+` 开头 = 相对该点地面高程（如 `ey=%2B6.4` 看檐下斗栱） |
+| `?view=close&name=<景名>` | 人眼高度 1.70m + 移轴两点透视拍某景 | **带机位避障**：自动避开建筑、视线被挡时改拍"视线上第一座建筑" |
+| `?dbgview=1` | 打印取景机位/坐标/地面高程 | 排查"相机到底站在哪" |
 | `?roof=tile` / `?corr=<bucket>` | 屋面/游廊材质桶染成品红/其他色 | 定位"哪一层几何不对" |
 
 **读探针别只看截图猜** —— 用 `Chrome --headless --dump-dom` 读 DOM 文本，
 或把探针面板拍进截图再读字。分析式几何检测（写 Node 脚本直接查几何）
 永远比拍图找问题快。
+
+⚠ **`?pick=` 的结果不可信**：`init()` 里同步取值时相机矩阵还没更新，射线方向是错的
+（只打中天空穹顶）。改用 `?mat=` 染色或 `?view=look` 手动机位。
+
+⚠ **URL 里的中文景名要用脚本编码**（手写百分号编码很容易解成另一个字，
+导致 `byName()` 匹配失败、调试分支根本没进）：
+`python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$NAME"`
 
 ### 6.2 GPU 生成资产
 
@@ -310,4 +364,6 @@ X → 东     Z → 南     Y → 上
 ## 7. 边界
 
 - 不碰 `mass/` 下其它项目。
-- 本项目未配置远端仓库；改动只在本地，提交与否听用户的。
+- **远端仓库已配置**：`git@github.com:awuawuheiyohei/51-yuanmingyuan.git`（SSH，PUBLIC）。
+  ⚠ git-over-HTTPS 到 github.com 会返回 `Empty reply from server` ⇒ **必须走 SSH**。
+  `public/scene/scene.json` 已从 .gitignore 放出（clone 即可跑，不用先 `npm run fetch`）。

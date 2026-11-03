@@ -389,6 +389,63 @@ function buildRoofCore(spec, geomsIn) {
       g.setIndex(sgn > 0 ? [0, 1, 2] : [0, 2, 1]);
       g.computeVertexNormals();
       push('shanhua', g);
+
+      /**
+       * **山花下的山墙**（歇山两端山面，yBreak 以下那一条）。
+       *
+       * ⚠ 屋面网格在 `|z| ≤ zBreak 且 |x| > xh` 的区域是**跳过的**
+       *   （那里是竖直山面，不是坡面），而山花三角只封住了 yBreak **以上**。
+       *   于是 yBreak 以下、`|x| > xh` 的山面**完全没有面** ——
+       *   画面上就是山头两侧破开两个大洞，直接看见屋架（人字梁）。
+       *
+       *   补法：在山花所在的同一平面（x = ±xh）上，
+       *   从下段檐口 eaveY 到折线高度 yBreak 补一条竖直板，
+       *   正好接住山花三角的底边。
+       */
+      const w = new THREE.BufferGeometry();
+      const wv = [
+        x, eaveY, -zBreak,
+        x, eaveY, zBreak,
+        x, yBreak, zBreak,
+        x, yBreak, -zBreak,
+      ];
+      w.setAttribute('position', new THREE.Float32BufferAttribute(wv, 3));
+      w.setAttribute(
+        'uv',
+        new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2)
+      );
+      /**
+       * ⚠ 绕向：`e1 = ẑ`、`e2 = ŷ` ⇒ `e1 × e2 = -x̂`，
+       *   所以 sgn=+1（东山面）时**必须用反向索引**才能让法线朝 +x。
+       *   朝内的话会被背面剔除 ⇒ 山墙看不见 ⇒ 洞还在那儿。
+       */
+      w.setIndex(sgn > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]);
+      w.computeVertexNormals();
+      push('shanhua', w);
+
+      /**
+       * 山面棱柱的**南北两侧**（z = ±zBreak）：从前后方向看进去同样是空的。
+       * 上边正好接住下段屋面的折线高度 yBreak，下边落在檐口高度。
+       */
+      for (const zs of [-1, 1]) {
+        const z = zs * zBreak;
+        const s = new THREE.BufferGeometry();
+        const sv = [
+          sgn * xh, eaveY, z,
+          sgn * Wx, eaveY, z,
+          sgn * Wx, yBreak, z,
+          sgn * xh, yBreak, z,
+        ];
+        s.setAttribute('position', new THREE.Float32BufferAttribute(sv, 3));
+        s.setAttribute(
+          'uv',
+          new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2)
+        );
+        const flip = (sgn > 0) === (zs > 0);
+        s.setIndex(flip ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]);
+        s.computeVertexNormals();
+        push('shanhua', s);
+      }
     }
   }
 
@@ -494,10 +551,30 @@ function buildRoofCore(spec, geomsIn) {
     const N = 10;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      const x = sx * (xh + (Wx - xh) * t);
-      const z = sz * (zBreak + (Wz - zBreak) * t);
+      const x0 = sx * (xh + (Wx - xh) * t);
+      const z0 = sz * (zBreak + (Wz - zBreak) * t);
       const y = yBreak - (yBreak - eaveY) * t;
-      pts.push(new THREE.Vector3(x, y + 0.06, z));
+      /**
+       * ⚠⚠ **翼角抬升 + 外扩，必须和屋面网格用同一套公式**。
+       *
+       * 屋面网格在四角按 `cn = (|x|/Wx)^5·(|z|/Wz)^5` 抬升并外扩（起翘）。
+       * 戗脊若只按"山花底角 → 檐角"的直线走，它就**沉在起翘后的屋面之下** ——
+       * 画面上就是角部一片黄琉璃与褐色脊瓦互相穿插，
+       * 看着像屋面破了个洞。
+       *
+       * 所以这里必须逐点复刻 `heightAt` 之后那段翼角处理。
+       */
+      const cn = Math.pow(Math.abs(x0) / Wx, 5) * Math.pow(Math.abs(z0) / Wz, 5);
+      let x = x0;
+      let z = z0;
+      let yy = y;
+      if (cn > 0.0005) {
+        const eaveT = smoothstep(0.35, 1.0, Math.abs(z0) / Wz);
+        yy += upturn * cn * eaveT;
+        x = x0 * (1 + (bulge * cn) / Math.max(Wx, 0.001));
+        z = z0 * (1 + (bulge * cn) / Math.max(Wz, 0.001));
+      }
+      pts.push(new THREE.Vector3(x, yy + 0.06, z));
     }
     return pts;
   }
@@ -983,7 +1060,20 @@ function buildTongWa(sampler, t0, t1) {
   for (let i = 0; i < steps; i++) {
     for (let k = 0; k < ring; k++) {
       const a = i * stride + k;
-      idx.push(a, a + 1, a + stride, a + stride, a + 1, a + stride + 1);
+      /**
+       * ⚠⚠ **绕向必须是"外法线朝外"**，否则整垄筒瓦会被背面剔除 ——
+       *   three.js 默认 `FrontSide`，法线朝内的半圆管从外面看是**看不见的**：
+       *   屋面只剩底下的板瓦，近看就是"屋面缺了一大块、露出梁架"。
+       *
+       *   推导：断面切向 d/da[side·cos a + up·sin a] = -side·sin a + up·cos a，
+       *   垄向 T。法线 = (断面切向) × T。
+       *   取垄向 +X 时 side = +Z、up = +Y ⇒ 法线 = Y × X = -Z（**朝内，错**）；
+       *   交换两个顶点后 = X × Y = +Z（朝外，对）。
+       *
+       *   验算脚本：`scripts/check-roof-winding.mjs`
+       *   （之前它报「桶 tile 法线朝下 100%」，就是这个绕反了。）
+       */
+      idx.push(a, a + stride, a + 1, a + stride, a + stride + 1, a + 1);
     }
   }
   const g = new THREE.BufferGeometry();

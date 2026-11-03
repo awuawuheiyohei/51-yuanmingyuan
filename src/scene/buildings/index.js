@@ -182,6 +182,10 @@ export function buildBuilding(spec) {
   if (form.scale) group.scale.setScalar(form.scale);
   group.userData.spec = form;
   group.userData.meta = { ...structure.meta, ...roof.meta };
+  // 标记：这是一座**建筑**。
+  // 主程序用它做**机位避障**（相机不许落在建筑里）——
+  // 靠名字匹配材质桶键不可靠，树/假山/游廊也在场景里。
+  group.userData.isBuilding = true;
   return group;
 }
 

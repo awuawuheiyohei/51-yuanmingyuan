@@ -215,6 +215,19 @@ export function dougongMaterial() {
   );
 }
 
+/**
+ * 斗栱的**勾头线脚**（昂嘴 / 卷杀 / 蚂蚱头 / 勾头）。
+ *
+ * 清式官式建筑里这一档施**沥粉贴金 / 白粉** —— 是檐下唯一的亮色。
+ * 混进斗栱主体色时，"一攒一攒"的轮廓在檐下阴影里糊成一条黑带，
+ * 远看完全读不出斗栱的节奏（这是"看着假"的一大来源）。
+ */
+export function dougongTrimMaterial() {
+  return make('dougongTrim', () =>
+    new THREE.MeshStandardMaterial({ color: 0xd9c9a4, roughness: 0.55, metalness: 0.12 })
+  );
+}
+
 export function wallMaterial(type = 'brick', tint = null, variant = 0) {
   return make(`wall-${type}-${tint || 'd'}-v${variant}`, () => {
     // 红墙不是一块纯色板：清代官墙是砖砌抹红灰，砖缝、斑驳、水痕都要在。
@@ -462,6 +475,7 @@ export function materialFor(key, spec = {}) {
       tile: 0xff00ff, wood: 0x00ffff, caihua: 0xffff00, column: 0xff8000,
       stone: 0x0080ff, ridge: 0x00ff80, board: 0xff2020, eave: 0x2020ff,
       dougong: 0xffa000, shanhua: 0xff00ff, ceiling: 0x00ff40,
+      dougongTrim: 0x00ffff,
     };
     if (dbg === key) {
       const c = C[key] ?? 0x00ff00;
@@ -514,6 +528,8 @@ function materialForBase(key, spec, glazed, tileColor, tileSpec) {
       return caihuaMaterial(spec.caihua);
     case 'dougong':
       return dougongMaterial();
+    case 'dougongTrim':
+      return dougongTrimMaterial();
     case 'wall':
       return wallMaterial(spec.wallType, spec.wallColor, spec.variant ?? 0);
     case 'wood':

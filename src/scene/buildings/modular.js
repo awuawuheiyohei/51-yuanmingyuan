@@ -507,35 +507,62 @@ export function deriveAnnex(p) {
  */
 export function separateFootprints(footprints, pad = 1.6) {
   const placed = footprints.map((f) => ({ ...f }));
-  const out = [];
-  for (let i = 0; i < placed.length; i++) {
-    const f = placed[i];
-    let nx = f.x;
-    let nz = f.z;
-    for (let iter = 0; iter < 8; iter++) {
-      let moved = false;
-      for (let k = 0; k < placed.length; k++) {
-        if (k === i) continue;
-        const q = placed[k];
-        if (Math.abs(nx - q.x) < f.hw + q.hw + pad) {
-          const overlapX = f.hw + q.hw + pad - Math.abs(nx - q.x);
-          const overlapZ = f.hd + q.hd + pad - Math.abs(nz - q.z);
-          if (overlapZ > 0) {
-            if (overlapX >= overlapZ) {
-              nx = q.x + (nx >= q.x ? 1 : -1) * (f.hw + q.hw + pad);
-            } else {
-              nz = q.z + (nz >= q.z ? 1 : -1) * (f.hd + q.hd + pad);
-            }
-            moved = true;
-          }
+
+  /**
+   * 两两分离，迭代到不再重叠。
+   *
+   * ## 两条关键规则（都是踩出来的）
+   *
+   * ① **沿位移较小的方向推开**。
+   *   重叠量 = 需要沿该轴移动多少才能分开。
+   *   沿 X 分开要移 `overlapX`、沿 Z 要移 `overlapZ`，取**小的那个**。
+   *   原来取的是**大的** —— 九州清晏主殿与奉三无私殿（前后排布）
+   *   被沿 X 推开 37m，整景坐标系整个错位。
+   *
+   * ② **谁让路：离原点更远的那个**。
+   *   主殿永远摆在原点（`footprints[0]`），它的离轴距离是 0 ⇒ 最小 ⇒ 不动。
+   *   于是"主殿锚定"这件事是**自动**成立的，不需要额外参数。
+   *   原来主殿会被推开，而 `layout.js` 又忽略 `separated[0]`、仍按原点摆主殿，
+   *   ⇒ 分离算的是"假主殿"，运行时真主殿照旧压在配殿屋面上（黄琉璃被褐色劈开）。
+   */
+  for (let iter = 0; iter < 24; iter++) {
+    let moved = false;
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const f = placed[i];
+        const q = placed[j];
+        const overlapX = f.hw + q.hw + pad - Math.abs(f.x - q.x);
+        const overlapZ = f.hd + q.hd + pad - Math.abs(f.z - q.z);
+        if (overlapX <= 0 || overlapZ <= 0) continue;
+
+        // 沿位移较小的方向分开
+        const alongX = overlapX < overlapZ;
+
+        // 谁让路：离原点更远的那个（距离几乎相同时按 x 距离小的那个动）
+        const df = Math.hypot(f.x, f.z);
+        const dq = Math.hypot(q.x, q.z);
+        let mover;
+        let other;
+        if (Math.abs(df - dq) < 0.5) {
+          mover = Math.abs(f.x - q.x) < Math.abs(q.x - f.x) ? f : q;
+        } else {
+          mover = df > dq ? f : q;
         }
+        other = mover === f ? q : f;
+
+        if (alongX) {
+          const sign = mover.x >= other.x ? 1 : -1;
+          mover.x = other.x + sign * (mover.hw + other.hw + pad);
+        } else {
+          const sign = mover.z >= other.z ? 1 : -1;
+          mover.z = other.z + sign * (mover.hd + other.hd + pad);
+        }
+        moved = true;
       }
-      if (!moved) break;
     }
-    placed[i] = { ...f, x: nx, z: nz };
-    out.push({ x: nx, z: nz });
+    if (!moved) break;
   }
-  return out;
+  return placed.map((f) => ({ x: f.x, z: f.z }));
 }
 
 /* ================================================================== *
