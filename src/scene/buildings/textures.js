@@ -705,13 +705,17 @@ export function columnPaint(color = '#a8302a') {
 export function paveBrick(tint = '#9c968b') {
   // ⚠ **刻意不用 AI 覆盖**：AI 的 brick 是**墙面顺砖图**，
   //   铺在地上读着是"乱石地"。墁砖地必须用方砖正缝网格。
+  //
+  // ⚠ **分辨率要够**：一块方砖 = 0.5m，贴图每边 32 块 ⇒ 一张 = 16m × 16m。
+  //   原来 1024px/16 块 = 8m 周期 ⇒ 大院子上 8m 就重复一次，一眼平铺感。
+  //   2048px/32 块把周期翻倍，配合**逐块顶点色差**（见 layout.js）才压得住。
   const key = `pavebrick-${tint}`;
   if (cache.has(key)) return cache.get(key);
-  const S = 1024;
-  const N = 16; // 每边 16 块方砖
+  const S = 2048;
+  const N = 32; // 每边 32 块方砖
   const cell = S / N;
   const c = makeCanvas(S, S);
-  const g = c.getContext('2d');
+  const g = c.getContext('2d', { willReadFrequently: true });
   const rnd = mulberry32(20261031);
   const base = new THREE.Color(tint);
 
@@ -719,32 +723,60 @@ export function paveBrick(tint = '#9c968b') {
   g.fillStyle = '#6f6a62';
   g.fillRect(0, 0, S, S);
 
+  // 逐块铺砖：分窑烧的方砖，明度与色相都有差
+  const INSET = 2.5; // 缝宽（绝对像素，**不随分辨率放大**，否则缝会变成沟）
   for (let r = 0; r < N; r++) {
     for (let q = 0; q < N; q++) {
-      // 逐块色偏：±7% 明度 + ±2% 色相 —— 真实方砖是分窑烧的
       const v = 0.93 + rnd() * 0.14;
       const warm = (rnd() - 0.5) * 0.06;
       const col = base.clone();
       col.offsetHSL(warm, (rnd() - 0.5) * 0.04, (v - 1) * 0.22);
-      const x = q * cell;
-      const y = r * cell;
       g.fillStyle = `#${col.getHexString()}`;
-      g.fillRect(x + 2.5, y + 2.5, cell - 5, cell - 5);
-
-      // 砖面细颗粒 + 轻微磨光（方砖是磨过的，不像墙砖粗糙）
-      for (let k = 0; k < 90; k++) {
-        const px = x + 3 + rnd() * (cell - 6);
-        const py = y + 3 + rnd() * (cell - 6);
-        const a = rnd() * 0.05;
-        g.fillStyle = rnd() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
-        g.fillRect(px, py, 1 + rnd() * 2, 1 + rnd() * 2);
-      }
-      // 砖的四边微暗（磨圆的棱）
-      g.strokeStyle = 'rgba(0,0,0,0.10)';
-      g.lineWidth = 1.4;
-      g.strokeRect(x + 3.2, y + 3.2, cell - 6.4, cell - 6.4);
+      g.fillRect(q * cell + INSET, r * cell + INSET, cell - INSET * 2, cell - INSET * 2);
     }
   }
+
+  // 颗粒 + 砖边微暗：**用 ImageData 批量写**。
+  // ⚠ 逐个 fillRect 在 2048px 上要几秒（首屏直接卡住）；
+  //   1024 块 × 40 颗粒 = 4 万次 fillRect ⇒ 必须批量。
+  const img = g.getImageData(0, 0, S, S);
+  const d = img.data;
+  const at = (x, y) => (y * S + x) * 4;
+  for (let r = 0; r < N; r++) {
+    for (let q = 0; q < N; q++) {
+      const x0 = q * cell + INSET;
+      const y0 = r * cell + INSET;
+      const w = cell - INSET * 2;
+      // 砖面细颗粒（方砖是磨过的，比墙砖细腻）
+      for (let k = 0; k < 40; k++) {
+        const ix = x0 + Math.floor(rnd() * w);
+        const iy = y0 + Math.floor(rnd() * w);
+        const a = Math.round(rnd() * 0.05 * 255);
+        const add = rnd() < 0.5 ? a : -a;
+        const p = at(ix, iy);
+        d[p] = Math.max(0, Math.min(255, d[p] + add));
+        d[p + 1] = Math.max(0, Math.min(255, d[p + 1] + add));
+        d[p + 2] = Math.max(0, Math.min(255, d[p + 2] + add));
+      }
+      // 四边微暗（磨圆的棱）
+      const edgeDark = 0.1;
+      for (let i = 0; i < w; i++) {
+        for (const [ex, ey] of [
+          [x0 + i, y0],
+          [x0 + i, y0 + w - 1],
+          [x0, y0 + i],
+          [x0 + w - 1, y0 + i],
+        ]) {
+          const p = at(ex, ey);
+          d[p] = Math.round(d[p] * (1 - edgeDark));
+          d[p + 1] = Math.round(d[p + 1] * (1 - edgeDark));
+          d[p + 2] = Math.round(d[p + 2] * (1 - edgeDark));
+        }
+      }
+    }
+  }
+  g.putImageData(img, 0, 0);
+
   const tex = toTexture(c);
   cache.set(key, tex);
   return tex;

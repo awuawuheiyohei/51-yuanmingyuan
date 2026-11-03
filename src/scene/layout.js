@@ -105,7 +105,7 @@ const PLAN_PARTS = {
  * 主建筑形制取自 program.main（开间/进深/屋顶/彩画/台基/檐高/瓦色），
  * 配建筑群按 program.aux 的方位摆放，院落围墙按主建筑尺度围合。
  */
-function buildSceneCluster(scene, heightAt, rnd, outFootprints = []) {
+function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts = []) {
   const group = new THREE.Group();
   group.name = `scene-${scene.name}`;
 
@@ -455,44 +455,153 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = []) {
   {
     const y0 = heightAt(scene.x, scene.z);
     const halfY = Math.max(14, half * 0.92);
-    // 墁砖地：一张略带起伏的砖面（起伏交给顶点，边缘下沉埋进土里）
-    const pave = new THREE.PlaneGeometry(halfY * 2, halfY * 1.72, 26, 22);
-    pave.rotateX(-Math.PI / 2);
-    const pos = pave.attributes.position;
-    // 顶点色：大尺度色偏，打散"一张贴图铺满全院"的重复感。
-    // 波长取 30~80m（**不能用低频**：波长 180m 会变成"地毯上一块块深浅"）。
-    const pcol = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const px = pos.getX(i);
-      const pz = pos.getZ(i);
-      const edge = Math.max(Math.abs(px) / halfY, Math.abs(pz) / (halfY * 0.86));
-      const bump = Math.sin(px * 1.7) * Math.cos(pz * 1.9) * 0.012;
-      pos.setY(i, 0.06 + bump - edge * edge * 0.10);
-      const low = Math.sin(px * 0.038 + 1.1) * 0.5 + Math.cos(pz * 0.041 - 0.6) * 0.5;
-      const mid = Math.sin(px * 0.021 - 0.3) * 0.5 + Math.cos(pz * 0.026 + 0.9) * 0.4;
-      const k = 1 + low * 0.030 + mid * 0.018;
-      pcol[i * 3] = k * (1 + mid * 0.012);
-      pcol[i * 3 + 1] = k;
-      pcol[i * 3 + 2] = k * (1 - low * 0.012);
-    }
-    pave.setAttribute('color', new THREE.BufferAttribute(pcol, 3));
-    pave.computeVertexNormals();
-    // 逐景错开贴图起点：否则每个院子的墁砖地是同一张贴图，
-    // 俯视时全园是一张铺满的"花地毯"。
-    {
-      const uv = pave.attributes.uv;
-      const su = (hash(scene.name) % 97) / 97;
-      const sv = (hash(scene.name) % 61) / 61;
-      for (let k = 0; k < uv.count; k++) {
-        uv.setXY(k, uv.getX(k) + su, uv.getY(k) + sv);
+    const sizeX = halfY * 2;
+    const sizeZ = halfY * 1.72;
+    /**
+     * **逐块独立方砖**。
+     *
+     * ⚠⚠ 原来是一张 `PlaneGeometry` + `repeat(rx, rz)` ——
+     *   无论贴图做得多细，**每 8m / 16m 就整块重复一次**，
+     *   俯视大院就是一张"花地毯"，这正是用户说的"浓的贴图感"。
+     *
+     *   现在改成**每块砖一个独立四边形**：
+     *   ① UV **按砖对位** —— 每块砖取贴图里**不同的一块**（q%32, r%32），
+     *      于是相邻砖的纹理不同（砖纹、磨光痕、颗粒全都不一样）；
+     *   ② **逐块顶点色差** —— 每块砖有独立的明暗/色偏（±5%），
+     *      叠在贴图的逐块色偏上，两层独立随机 ⇒ 天然的不均匀；
+     *   ③ 加上原来的**大尺度低频调制**（波长 30~80m）作第三层。
+     *
+     *   代价：顶点数是共享网格的 4 倍（每块 4 个独立顶点），
+     *   换来的是**真正没有可见周期**的地面。
+     */
+    const TILE = 0.5; // 官式方砖约 0.5m
+    const TILES = 32; // 贴图每边块数（与 textures.js 的 paveBrick 对应）
+    const nx = Math.max(1, Math.round(sizeX / TILE));
+    const nz = Math.max(1, Math.round(sizeZ / TILE));
+    const bw = sizeX / nx;
+    const bd = sizeZ / nz;
+    const vCount = nx * nz * 4;
+    const pos = new Float32Array(vCount * 3);
+    const uvA = new Float32Array(vCount * 2);
+    const col = new Float32Array(vCount * 3);
+    const idx = new Uint32Array(nx * nz * 6);
+    const rnd = mulberry32(hash(scene.name) * 7919 + 13);
+    let vi = 0;
+    let ii = 0;
+    for (let r = 0; r < nz; r++) {
+      for (let q = 0; q < nx; q++) {
+        const x0 = -sizeX / 2 + q * bw;
+        const z0 = -sizeZ / 2 + r * bd;
+        const x1 = x0 + bw;
+        const z1 = z0 + bd;
+        // 逐块色差（顶点色当**调制系数**，接近 1 的浅色）
+        const kv = 1 + (rnd() - 0.5) * 0.11;
+        const warm = (rnd() - 0.5) * 0.035;
+        // 大尺度低频调制（第三层）
+        const cx = (x0 + x1) / 2;
+        const cz = (z0 + z1) / 2;
+        const low = Math.sin(cx * 0.038 + 1.1) * 0.5 + Math.cos(cz * 0.041 - 0.6) * 0.5;
+        const mid = Math.sin(cx * 0.021 - 0.3) * 0.5 + Math.cos(cz * 0.026 + 0.9) * 0.4;
+        const k = kv * (1 + low * 0.030 + mid * 0.018);
+        const cr = k * (1 + warm + mid * 0.012);
+        const cg = k;
+        const cb = k * (1 - warm - low * 0.012);
+        // UV：取贴图里**另一块**砖
+        const u0 = ((q % TILES) / TILES) | 0;
+        const u0f = (q % TILES) / TILES;
+        const v0f = (r % TILES) / TILES;
+        const u1f = ((q % TILES) + 1) / TILES;
+        const v1f = ((r % TILES) + 1) / TILES;
+        const uvs = [
+          u0f, v0f,
+          u1f, v0f,
+          u1f, v1f,
+          u0f, v1f,
+        ];
+        const verts = [
+          x0, z0,
+          x1, z0,
+          x1, z1,
+          x0, z1,
+        ];
+        for (let k2 = 0; k2 < 4; k2++) {
+          pos[vi * 3] = verts[k2 * 2];
+          pos[vi * 3 + 1] = 0;
+          pos[vi * 3 + 2] = verts[k2 * 2 + 1];
+          uvA[vi * 2] = uvs[k2 * 2];
+          uvA[vi * 2 + 1] = uvs[k2 * 2 + 1];
+          col[vi * 3] = cr;
+          col[vi * 3 + 1] = cg;
+          col[vi * 3 + 2] = cb;
+          vi++;
+        }
+        // 两个三角，法线必须**朝上**。
+        // ⚠ 顶点顺序是 (x0,z0) (x1,z0) (x1,z1) (x0,z1)，
+        //   按 0-1-2 绕的话法线是 **-Y**（朝下）⇒ 背面剔除 ⇒ 整片地看不见。
+        //   反过来绕才是 +Y。
+        idx[ii++] = vi - 4;
+        idx[ii++] = vi - 2;
+        idx[ii++] = vi - 3;
+        idx[ii++] = vi - 4;
+        idx[ii++] = vi - 1;
+        idx[ii++] = vi - 2;
       }
-      uv.needsUpdate = true;
+    }
+    const pave = new THREE.BufferGeometry();
+    pave.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    pave.setAttribute('uv', new THREE.BufferAttribute(uvA, 2));
+    pave.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    pave.setIndex(new THREE.BufferAttribute(idx, 1));
+    pave.computeVertexNormals();
+    // 边缘下沉埋进土里。
+    // ⚠ 用 edge^8 而不是 edge^2 —— 二次方会让**整个院子**都往下塌，
+    //   结果半边院子被地形盖住（只露出一小块砖地）。
+    //   八次方：院内基本是平的（官式墁砖地本该是平的），
+    //   只在最外一圈骤然沉下去 0.45m，与草地自然衔接。
+    {
+      const p2 = pave.attributes.position;
+      for (let i = 0; i < p2.count; i++) {
+        const px = p2.getX(i);
+        const pz = p2.getZ(i);
+        const edge = Math.max(Math.abs(px) / (sizeX / 2), Math.abs(pz) / (sizeZ / 2));
+        p2.setY(i, 0.06 - Math.pow(edge, 8) * 0.45);
+      }
+      p2.needsUpdate = true;
+      pave.computeVertexNormals();
     }
     pave.translate(scene.x, y0, scene.z);
-    const paveMesh = new THREE.Mesh(pave, paveMaterial(halfY * 2, halfY * 1.72));
+    const paveMesh = new THREE.Mesh(pave, paveMaterial());
     paveMesh.name = 'paving';
     paveMesh.receiveShadow = true;
     group.add(paveMesh);
+
+    /**
+     * **砖地收边（石牙）** —— 墁砖地四周的一圈条石。
+     *
+     * ⚠ 没有它，砖地与草地之间是一条**笔直的硬边**，
+     *   一眼看出"地上贴了张贴图"。真实官式院落都有这道石收边：
+     *   它同时说明了"这是人工铺的地面"和"铺到这里为止"。
+     */
+    {
+      const W = 0.34; // 条石宽
+      const H = 0.22; // 条石露出地面高
+      const hx = sizeX / 2;
+      const hz = sizeZ / 2;
+      // 收边石**收集到共享数组**，所有院最后合并成**一个** mesh
+      // （每院一个 mesh ⇒ 十几个 draw call，没必要）。
+      for (const [len, ox, oz, alongX] of [
+        [sizeX + W * 2, 0, hz + W / 2, true],
+        [sizeX + W * 2, 0, -hz - W / 2, true],
+        [sizeZ, hx + W / 2, 0, false],
+        [sizeZ, -hx - W / 2, 0, false],
+      ]) {
+        const g = alongX
+          ? new THREE.BoxGeometry(len, H, W)
+          : new THREE.BoxGeometry(W, H, len);
+        g.translate(scene.x + ox, y0 + H / 2 - 0.04, scene.z + oz);
+        edgeParts.push(g);
+      }
+    }
 
     // 十字甬路：一道石板路（南北 + 东西）
     //
@@ -680,6 +789,8 @@ export function buildLayout(sceneData, heightAt) {
   const park = sceneData.park;
   /** 建筑占地表（世界轴对齐矩形）—— 供主程序做机位避障 */
   const footprints = [];
+  /** 各院砖地的收边石 —— 最后合并成**一个** mesh */
+  const edgeParts = [];
 
   /* ---- 现状建筑（限三园核心范围内） ---- */
   let existing = 0;
@@ -717,13 +828,25 @@ export function buildLayout(sceneData, heightAt) {
   for (const s of sceneData.scenes || []) {
     if (s.western) continue;
     if (!SCENE_PROGRAM[s.name]) continue;
-    const g = buildSceneCluster(s, heightAt, mulberry32(hash(s.name)), footprints);
+    const g = buildSceneCluster(s, heightAt, mulberry32(hash(s.name)), footprints, edgeParts);
     if (g.children.length) {
       sceneGroup.add(g);
       sceneCount++;
     }
   }
   group.add(sceneGroup);
+
+  /* ---- 各院砖地的收边石：全部合并成**一个** mesh ---- */
+  if (edgeParts.length) {
+    const merged = mergeGeometries(edgeParts, false);
+    if (merged) {
+      const edge = new THREE.Mesh(merged, stoneMaterial(1));
+      edge.name = 'pave-edge';
+      edge.castShadow = true;
+      edge.receiveShadow = true;
+      group.add(edge);
+    }
+  }
 
   /* ---- 西洋楼 ---- */
   const western = buildWesternEnsemble(sceneData, heightAt);

@@ -287,27 +287,26 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
  * @param {number} sizeX 铺装面 X 向尺寸（米）
  * @param {number} sizeZ 铺装面 Z 向尺寸（米）
  */
-export function paveMaterial(sizeX, sizeZ) {
-  // ⚠ **必须按真实米数算**：一张墁砖贴图 = 16×16 块方砖 = 8m × 8m。
-  //   原来用的是**墙面**砖贴图（顺砖、3 块 × 6 皮），一张只 1.5m ——
-  //   地面上铺的是"墙砖图案"，看着像乱石地。
-  const TILE_M = 8;
-  const rx = Math.max(1, Math.round(sizeX / TILE_M));
-  const rz = Math.max(1, Math.round(sizeZ / TILE_M));
-  return make(`pave-${rx}x${rz}`, () => {
+export function paveMaterial() {
+  /**
+   * 墁砖地材质。
+   *
+   * ⚠ **不再设 repeat** —— 几何已经是**逐块独立方砖**，
+   *   每块的 UV 直接对到贴图里**不同的一块**（见 `layout.js`）。
+   *   如果这里再叠 repeat，就会二次缩放，砖的尺寸立刻错掉。
+   *
+   * ⚠ 因此所有院子的墁砖地**共用一个材质实例** ⇒ **不增加 draw call**。
+   */
+  return make('pave', () => {
     const map = paveBrick().clone();
     map.needsUpdate = true;
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(rx, rz);
-    const nrm = variantNormal('brick', 0);
-    if (nrm) nrm.repeat.set(rx, rz);
+    map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+    map.repeat.set(1, 1);
     return new THREE.MeshStandardMaterial({
       map,
-      normalMap: nrm || null,
-      normalScale: new THREE.Vector2(0.55, 0.55),
       color: 0xa9a49a,
-      // 顶点色用来**打散贴图的重复感**（大尺度明暗/色偏），
-      // 与地形用的是同一套办法。逐顶点调制，不改贴图、不加 draw call。
+      // 顶点色是**逐砖**的明暗/色偏（调制系数，接近 1 的浅色）——
+      // 这是打散"一张贴图铺满全院"重复感的主力。
       vertexColors: true,
       roughness: 0.97,
     });
