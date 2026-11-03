@@ -759,6 +759,83 @@ export function buildStructure(spec) {
     ridgeHalfWidth: roofRidgeHalfWidth,
   });
 
+  /* ------------------------------------------- 天花（井口旋子彩画） */
+  /**
+   * 清式官式大殿的室内**必须有天花**。
+   *
+   * ⚠ 没有它，从檐下往里看就是**一片裸屋架**（五架梁、瓜柱、檩全露着）——
+   *   近景一眼穿帮，这是"看着假"的主要残留观感。
+   *   真实建筑此处是**井口天花 + 支摘**：支摘把顶棚分成一格格"井"，
+   *   每格井心是旋子彩画（故宮太和殿当心间是井口大藻井）。
+   *
+   * 做法：
+   * ① 天花高度由**真实屋面高度场**（`roofSurfAtXY`）反推：
+   *    取所有格心处屋面高度的**最小值**再往下 1.2m —— 保证处处在屋面之下，
+   *    不会被屋架戳穿；同时不低于柱顶、不高于檐口。
+   * ② 井口用**支摘木框**（wood 桶）分格，井心是**朝下**的平面（ceiling 桶，
+   *    藻井贴图），井心比框低 0.1m ⇒ 有浅井的凹凸。
+   * ③ 只给**大式殿堂**（hasDougong）—— 亭榭轩敞，本来就该露梁架。
+   */
+  if (hasDougong && roofSurfAtXY) {
+    let minSurf = Infinity;
+    for (let i = 0; i < mian; i++) {
+      for (let j = 0; j < jin; j++) {
+        const x = (colXs[i] + colXs[i + 1]) / 2;
+        const z = (colZs[j] + colZs[j + 1]) / 2;
+        const y = roofSurfAtXY(x, z);
+        if (y != null && isFinite(y)) minSurf = Math.min(minSurf, y);
+      }
+    }
+    const refEave = spec.lowerEaveY != null ? spec.lowerEaveY : eaveY;
+    let ceilY = Math.min(isFinite(minSurf) ? minSurf : eaveY, refEave) - 1.2;
+    // 不得低于柱顶（会切进柱子），也不得高于檐口
+    ceilY = Math.max(ceilY, floorY + colH + 0.45);
+    ceilY = Math.min(ceilY, refEave - 0.6);
+    if (ceilY > floorY + colH + 0.2) {
+      const JING_W = 0.2; // 支摘木宽
+      const JING_H = 0.16; // 支摘木厚
+      const TARGET_JING = 2.2; // 目标井格边长（米）—— 清式井格约 1.5~2.5m
+      for (let i = 0; i < mian; i++) {
+        for (let j = 0; j < jin; j++) {
+          const x0 = colXs[i];
+          const x1 = colXs[i + 1];
+          const z0 = colZs[j];
+          const z1 = colZs[j + 1];
+          // 每个开间/进深再细分，使井格接近真实尺度
+          const nx = Math.max(1, Math.round((x1 - x0) / TARGET_JING));
+          const nz = Math.max(1, Math.round((z1 - z0) / TARGET_JING));
+          const bw = (x1 - x0) / nx;
+          const bd = (z1 - z0) / nz;
+          for (let a = 0; a < nx; a++) {
+            for (let b = 0; b < nz; b++) {
+              const cx = x0 + bw * (a + 0.5);
+              const cz = z0 + bd * (b + 0.5);
+              const cw = bw - JING_W * 2;
+              const cd = bd - JING_W * 2;
+              if (cw < 0.5 || cd < 0.5) continue;
+              // 井心：法线**朝下**（-Y）—— 天花是从室内往上看的
+              const g = new THREE.PlaneGeometry(cw, cd);
+              g.rotateX(-Math.PI / 2);
+              g.translate(cx, ceilY - 0.1, cz);
+              bucket(geoms, KEY.ceiling).push(g);
+              // 井口支摘：四条边框
+              for (const [fw, fd, ox, oz] of [
+                [cw + JING_W * 2, JING_W, 0, cd / 2 + JING_W / 2],
+                [cw + JING_W * 2, JING_W, 0, -cd / 2 - JING_W / 2],
+                [JING_W, cd, cw / 2 + JING_W / 2, 0],
+                [JING_W, cd, -cw / 2 - JING_W / 2, 0],
+              ]) {
+                const b = new THREE.BoxGeometry(fw, JING_H, fd);
+                b.translate(cx + ox, ceilY - JING_H / 2, cz + oz);
+                bucket(geoms, KEY.wood).push(b);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   /* ----------------------------------------------------------- 墙体 */
   const wallTop = floorY + colH + beamH - 0.06;
   const wallH = wallTop - floorY;
