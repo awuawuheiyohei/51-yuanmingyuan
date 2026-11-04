@@ -39,7 +39,10 @@ export const TILE_COLORS = {
   huang: { glazed: true,  color: '#d9a419' }, // 黄琉璃
   lv:    { glazed: true,  color: '#2f7a4a' }, // 绿琉璃
   keque: { glazed: true,  color: '#1d8b81' }, // 孔雀绿琉璃
-  lan:   { glazed: true,  color: '#2a5f9c' }, // 蓝琉璃
+  lan:   { glazed: true,  color: '#2b5588' }, // 蓝琉璃（钴蓝釉，沉一点才不像塑料）
+  // 紫色圆光琉璃（谐奇趣用）。⚠ 依据**存疑**：记载称"颜色现已无法确定，
+  //   据说为紫色圆光琉璃瓦"，故取紫；不标为定论。
+  zi:    { glazed: true,  color: '#6f5f96' }, // 紫琉璃（存疑）
   hong:  { glazed: true,  color: '#a83a2e' }, // 红琉璃
   jin:   { glazed: true,  color: '#c8a02a' }, // 金（鱼鳞金瓦）
   jinbi: { glazed: true,  color: '#c09a2c' }, // 金碧二色琉璃

@@ -96,19 +96,22 @@ export function buildHarmonyHall(c, opts) {
         rise: 1.9,
         type: 'wudian',
         overhang: 1.7,
-        tile: 'hong',
-        ridge: 'hong',
+        // ⚠ 考据（**存疑**）：谐奇趣为庑殿顶，"琉璃瓦颜色现已无法确定，
+        //   据说为**紫色圆光琉璃瓦**，正脊与垂脊皆为三色琉璃番花脊桶"。
+        //   原来用红琉璃（无任何记载支持），改为紫 + 异色琉璃脊。
+        tile: 'zi',
+        ridge: 'lan',
         wallBucket: 'plaster',
       },
       {
-        // 主屋面（庑殿顶，红琉璃圆光瓦，屋脊蓝琉璃番草）
+        // 主屋面（庑殿顶，紫琉璃圆光瓦，屋脊蓝琉璃番草）
         width: W2,
         depth: D2,
         eaveY: PLAT + L1H + L2H,
         rise: 3.5,
         type: 'wudian',
         overhang: 1.7,
-        tile: 'hong',
+        tile: 'zi',
         ridge: 'lan',
         ridgeScroll: true,
         wallBucket: 'plaster',

@@ -75,9 +75,12 @@ export function buildFangWaiGuan(c, opts) {
     ],
     roof: [
       // 重檐：下檐（腰檐）
-      { width: W, depth: D, eaveY: PLAT + L1, rise: 1.8, type: 'wudian', overhang: 1.7, tile: 'lan', ridge: 'lan', wallBucket: 'stone' },
+      // ⚠ 考据：方外观为**重檐庑殿顶，施蓝绿两色琉璃瓦** ——
+      //   即两檐用**不同**的颜色。原来两檐都是蓝，不符合记载。
+      //   下檐取蓝（方外观的特色），上檐取孔雀绿（与海晏堂等西洋楼群主色统一）。
+      { width: W, depth: D, eaveY: PLAT + L1, rise: 1.8, type: 'wudian', overhang: 1.7, tile: 'lan', ridge: 'lv', wallBucket: 'stone' },
       // 上檐（四坡主顶）
-      { width: W, depth: D, eaveY: PLAT + L1 + L2, rise: 3.2, type: 'wudian', overhang: 1.8, tile: 'lan', ridge: 'lan', wallBucket: 'stone' },
+      { width: W, depth: D, eaveY: PLAT + L1 + L2, rise: 3.2, type: 'wudian', overhang: 1.8, tile: 'lv', ridge: 'lv', wallBucket: 'stone' },
     ],
     wallBucket: 'stone',
     trimBucket: 'stone',

@@ -1131,6 +1131,138 @@ export function stone() {
  * 所以这里画：灰白底 + 粒状斑驳 + 溶蚀麻点 + 苔斑。
  * **刻意不做任何方向性笔触** —— 方向性会暴露平铺接缝。
  */
+/**
+ * **欧式粗琢石（rusticated ashlar）** —— 西洋楼石墙专用。
+ *
+ * ## 为什么不用 AI 那张 `stone.png`
+ *
+ * AI 的石材贴图是**切割石板**：规则的方格 + 明显的十字拼缝，
+ * 贴到西洋楼的大墙面上一眼就是"格子布"—— 这正是"贴图感"最刺眼的一处。
+ * （太湖石贴图当初也是为了避开这个"十字"才单独画的。）
+ *
+ * ## 粗琢石长什么样
+ *
+ * 欧式石墙（尤其是 18~19 世纪的西洋楼）用的是**粗琢石**：
+ * ① 每层石块**高度一致**，接缝**上下对齐**（不是中式错缝）；
+ * ② 每块石头四周有**斜面倒角**（chamfer），边缘受光、缝里落影；
+ * ③ 每块石头的**颜色都不一样**（不同批次、不同石材）；
+ * ④ 表面有**细密的凿痕**（点凿/斜凿）；
+ * ⑤ 中间面比边缘略凹（粗琢的手工面）。
+ *
+ * ## UV 约定
+ *
+ * 512px / 4×4 块，配合洋楼的 `UVK = 1/3`（1 UV 单位 = 3m）
+ * ⇒ 一张贴图铺 3m，**每块石头 0.75m** —— 与西洋楼的大块粗琢石相符。
+ */
+export function rusticatedStone() {
+  if (cache.has('rusticatedStone')) return cache.get('rusticatedStone');
+  const S = 512;
+  const N = 4; // 每边 4 块
+  const cell = S / N;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(20261104);
+  const img = g.createImageData(S, S);
+  const d = img.data;
+  const put = (x, y, r, gg, b) => {
+    const i = (y * S + x) * 4;
+    d[i] = r;
+    d[i + 1] = gg;
+    d[i + 2] = b;
+    d[i + 3] = 255;
+  };
+  for (let r = 0; r < N; r++) {
+    for (let q = 0; q < N; q++) {
+      // ③ 每块石头颜色不同（明度 ±11%，色相 ±3%）
+      //
+      // ⚠ 基色必须**压暗到暖灰**（不是白）：底色给到 186 乘材质色 0xe4e0d6
+      //   ≈ 接近纯白 ⇒ 大墙面看着像"泡沫板/瓷砖"，不像石头。
+      //   18~19 世纪西洋楼用的是巴黎附近的浅灰石灰岩，偏暖。
+      // ⚠ 色差要**小**：真实粗琢石只有几块稍微深一点，
+      //   差得大就成了"花斑/棋盘格"。
+      const v = 0.955 + rnd() * 0.09;
+      const warm = (rnd() - 0.5) * 0.03;
+      const br = Math.floor((150 + warm * 150) * v);
+      const bg = Math.floor((144 + warm * 50) * v);
+      const bb = Math.floor((134 - warm * 70) * v);
+      const x0 = q * cell;
+      const y0 = r * cell;
+      for (let y = y0; y < y0 + cell; y++) {
+        for (let x = x0; x < x0 + cell; x++) {
+          const dx = Math.min(x - x0, x0 + cell - 1 - x);
+          const dy = Math.min(y - y0, y0 + cell - 1 - y);
+          const de = Math.min(dx, dy);
+          let k = 0.985; // 中间面略凹（粗凿的手工面）
+          if (de < 3) {
+            k = 0.60 + 0.40 * (de / 3); // 灰缝：深
+          } else if (de < 10) {
+            // ② 斜面倒角：朝光的一侧亮、背光的一侧暗
+            const upper = y - y0 < x - x0;
+            const e = upper ? 1.07 : 0.89;
+            k = 1 + (e - 1) * (1 - (de - 3) / 7);
+          }
+          put(x, y, br * k, bg * k, bb * k);
+        }
+      }
+      // ④ 细密凿痕（斜向短线）
+      for (let i = 0; i < 300; i++) {
+        const sx = x0 + 4 + rnd() * (cell - 8);
+        const sy = y0 + 4 + rnd() * (cell - 8);
+        const ang = (rnd() < 0.5 ? 1 : -1) * (0.3 + rnd() * 0.55);
+        const len = 3 + rnd() * 7;
+        for (let t = 0; t < len; t++) {
+          const px = Math.round(sx + Math.cos(ang) * t);
+          const py = Math.round(sy + Math.sin(ang) * t);
+          if (px < x0 || px >= x0 + cell || py < y0 || py >= y0 + cell) continue;
+          const i2 = (py * S + px) * 4;
+          const f = 0.87 + rnd() * 0.26;
+          d[i2] = Math.min(255, d[i2] * f);
+          d[i2 + 1] = Math.min(255, d[i2 + 1] * f);
+          d[i2 + 2] = Math.min(255, d[i2 + 2] * f);
+        }
+      }
+    }
+  }
+  g.putImageData(img, 0, 0);
+
+  /**
+   * **大尺度风化斑**（画在 ImageData 之上）。
+   *
+   * ⚠ 这一步是"打散 3m 周期"的关键：
+   *   粗琢石本身是规整网格（真实特征，不能去掉），
+   *   但真实的石墙有**明显的风雨侵蚀不均** ——
+   *   同一块石头不同位置深浅不同，整墙有大片的深色晕染。
+   *   只靠逐块色差的话，3m 的重复周期在远处一眼可见。
+   */
+  for (let i = 0; i < 15; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 40 + rnd() * 120;
+    const dark = rnd() < 0.55;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, dark ? 'rgba(88,84,76,0.10)' : 'rgba(226,220,206,0.09)');
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd;
+        g.beginPath();
+        g.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  }
+  // 竖向水痕：雨水从檐口流下，横贯整张（跨块无缝）
+  for (let i = 0; i < 22; i++) {
+    const x = rnd() * S;
+    g.fillStyle = `rgba(96,92,84,${0.025 + rnd() * 0.045})`;
+    g.fillRect(x, 0, 1 + rnd() * 4, S);
+  }
+
+  const tex = toTexture(c);
+  cache.set('rusticatedStone', tex);
+  return tex;
+}
+
 export function taihuStone() {
   if (cache.has('taihuStone')) return cache.get('taihuStone');
   // 512px：贴图周期 1.6m → 1px ≈ 3mm，足够表现石灰岩颗粒。
@@ -1261,15 +1393,18 @@ export function taihuStone() {
   }
 
   // 苔藓：零星绿斑，边缘不规则（用小圆点堆出锯齿边）
-  for (let i = 0; i < 48; i++) {
+  // ⚠ 苔藓要**零星**：太湖石本体是**灰白石灰岩**，苔只是点缀。
+  //   原来 48 处 × 透明度 0.26~0.66 ⇒ 整块石头发墨绿，
+  //   远看像一堆绿石头（洋楼大水法前那几块尤其明显）。
+  for (let i = 0; i < 26; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
-    const n = 14 + Math.floor(rnd() * 28);
+    const n = 10 + Math.floor(rnd() * 20);
     const col = rnd() < 0.5 ? '96,116,58' : '72,92,44';
     for (let k = 0; k < n; k++) {
       const a = rnd() * Math.PI * 2;
       const rr = rnd() * (7 + rnd() * 18);
-      g.fillStyle = `rgba(${col},${0.26 + rnd() * 0.4})`;
+      g.fillStyle = `rgba(${col},${0.16 + rnd() * 0.26})`;
       g.beginPath();
       g.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr, 1.6 + rnd() * 4, 0, Math.PI * 2);
       g.fill();

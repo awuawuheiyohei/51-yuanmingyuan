@@ -58,6 +58,42 @@ export function worldUV(geo, scale = UVK) {
  * @param {number} [seed=1] 随机种子
  * @returns {{wood: THREE.BufferGeometry[], green: THREE.BufferGeometry[]}}
  */
+/**
+ * 给叶簇写**顶点色**（绿度斑驳）。
+ *
+ * ⚠ 为什么不用贴图：叶簇是**球面**，三平面投影会把叶片贴图在极点拉成放射条纹
+ *   （中式树冠的教训，见 AGENTS.md §4.1.2）。
+ *   顶点色没有 UV，不会被拉伸 ✓
+ *
+ * ⚠ 为什么必须要：叶簇是压扁椭球，光滑球面在阳光下高光连成一条白带 ——
+ *   远看就是**一堆深绿色的石头**，完全不像树（西洋楼大水法前那几丛尤其明显）。
+ *   逐顶点的绿度噪声一加，"石头感"立刻消失。
+ */
+function leafTint(geo, seedBase = 1) {
+  const pos = geo.attributes.position;
+  if (!pos) return geo;
+  const col = new Float32Array(pos.count * 3);
+  const h1 = (a, b) => {
+    const v = Math.sin(a * 127.1 + b * 311.7 + seedBase * 74.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    // 斑驳：位置哈希 ⇒ 绿度 0.62~1.28
+    const k = 0.62 + h1(Math.round(x * 9), Math.round(y * 9 + z * 5)) * 0.66;
+    // 朝上的部分受光更足
+    const up = 0.94 + Math.max(0, Math.min(1, y * 1.6 + 0.35)) * 0.16;
+    const m = k * up;
+    col[i * 3] = m * 0.94;
+    col[i * 3 + 1] = m;
+    col[i * 3 + 2] = m * 0.82;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 export function ornamentalTree(h = 5, seed = 1) {
   let s = seed >>> 0;
   const rnd = () => {
@@ -138,7 +174,7 @@ export function ornamentalTree(h = 5, seed = 1) {
           ly + (rnd() - 0.5) * cr * 0.9,
           lz + (rnd() - 0.5) * cr * 1.5
         );
-        green.push(worldUV(blob));
+        green.push(leafTint(worldUV(blob), b + 1));
       }
     }
   }
@@ -154,7 +190,7 @@ export function ornamentalTree(h = 5, seed = 1) {
       h * (0.58 + rnd() * 0.16),
       pz + (rnd() - 0.5) * cr * 1.6
     );
-    green.push(worldUV(blob));
+    green.push(leafTint(worldUV(blob), b + 7));
   }
 
   return { wood, green };

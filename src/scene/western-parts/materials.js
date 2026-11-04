@@ -21,7 +21,7 @@ import {
   dougongMaterial,
   boardMaterial,
 } from '../buildings/materials.js';
-import { roofTilesNormal } from '../buildings/textures.js';
+import { roofTilesNormal, rusticatedStone } from '../buildings/textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
 
 /**
@@ -444,13 +444,18 @@ export function makeWesternMaterials() {
   // 番花浮雕那张贴图（baroque）不能拿来铺大面——它是"一块雕花板"，
   // 铺在广场地面��会变成一张巨大的花地毯。番花只用在柱身与栏板
   // 这些**小面积**构件上（见 mats.ornate）。
-  const stone = plainStoneMaterial();
-  if (stone.map) {
-    stone.map = stone.map.clone();
-    stone.map.needsUpdate = true;
-    stone.map.wrapS = stone.map.wrapT = THREE.RepeatWrapping;
-    stone.map.repeat.set(1, 1);
-  }
+  //
+  // ⚠ **必须 clone 材质**：`plainStoneMaterial()` 返回的是**缓存单例**，
+  //   直接改它的 map 会连中式建筑的须弥座/柱础一起换掉。
+  //
+  // ⚠ 西洋楼用**程序化的欧式粗琢石**，不用 AI 那张 `stone.png` ——
+  //   那张是"切割石板"（规则方格 + 十字拼缝），铺大墙面就是一张格子布。
+  const stone = plainStoneMaterial().clone();
+  stone.map = rusticatedStone().clone();
+  stone.map.needsUpdate = true;
+  stone.map.wrapS = stone.map.wrapT = THREE.RepeatWrapping;
+  stone.map.repeat.set(1, 1);
+  stone.color.set(0xdad5c8);
 
   // 太湖石 / 假山：灰绿斑驳的石头面（**不能**用砖纹——石头没有砖缝）
   const rockTex = rockTexture();
@@ -508,8 +513,11 @@ export function makeWesternMaterials() {
   //   （就是"绿球树"那个老问题的根源）。
   //   平滑着色 + 稍多的段数 ⇒ 叶团才像一团 foliage。
   //   颜色也压一点饱和度：0x4f7a3c 太鲜，远看像塑料草。
+  // 叶丛：顶点色给**绿度斑驳**（见 kit.js → leafTint）——
+  // 光滑球面远看就是"一堆深绿色石头"，加了斑驳才像树。
   const green = new THREE.MeshStandardMaterial({
-    color: 0x5c7c4a,
+    color: 0x76975c,
+    vertexColors: true,
     roughness: 0.95,
     flatShading: false,
   });
