@@ -786,17 +786,19 @@ export function brickWall(tint = '#8d8a84') {
   if (OVERRIDE.brick) return OVERRIDE.brick;
   const key = `brick-${tint}`;
   if (cache.has(key)) return cache.get(key);
-  const W = 256;
-  const H = 256;
+  const W = 512;
+  const H = 512;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   const rnd = mulberry32(999);
   g.fillStyle = tint;
   g.fillRect(0, 0, W, H);
-  // ⚠ **8 皮砖**（原来 16 皮）：清式城砖约 0.4m × 0.2m，
-  //   8 皮 ⇒ 一张贴图 = 8 × 0.2 = **1.6m × 1.6m**。
-  //   16 皮时一张贴图是 3.2m，用在 5m 宽的墙上砖就小了一半。
-  const rows = 8;
+  // ⚠ **16 皮砖**：清式城砖约 0.4m × 0.2m，
+  //   16 皮 ⇒ 一张贴图 = 16 × 0.2 = **3.2m × 3.2m**。
+  //   原来 256px/8皮 = 1.6m 一张 ⇒ 每 1.6m 整张重复一次，
+  //   一面 30m 的墙要重复 19 次，远看就是"印上去的砖纹"。
+  //   现在与红砖墙统一到 **3.2m**，几何 UV 的 tile 也统一。
+  const rows = 16;
   const bh = H / rows;
   for (let r = 0; r < rows; r++) {
     const offset = r % 2 ? bh : 0;
@@ -924,9 +926,20 @@ export function plaqueBoard(text, vertical = false) {
 export function redBrick() {
   const key = 'redbrick';
   if (cache.has(key)) return cache.get(key);
-  const S = 256;
-  const COURSES = 8;
-  const cell = S / COURSES; // 32px 一皮
+  /**
+   * 抹红灰砖墙贴图。
+   *
+   * ⚠ **尺寸必须与几何的 UV 约定一致**：1024px / 16 皮 / 每皮 64px，
+   *   砖宽 128px ⇒ 一张 = 8 块 × 0.4m = **3.2m 宽**，高 16 皮 × 0.2m = **3.2m**。
+   *   原来 256px/8 皮 = **1.6m 一张** ⇒ 每 1.6m 整张重复一次，
+   *   一面 30m 的墙要重复 19 次 —— 远看就是"印上去的砖纹"。
+   *
+   * ⚠ 逐块色差要**够大**（±14%）：抹红灰墙的砖本来就有明显的色差，
+   *   差得小就退化成"一张红贴图"。
+   */
+  const S = 1024;
+  const COURSES = 16; // 皮数
+  const cell = S / COURSES; // 每皮 64px
   const c = makeCanvas(S, S);
   const g = c.getContext('2d');
   const rnd = mulberry32(31337);
@@ -938,9 +951,28 @@ export function redBrick() {
   for (let r = 0; r < COURSES; r++) {
     const off = r % 2 ? cell : 0;
     for (let x = -cell; x < S; x += cell * 2) {
-      const v = 0.9 + rnd() * 0.2;
+      const v = 0.86 + rnd() * 0.28;
       g.fillStyle = `rgba(${Math.floor(168 * v)},${Math.floor(72 * v)},${Math.floor(60 * v)},1)`;
-      g.fillRect(x + off + 1.2, r * cell + 1.2, cell * 2 - 2.4, cell - 2.4);
+      const bx = x + off + 1.6;
+      const by = r * cell + 1.6;
+      const bw = cell * 2 - 3.2;
+      const bh = cell - 3.2;
+      g.fillRect(bx, by, bw, bh);
+      // **砖的下缘投影** —— 砖是凸出墙面的，底边必有一道影。
+      // ⚠ 这道影是**不用法线贴图也能读出"这是砖墙"**的关键：
+      //   去掉 AI 砖法线（它把砖面拉成"皱纹皮革"）后，
+      //   只靠贴图明暗，砖缝就几乎看不见了；有了下缘影，砖块立刻立起来。
+      const grad = g.createLinearGradient(0, by + bh - bh * 0.34, 0, by + bh);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.30)');
+      g.fillStyle = grad;
+      g.fillRect(bx, by + bh - bh * 0.34, bw, bh * 0.34);
+      // 砖的上缘微微受光
+      const lit = g.createLinearGradient(0, by, 0, by + bh * 0.22);
+      lit.addColorStop(0, 'rgba(255,225,215,0.16)');
+      lit.addColorStop(1, 'rgba(255,225,215,0)');
+      g.fillStyle = lit;
+      g.fillRect(bx, by, bw, bh * 0.22);
     }
   }
   // 抹红灰：正片叠底压成砖红
@@ -949,13 +981,15 @@ export function redBrick() {
   g.fillRect(0, 0, S, S);
   g.globalCompositeOperation = 'source-over';
   // 薄灰浆：砖缝的硬对比化掉（抹灰墙的砖缝是"隐约"，不是黑线）
-  g.fillStyle = 'rgba(206,150,138,0.30)';
+  // ⚠ 透明度不能太大：整片提亮会把砖缝的对比吃掉。
+  g.fillStyle = 'rgba(206,150,138,0.18)';
   g.fillRect(0, 0, S, S);
-  // 抹灰不匀：一块块的深浅
+  // 抹灰不匀：一块块的深浅（斑块随分辨率放大）
+  const k = S / 256;
   for (let i = 0; i < 80; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
-    const r = 14 + rnd() * 52;
+    const r = (14 + rnd() * 52) * k;
     const grd = g.createRadialGradient(x, y, 0, x, y, r);
     const dark = rnd() < 0.5;
     grd.addColorStop(0, dark ? 'rgba(88,40,34,0.17)' : 'rgba(228,182,170,0.13)');
@@ -969,7 +1003,7 @@ export function redBrick() {
   for (let i = 0; i < 18; i++) {
     const x = rnd() * S;
     g.fillStyle = `rgba(120,80,72,${0.03 + rnd() * 0.05})`;
-    g.fillRect(x, 0, 1 + rnd() * 3, S);
+    g.fillRect(x, 0, (1 + rnd() * 3) * k, S);
   }
 
   const tex = toTexture(c);

@@ -294,24 +294,84 @@ import { buildColumnBase } from './details.js';
  *   py/ny：u 沿 x，v 沿 z
  *   pz/nz：u 沿 x，v 沿 y
  */
-function scaleBoxUV(geo, w, h, d, tile = 1.6) {
+function scaleBoxUV(geo, w, h, d, tile = 3.2) {
   const uv = geo.attributes.uv;
   if (!uv) return geo;
-  const per = 4;
-  const face = (start, su, sv) => {
-    for (let k = 0; k < per; k++) {
+  /**
+   * ⚠ 必须**按实际段数**逐面处理，不能假设"每面 4 个顶点"。
+   *   `BoxGeometry` 带 segments 时每面是 `(segU+1)×(segV+1)` 个顶点，
+   *   硬编码 `per = 4` 会把 UV 缩放算到**错误的顶点区间**上 ——
+   *   墙就变成"某些面正常、某些面拉花"。
+   */
+  const p = geo.parameters || {};
+  const ws = p.widthSegments ?? 1;
+  const hs = p.heightSegments ?? 1;
+  const ds = p.depthSegments ?? 1;
+  // 面顺序与 three.js 的 BoxGeometry 一致：+X, -X, +Y, -Y, +Z, -Z
+  const faces = [
+    { n: (ds + 1) * (hs + 1), su: d / tile, sv: h / tile }, // +X
+    { n: (ds + 1) * (hs + 1), su: d / tile, sv: h / tile }, // -X
+    { n: (ws + 1) * (ds + 1), su: w / tile, sv: d / tile }, // +Y
+    { n: (ws + 1) * (ds + 1), su: w / tile, sv: d / tile }, // -Y
+    { n: (ws + 1) * (hs + 1), su: w / tile, sv: h / tile }, // +Z（正面，最重要）
+    { n: (ws + 1) * (hs + 1), su: w / tile, sv: h / tile }, // -Z
+  ];
+  let start = 0;
+  for (const f of faces) {
+    for (let k = 0; k < f.n; k++) {
       const i = start + k;
-      uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+      uv.setXY(i, uv.getX(i) * f.su, uv.getY(i) * f.sv);
     }
-  };
-  face(0, d / tile, h / tile); // +X
-  face(per, d / tile, h / tile); // -X
-  face(per * 2, w / tile, d / tile); // +Y
-  face(per * 3, w / tile, d / tile); // -Y
-  face(per * 4, w / tile, h / tile); // +Z（正面，最重要）
-  face(per * 5, w / tile, h / tile); // -Z
+    start += f.n;
+  }
   uv.needsUpdate = true;
   return geo;
+}
+
+/**
+ * 给几何写**顶点色**（调制系数，接近 1 的浅色）。
+ *
+ * ⚠ 必须在几何 **translate 之后**调用 ——
+ *   顶点色要按**世界坐标**算，否则每座建筑的调制图案完全相同。
+ * ⚠ 顶点色不是真实颜色，是**乘在贴图上的系数** ——
+ *   真实颜色交给贴图，否则双重变暗（见 AGENTS.md §4.1.2）。
+ */
+function applyTint(geo, fn) {
+  const pos = geo.attributes.position;
+  if (!pos) return geo;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const c = fn(pos.getX(i), pos.getY(i), pos.getZ(i));
+    col[i * 3] = c[0];
+    col[i * 3 + 1] = c[1];
+    col[i * 3 + 2] = c[2];
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
+/**
+ * 抹红灰砖墙的**顶点色调制**。
+ *
+ * 两层频率叠在一起，刻意与贴图的 3.2m 周期**错开**：
+ * ① 中尺度（约 4~8m）：抹灰不匀、局部风化
+ * ② 大尺度（约 20~40m）：整段墙体的色偏
+ * ⇒ 两者的最小公倍数远大于贴图周期 ⇒ 墙看不出重复。
+ */
+function wallTint(x, y, z) {
+  const mid = Math.sin(x * 0.62 + 0.4) * Math.cos(z * 0.53 - 0.9) + Math.sin(y * 0.9 + 1.7) * 0.35;
+  const big = Math.sin(x * 0.085 + 1.7) * 0.6 + Math.cos(z * 0.105 - 0.4) * 0.5;
+  const k = 1 + mid * 0.05 + big * 0.055;
+  return [k * (1 + big * 0.022), k, k * (1 - mid * 0.018)];
+}
+
+/** 按真实米数把 BoxGeometry 细分成网格（用于逐格顶点调制） */
+function boxSegs(w, h, d, step = 2.4) {
+  return [
+    Math.max(1, Math.round(w / step)),
+    Math.max(1, Math.round(h / step)),
+    Math.max(1, Math.round(d / step)),
+  ];
 }
 
 const KEY = {
@@ -841,17 +901,31 @@ export function buildStructure(spec) {
   const wallH = wallTop - floorY;
   if (wallH > 0.2) {
     // 后墙（北，-Z）/ 两侧山墙：实墙（收进柱径，露出角柱）
+    // ⚠ 墙体按**真实米数细分**（2.4m 网格）——
+    //   分段不是为了造型，而是为了让**顶点色**有地方落脚：
+    //   逐顶点调制抹灰不匀，才能打散砖贴图 3.2m 周期的重复感。
+    const wOff = spec.position ? spec.position[0] : 0;
+    const wOffY = spec.position ? spec.position[1] : 0;
+    const wOffZ = spec.position ? spec.position[2] : 0;
+    const tint = (x, y, z) => wallTint(x + wOff, y + wOffY, z + wOffZ);
+
     const backW = width - colDia;
-    const back = new THREE.BoxGeometry(backW, wallH, wallThick);
-    scaleBoxUV(back, backW, wallH, wallThick);
-    back.translate(0, floorY + wallH / 2, -depth / 2 + wallThick / 2);
-    bucket(geoms, KEY.wall).push(back);
+    {
+      const [sgx, sgy, sgz] = boxSegs(backW, wallH, wallThick);
+      const back = new THREE.BoxGeometry(backW, wallH, wallThick, sgx, sgy, sgz);
+      scaleBoxUV(back, backW, wallH, wallThick);
+      back.translate(0, floorY + wallH / 2, -depth / 2 + wallThick / 2);
+      applyTint(back, tint);
+      bucket(geoms, KEY.wall).push(back);
+    }
 
     for (const sx of [-1, 1]) {
       const sideD = depth - colDia;
-      const side = new THREE.BoxGeometry(wallThick, wallH, sideD);
+      const [sgx, sgy, sgz] = boxSegs(wallThick, wallH, sideD);
+      const side = new THREE.BoxGeometry(wallThick, wallH, sideD, sgx, sgy, sgz);
       scaleBoxUV(side, wallThick, wallH, sideD);
       side.translate(sx * (width / 2 - wallThick / 2), floorY + wallH / 2, 0);
+      applyTint(side, tint);
       bucket(geoms, KEY.wall).push(side);
 
       // 两侧山墙开槛窗：真框料 + 步步锦格心
@@ -943,9 +1017,11 @@ export function buildStructure(spec) {
         }
       } else {
         const panelW = bw - colDia;
-        const panel = new THREE.BoxGeometry(panelW, wallH, wallThick);
+        const [sgx, sgy, sgz] = boxSegs(panelW, wallH, wallThick);
+        const panel = new THREE.BoxGeometry(panelW, wallH, wallThick, sgx, sgy, sgz);
         scaleBoxUV(panel, panelW, wallH, wallThick);
         panel.translate(cx, floorY + wallH / 2, frontZ);
+        applyTint(panel, tint);
         bucket(geoms, KEY.wall).push(panel);
       }
     }

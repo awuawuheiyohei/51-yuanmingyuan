@@ -241,16 +241,19 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
       //   （`structure.js → scaleBoxUV`，一张贴图 = 3.2m）。
       //   材质上再乘 repeat 就会把砖缩到 0.16m 见方，远看是马赛克不是砖墙。
       map.repeat.set(1, 1);
-      const nrm = variantNormal('brick', variant);
       const rgh = variantRough('brick', variant);
-      if (nrm) nrm.repeat.set(1, 1);
       if (rgh) rgh.repeat.set(1, 1);
       return new THREE.MeshStandardMaterial({
         map,
-        normalMap: nrm || null,
+        // ⚠ **不挂 normalMap**。
+        //   AI 那张砖法线是"细密斜向拉丝"，挂上去每块砖都变成**皱纹皮革**。
+        //   抹红灰墙的砖面本来就是抹过灰的、**平滑**的 ——
+        //   凹凸只该出现在砖缝（缝的明暗已经在 map 里了）。
         roughnessMap: rgh || null,
-        normalScale: new THREE.Vector2(0.85, 0.85),
         color: tint || 0xffffff,
+        // ⚠ 顶点色是**逐顶点调制**（抹灰不匀、风化），
+        //   用来打散砖贴图 3.2m 周期的重复感。值是**乘在贴图上的系数**。
+        vertexColors: true,
         roughness: 0.93,
       });
     }
@@ -259,7 +262,11 @@ export function wallMaterial(type = 'brick', tint = null, variant = 0) {
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     // 同红墙：砖的尺寸由几何 UV 决定（一张贴图 = 3.2m），材质不再缩放
     map.repeat.set(1, 1);
-    return new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
+    return new THREE.MeshStandardMaterial({
+      map,
+      vertexColors: true,
+      roughness: 0.95,
+    });
   });
 }
 
