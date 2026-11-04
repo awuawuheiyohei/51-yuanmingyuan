@@ -2207,7 +2207,11 @@ export function waterJet(len, r = 0.10, seg = 6) {
   const g = new THREE.CylinderGeometry(r * 0.7, r, len, seg, 1, true);
   g.translate(0, len / 2, 0);
   g.computeVertexNormals();
-  return tint(worldUV(g), 0xffffff);
+  // ⚠ 顶点色刷**冷白**而不是纯白：纯白 + 不透明 = 塑料管；
+  //   冷白透光才像水（见 western-parts/materials.js 的 waterJet 材质）。
+  const out = tint(worldUV(g), 0xdceaf5);
+  out.userData.isJet = true;
+  return out;
 }
 
 /** 从 A 射到 B 的水柱（兽首喷水用） */
@@ -2224,7 +2228,9 @@ export function jetBetween(a, b, r = 0.10) {
   g.applyQuaternion(q);
   g.translate(a[0] + dx / 2, a[1] + dy / 2, a[2] + dz / 2);
   g.computeVertexNormals();
-  return tint(worldUV(g), 0xffffff);
+  const out = tint(worldUV(g), 0xdceaf5);
+  out.userData.isJet = true;
+  return out;
 }
 
 /** 落水花（水柱顶端的散花） */
@@ -2232,7 +2238,9 @@ export function spray(r = 0.24, h = 0.55) {
   const g = new THREE.ConeGeometry(r, h, 7, 1, true);
   g.translate(0, h / 2, 0);
   g.computeVertexNormals();
-  return tint(worldUV(g), 0xffffff);
+  const out = tint(worldUV(g), 0xdceaf5);
+  out.userData.isJet = true;
+  return out;
 }
 
 /**
@@ -2250,11 +2258,14 @@ export function fountainPlume(len, r = 0.05, strands = 5, spread = 0.22) {
     const g = new THREE.CylinderGeometry(r * 0.55, r, h, 5, 1, true);
     g.translate(Math.cos(a) * spread, h / 2, Math.sin(a) * spread);
     g.computeVertexNormals();
-    parts.push(tint(worldUV(g), 0xffffff));
+    parts.push(tint(worldUV(g), 0xdceaf5));
   }
   // 顶端散花
   parts.push(spray(r * 3.4, len * 0.06).translate(0, len, 0));
-  return mergeAll(parts);
+  const merged = mergeAll(parts);
+  // ⚠ 合并会丢掉 userData ⇒ 合并后再标一次
+  if (merged) merged.userData.isJet = true;
+  return merged;
 }
 
 /* ============================================================ 组合件 */

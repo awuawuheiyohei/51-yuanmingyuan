@@ -89,6 +89,16 @@ export function createCollector(materials) {
         }
       } else if (BUCKET_ALIAS[b]) {
         b = BUCKET_ALIAS[b];
+      } else if (b === 'water' && geo.userData?.isJet) {
+        // **水柱与池面分桶**。
+        //
+        // ⚠ 原来两者共用一个材质：水柱是**近乎不透明的纯白**（opacity 0.93），
+        //   近看就是一根根白色塑料管 —— 而真实喷泉水柱是通透的水。
+        //   但池面必须基本不透明（否则会看穿池底、露出草地）。
+        //
+        //   判定用**几何上的显式标记**（`userData.isJet`），不用包围盒长宽比：
+        //   斜向水柱旋转后包围盒三个轴差不多长，按比例判会漏掉一大半。
+        b = 'waterJet';
       }
       if (matrix) geo.applyMatrix4(matrix);
       if (!buckets.has(b)) buckets.set(b, []);
@@ -568,8 +578,30 @@ export function makeWesternMaterials() {
     envMapIntensity: 1.2,
   });
 
+  /**
+   * **喷泉水柱** —— 与池面分开。
+   *
+   * ⚠ 水柱要**通透**：真实喷泉是水，看得见背后的东西，
+   *   边缘还有一圈亮的高光。做成近乎不透明的纯白 = 塑料管。
+   */
+  const waterJet = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.1,
+    metalness: 0.0,
+    transparent: true,
+    opacity: 0.42,
+    normalMap: rippleNormalTexture(),
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.15,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.05,
+  });
+
   const mats = {
-    stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, tile,
+    stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, waterJet,
+    tile,
   };
   return mats;
 }

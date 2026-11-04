@@ -146,8 +146,10 @@ export function buildHaiYanTang(c, opts) {
       rise: 4.2,
       type: 'wudian',
       overhang: 2.2,
+      // ⚠ 考据：海晏堂「顶覆**孔雀绿**琉璃瓦」，但**脊桶为黄琉璃** ——
+      //   屋面与脊是两种颜色。原来脊也用孔雀绿，不符合记载。
       tile: 'keque',
-      ridge: 'keque',
+      ridge: 'jin',
       wallBucket: 'plaster',
       hipFishBucket: 'stone',
       hipFish: () => stoneFish(1.5, true),
