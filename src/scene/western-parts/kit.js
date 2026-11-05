@@ -2214,6 +2214,129 @@ export function waterJet(len, r = 0.10, seg = 6) {
   return out;
 }
 
+/**
+ * **倒角石板**（一块粗琢石）。
+ *
+ * 用 `ExtrudeGeometry` + `bevelEnabled` 生成 ——
+ * three.js 没有现成的"倒角盒"，但挤出体的 bevel 正好就是**斜面倒角**：
+ * 这正是粗琢石（rustication）的定义 —— 四边斜切、边缘受光、缝里落影。
+ *
+ * ⚠ 倒角是**几何**，不是贴图 ⇒ 近看是真正凸出墙面的石块，
+ *   而不是一个画着石头的平面。
+ */
+function chamferSlab(w, h, depth, bevel) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, -h / 2);
+  shape.lineTo(w / 2, -h / 2);
+  shape.lineTo(w / 2, h / 2);
+  shape.lineTo(-w / 2, h / 2);
+  shape.closePath();
+  const g = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(0.02, depth - bevel * 2),
+    bevelEnabled: true,
+    bevelSize: bevel,
+    bevelThickness: bevel,
+    bevelSegments: 1,
+    curveSegments: 1,
+  });
+  g.translate(0, 0, bevel);
+  return g;
+}
+
+/**
+ * **粗琢石墙面** —— 真几何：在石墙外皮贴一层凸出的倒角石块。
+ *
+ * ## 为什么必须是几何
+ *
+ * 贴图画出来的粗琢石，**近看永远是平的** —— 无论贴图做得多细，
+ * 边缘没有真实的斜面、没有凸起、没有落影 ⇒ 一眼就是"墙上贴了张石头图"。
+ * 而粗琢石墙最突出的特征恰恰就是**石块凸出、缝是凹的**。
+ *
+ * ## 做法
+ *
+ * ① 石块用 `chamferSlab()`（带 bevel 的挤出体）⇒ 四边斜切、真凸出；
+ * ② 每块石块取**贴图里不同的一格**（UV 对位），并带独立的顶点色明暗
+ *    ⇒ 逐块不同，不会出现"复制粘贴"；
+ * ③ 与洞口重叠的石块直接**不生成** ⇒ 洞口四周留出的空白正好是券石的位置。
+ *
+ * @param {number} width  墙宽（局部 x）
+ * @param {number} height 墙高（局部 y，从地板起）
+ * @param {Array}  openings 洞口 [{x,y,w,h}]（y 为洞口底边）
+ */
+export function rusticatedSkin(width, height, openings = [], opts = {}) {
+  const bw = opts.blockW ?? 1.15; // 石块宽（西洋楼是**大块**粗琢石）
+  const bh = opts.blockH ?? 0.78; // 石块高
+  const depth = opts.depth ?? 0.17; // 凸出墙面的厚度
+  const bevel = opts.bevel ?? 0.055;
+  const nx = Math.max(1, Math.round(width / bw));
+  const ny = Math.max(1, Math.round(height / bh));
+  const sx = width / nx;
+  const sy = height / ny;
+  const rnd = mulberry32Local(opts.seed ?? 20261105);
+  const out = [];
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      const cx = -width / 2 + sx * (i + 0.5);
+      const cy = sy * (j + 0.5);
+      // 与洞口（含券顶）重叠 ⇒ 跳过。
+      // ⚠ 排除范围必须**收紧**：原来横向多排 0.45 格（≈0.43m），
+      //   窗间墙只剩 0.6m 宽 ⇒ 放不下一列石块 ⇒ 整段墙是素的，
+      //   看着像"贴了张石纹的平墙"。现在只避开洞口本身，
+      //   券顶以上与券两侧都保留石块。
+      let skip = false;
+      for (const o of openings) {
+        const r = Math.min(o.w / 2, o.h / 2);
+        if (
+          cx > o.x - r - 0.05 &&
+          cx < o.x + r + 0.05 &&
+          cy > o.y - 0.05 &&
+          cy < o.y + o.h + 0.05
+        ) {
+          skip = true;
+          break;
+        }
+      }
+      if (skip) continue;
+      const g = chamferSlab(sx * 0.9, sy * 0.86, depth, bevel);
+      // UV 对位到贴图里**不同的一格**（贴图 4×4 块）
+      const u0 = ((i % 4) + 0.02) / 4;
+      const v0 = ((j % 4) + 0.02) / 4;
+      const u1 = u0 + 0.96 / 4;
+      const v1 = v0 + 0.96 / 4;
+      const uv = g.attributes.uv;
+      const pw = sx * 0.9;
+      const ph = sy * 0.86;
+      for (let k = 0; k < uv.count; k++) {
+        const u = uv.getX(k);
+        const v = uv.getY(k);
+        uv.setXY(
+          k,
+          u0 + (u / pw + 0.5) * (u1 - u0),
+          v0 + (v / ph + 0.5) * (v1 - v0)
+        );
+      }
+      uv.needsUpdate = true;
+      // 逐块明暗（顶点色 = 调制系数）
+      const k2 = 0.88 + rnd() * 0.24;
+      tint(g, new THREE.Color(k2 * 0.99, k2, k2 * 0.95));
+      g.translate(cx, cy, depth / 2);
+      out.push(g);
+    }
+  }
+  return out;
+}
+
+/** 局部随机数（不依赖外部） */
+function mulberry32Local(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /** 从 A 射到 B 的水柱（兽首喷水用） */
 export function jetBetween(a, b, r = 0.10) {
   const dx = b[0] - a[0];

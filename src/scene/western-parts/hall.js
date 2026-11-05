@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { buildRoof } from '../buildings/parts/roof.js';
+import { rusticatedSkin } from './kit.js';
 import { buildDougongSet } from '../buildings/parts/dougong.js';
 import { mergeAll } from './materials.js';
 import {
@@ -229,6 +230,20 @@ export function buildHall(c, opts) {
       const panel = archedPanel(lw, h, WALL_T, openingsF);
       panel.translate(0, floorY, sz * (ld / 2 - WALL_T / 2));
       c.add(wallBucketLv, panel);
+      // **粗琢石皮**（真几何：凸出墙面的倒角石块）
+      if (wallBucketLv === 'stone') {
+        const skin = rusticatedSkin(lw, h, openingsF, {
+          blockW: 0.95,
+          blockH: 0.62,
+          depth: 0.24,
+          seed: 20261105 + sz * 37 + li * 11,
+        });
+        for (const g of skin) {
+          if (sz < 0) g.rotateY(Math.PI);
+          g.translate(0, floorY, sz * (ld / 2 + 0.24));
+          c.add('rusticated', g);
+        }
+      }
     }
     // 两侧墙板
     const sideN = Math.max(1, Math.round(n / 2));
@@ -243,6 +258,19 @@ export function buildHall(c, opts) {
       panel.rotateY((Math.PI / 2) * sx);
       panel.translate(sx * (lw / 2 - WALL_T / 2), floorY, 0);
       c.add(wallBucketLv, panel);
+      if (wallBucketLv === 'stone') {
+        const skin = rusticatedSkin(sideW, h, sideOpen, {
+          blockW: 0.95,
+          blockH: 0.62,
+          depth: 0.24,
+          seed: 20261205 + sx * 53 + li * 17,
+        });
+        for (const g of skin) {
+          g.rotateY((Math.PI / 2) * sx);
+          g.translate(sx * (lw / 2 + 0.24), floorY, 0);
+          c.add('rusticated', g);
+        }
+      }
     }
 
     // 券花窗框 + 玻璃（**四个立面都做**——只做正面的背面是空的洞，

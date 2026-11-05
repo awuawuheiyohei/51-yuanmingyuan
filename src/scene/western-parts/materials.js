@@ -599,9 +599,27 @@ export function makeWesternMaterials() {
     clearcoatRoughness: 0.05,
   });
 
+  /**
+   * **粗琢石墙皮** —— 真几何的倒角石块。
+   *
+   * ⚠ 单独一个桶：这些几何是 `ExtrudeGeometry`（**non-indexed**），
+   *   而 `stone` 桶里是 `BoxGeometry`（**indexed**）——
+   *   混合合并会让 `mergeGeometries` **返回 null**，整个桶消失。
+   */
+  const rusticated = new THREE.MeshStandardMaterial({
+    map: rusticatedStone().clone(),
+    vertexColors: true,
+    // 略暖略暗 —— 纯白会渲成"泡沫板"
+    color: 0xf0ebdf,
+    roughness: 0.9,
+    metalness: 0.0,
+  });
+  rusticated.map.needsUpdate = true;
+  rusticated.map.wrapS = rusticated.map.wrapT = THREE.RepeatWrapping;
+
   const mats = {
     stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, waterJet,
-    tile,
+    rusticated, tile,
   };
   return mats;
 }
