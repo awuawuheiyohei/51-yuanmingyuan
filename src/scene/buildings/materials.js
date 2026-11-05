@@ -23,6 +23,7 @@ import {
   caoJing,
   latticeWindow,
   plaqueBoard,
+  windowPaper,
 } from './textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
 
@@ -408,14 +409,22 @@ export function woodMaterial(variant = 0) {
  *   现在只给素漆色，棂条由几何自己说话，缝里透出背后的暗色门洞。
  */
 export function latticeMaterial(kind = 'bubu') {
-  return make(`lattice-${kind}`, () =>
-    new THREE.MeshStandardMaterial({
-      color: 0x6d4a3a, // 棂条：紫檀/栗色素木
-      roughness: 0.72,
+  return make(`lattice-${kind}`, () => {
+    // ⚠ 棂条应当与**框料同色（朱红漆）**。
+    //   清式槅扇的标准配色是：朱红框料 + 朱红棂条 + 黑漆裙板/绦环板。
+    //   原来棂条做成紫檀素木色，和朱红框料并排时像"两件不同东西拼的"。
+    const map = lacquer('#9e2f27', 5).clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(1, 1);
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: 0xffffff,
+      roughness: 0.45,
       metalness: 0.0,
       side: THREE.DoubleSide,
-    })
-  );
+    });
+  });
 }
 
 export function ceilingMaterial() {
@@ -463,8 +472,43 @@ export function plaqueMaterial(text = '', vertical = false) {
 /** 门窗洞内的暗色（殿内阴影） */
 export function darkMaterial() {
   return make('dark', () =>
-    new THREE.MeshStandardMaterial({ color: 0x241a14, roughness: 0.95 })
+    // 殿内是暗的，但**不是死黑**：给它一点暖褐，
+    // 免得从门洞看进去像一块挖空的黑洞。
+    new THREE.MeshStandardMaterial({
+      color: 0x2c2119,
+      emissive: 0x120c07,
+      emissiveIntensity: 0.5,
+      roughness: 0.95,
+    })
   );
+}
+
+/**
+ * **窗纸** —— 格心背后裱的那层纸。
+ *
+ * 清式官式建筑的槅扇、槛窗都是**裱纸窗**：棂条在前、纸在后。
+ * 白天纸比暗室内亮得多，远看成一片暖黄 ⇒ 立面立刻"活"起来。
+ *
+ * ⚠ 用**自发光**模拟背光：室内没有光源，纯靠外部照明的话，
+ *   纸窗会和周围一样暗，等于没做。
+ */
+export function paperMaterial() {
+  return make('paper', () => {
+    // ⚠ 纯色纸近看像"贴了张色卡" ⇒ 加一层**纸纤维**纹理。
+    const map = windowPaper().clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(7, 7);   // 纤维要细：repeat 太小 ⇒ 看着像麻布
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: 0xe6d8b4,
+      emissive: 0x6b5a30,
+      emissiveIntensity: 0.42,
+      roughness: 0.92,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    });
+  });
 }
 
 /** 材质键 → 材质实例 的映射 */
@@ -555,6 +599,8 @@ function materialForBase(key, spec, glazed, tileColor, tileSpec) {
       return shanhuaMaterial();
     case 'dark':
       return darkMaterial();
+    case 'paper':
+      return paperMaterial();
     case 'plaque':
       return plaqueMaterial(spec.plaqueText || '', false);
     case 'couplet':

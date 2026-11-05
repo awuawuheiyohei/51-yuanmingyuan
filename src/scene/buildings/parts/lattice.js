@@ -111,6 +111,7 @@ export function buildShanGeParts(w, h, opts = {}) {
   const frameParts = [];
   const latticeParts = [];
   const panelParts = [];
+  const paperParts = [];
   const fw = 0.075;
 
   // 三段高度分配
@@ -143,13 +144,29 @@ export function buildShanGeParts(w, h, opts = {}) {
   lat.translate(0, geY, 0);
   latticeParts.push(lat);
 
+  /**
+   * **窗纸**（格心背后裱的那层纸）。
+   *
+   * ⚠ 原来格心后面是**空的** —— 从外面看过去就是一片死黑
+   *   （殿内暗底的颜色），整排门窗像一排黑洞。
+   *   清式门窗是**裱纸窗**：棂条在前、纸在后，白天纸比暗室内亮得多，
+   *   远看成一片暖黄 ⇒ 立面立刻"活"起来。
+   *
+   * 纸放在棂条**内侧**（z 负向），且在殿内暗底之前。
+   */
+  const paper = new THREE.BoxGeometry(w - fw * 2, geH, 0.012);
+  paper.translate(0, geY, -t * 0.5);
+  paperParts.push(paper);
+
   const frame = mergeGeometries(frameParts, false);
   const lat2 = mergeGeometries(latticeParts, false);
   const panel = mergeGeometries(panelParts, false);
+  const pap = mergeGeometries(paperParts, false);
   for (const p of frameParts) p.dispose();
   for (const p of latticeParts) p.dispose();
   for (const p of panelParts) p.dispose();
-  return { frame, lattice: lat2, panel };
+  for (const p of paperParts) p.dispose();
+  return { frame, lattice: lat2, panel, paper: pap };
 }
 
 /** 槅扇（合成一件，兼容旧调用） */

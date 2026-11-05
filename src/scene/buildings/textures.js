@@ -1263,6 +1263,68 @@ export function rusticatedStone() {
   return tex;
 }
 
+/**
+ * **窗纸**（槅扇/槛窗格心背后裱的那层纸）。
+ *
+ * 清式官式建筑的槅扇、槛窗都是**裱纸窗**：棂条在前、纸在后。
+ * 纸是半透的桑皮纸，背光时泛暖黄；近看有**纤维**与轻微斑驳，
+ * 绝不是一块平色。
+ *
+ * 256px：纤维只要"感到是纸"就够，不必看清单根纤维。
+ */
+export function windowPaper() {
+  if (cache.has('windowPaper')) return cache.get('windowPaper');
+  const S = 256;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(20261106);
+  // 底色：淡米黄
+  g.fillStyle = '#efe2bd';
+  g.fillRect(0, 0, S, S);
+  // 大尺度不匀（纸浆厚薄）
+  //
+  // ⚠ 必须**做 3×3 wrap**（同 offset 画九遍）：贴图会平铺，
+  //   跨边的斑若被切断，wrap 后就会出现一条条**竖向接缝**。
+  for (let i = 0; i < 46; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 18 + rnd() * 58;
+    const dark = rnd() < 0.5;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, dark ? 'rgba(196,176,132,0.20)' : 'rgba(255,250,226,0.24)');
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd;
+        g.beginPath();
+        g.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  }
+  // 纤维：细长的浅色短线，随机方向
+  for (let i = 0; i < 900; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const a = rnd() * Math.PI;
+    const len = 2 + rnd() * 9;
+    g.strokeStyle = rnd() < 0.5 ? 'rgba(255,252,232,0.30)' : 'rgba(188,168,124,0.22)';
+    g.lineWidth = 0.7 + rnd() * 0.6;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    g.stroke();
+  }
+  // 细颗粒
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.16)' : 'rgba(150,132,96,0.14)';
+    g.fillRect(rnd() * S, rnd() * S, 1, 1);
+  }
+  const tex = toTexture(c);
+  cache.set('windowPaper', tex);
+  return tex;
+}
+
 export function taihuStone() {
   if (cache.has('taihuStone')) return cache.get('taihuStone');
   // 512px：贴图周期 1.6m → 1px ≈ 3mm，足够表现石灰岩颗粒。

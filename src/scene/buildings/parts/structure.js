@@ -388,6 +388,12 @@ const KEY = {
   wall: 'wall',
   wood: 'wood',
   lattice: 'lattice',
+  /**
+   * **窗纸**：格心背后裱的那层纸（清式门窗裱纸窗）。
+   * ⚠ 桶键必须与 `materials.js` 的 `materialFor` switch **一一对应**，
+   *   漏一个就落到 `default` 分支 ⇒ 0x999999 的灰板子。
+   */
+  paper: 'paper',
   ceiling: 'ceiling',
   gold: 'gold',
   dark: 'dark',
@@ -1022,7 +1028,8 @@ export function buildStructure(spec) {
       for (let j = 0; j < jin; j++) {
         const cz = (colZs[j] + colZs[j + 1]) / 2;
         const win = buildShanGeParts(bayD * 0.52, wallH * 0.46);
-        for (const part of [win.frame, win.lattice, win.panel]) {
+        for (const part of [win.frame, win.lattice, win.panel, win.paper]) {
+          if (!part) continue;
           part.rotateY((sx * Math.PI) / 2);
           part.translate(
             sx * (width / 2 - wallThick / 2 + 0.05),
@@ -1034,6 +1041,8 @@ export function buildStructure(spec) {
         bucket(geoms, KEY.lacquer).push(win.frame);
         bucket(geoms, KEY.lacquerDark).push(win.panel);
         bucket(geoms, KEY.lattice).push(win.lattice);
+        // 格心背后裱纸：清式门窗是纸窗，不是黑洞
+        if (win.paper) bucket(geoms, KEY.paper).push(win.paper);
       }
     }
 
@@ -1054,14 +1063,20 @@ export function buildStructure(spec) {
         const leafW = (bw - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
           const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
-          const { frame, lattice, panel } = buildShanGeParts(leafW * 0.94, wallH * 0.96);
+          const { frame, lattice, panel, paper } = buildShanGeParts(
+            leafW * 0.94,
+            wallH * 0.96
+          );
           frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           panel.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+          if (paper) paper.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
           bucket(geoms, KEY.lacquer).push(frame);
           bucket(geoms, KEY.lacquerDark).push(panel);
           bucket(geoms, KEY.lattice).push(lattice);
+          // 格心背后裱纸：清式门窗是纸窗，不是黑洞
+          if (paper) bucket(geoms, KEY.paper).push(paper);
         }
         // 门楣
         const lintel = new THREE.BoxGeometry(bw - colDia * 0.6, 0.22, wallThick * 1.1);
