@@ -58,6 +58,36 @@ export function tint(geo, hex) {
   return geo;
 }
 
+/**
+ * 给几何写**大尺度顶点色**（调制系数，接近 1）。
+ *
+ * 目的：打散"一张贴图按米数重复铺满整个表面"的观感。
+ * 频率刻意取**几十米波长**（远大于贴图自身的 3m 周期），
+ * 两层错开 ⇒ 墙面上看不出重复。
+ *
+ * ⚠ 顶点色是**乘在贴图上的系数**，不是真实颜色。
+ */
+function applyBigTint(geo) {
+  const pos = geo.attributes.position;
+  if (!pos || geo.attributes.color) return geo;
+  const nrm = geo.attributes.normal;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    // 两个不同波长的低频项叠加，避免出现明显的"条带"
+    const a = Math.sin(x * 0.085 + 1.3) * 0.6 + Math.cos(z * 0.104 - 0.7) * 0.5;
+    const b = Math.sin((x + z) * 0.041 + 0.4) * 0.7;
+    const k = 1 + a * 0.022 + b * 0.016;
+    col[i * 3] = k * (1 + a * 0.010);
+    col[i * 3 + 1] = k;
+    col[i * 3 + 2] = k * (1 - a * 0.008);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 /** 收集器：按材质桶攒几何，最后一块 Mesh 一桶 */
 export function createCollector(materials) {
   const buckets = new Map();
@@ -101,6 +131,9 @@ export function createCollector(materials) {
         b = 'waterJet';
       }
       if (matrix) geo.applyMatrix4(matrix);
+      // 抹灰墙：**大尺度顶点色调制**（打散贴图周期）。
+      // ⚠ 必须在 applyMatrix4 **之后**算 —— 否则每座建筑的图案完全一样。
+      if (b === 'plaster') applyBigTint(geo);
       if (!buckets.has(b)) buckets.set(b, []);
       buckets.get(b).push(geo);
     },
@@ -362,14 +395,16 @@ function plasterTexture() {
   // ⚠ 半径不能大：贴图被平铺到整面墙上，一个 46px 的斑放大后
   // 就是半米宽的"霉斑"，近看满墙都是蘑菇圈。
   // 压到 6~20px，并降低不透明度 → 变成细腻的批灰质感。
-  for (let i = 0; i < 150; i++) {
+  // ⚠ 斑要**少而淡**：150 个 × 0.2 不透明度叠在一起 ⇒
+  //   远看整面墙是"大理石云纹"，一��就露馅（真实抹灰墙是**素面微斑**）。
+  for (let i = 0; i < 70; i++) {
     const x = r() * S;
     const y = r() * S;
-    const rad = 6 + r() * 14;
+    const rad = 5 + r() * 11;
     const light = r() > 0.45;
     wrapDraw(g, S, S, (gg) => {
       const grd = gg.createRadialGradient(x, y, 0, x, y, rad);
-      grd.addColorStop(0, light ? 'rgba(255,244,236,0.20)' : 'rgba(198,158,142,0.16)');
+      grd.addColorStop(0, light ? 'rgba(255,244,236,0.11)' : 'rgba(198,158,142,0.09)');
       grd.addColorStop(1, 'rgba(0,0,0,0)');
       gg.fillStyle = grd;
       gg.beginPath();
@@ -378,8 +413,8 @@ function plasterTexture() {
     });
   }
   // 批刀横痕
-  g.globalAlpha = 0.16;
-  for (let i = 0; i < 26; i++) {
+  g.globalAlpha = 0.09;
+  for (let i = 0; i < 14; i++) {
     const y = r() * S;
     const h = 1 + r() * 2.2;
     g.fillStyle = r() > 0.5 ? '#fff3ea' : '#d8bcac';
@@ -387,10 +422,10 @@ function plasterTexture() {
   }
   g.globalAlpha = 1;
   // 细颗粒
-  for (let i = 0; i < 2600; i++) {
+  for (let i = 0; i < 1500; i++) {
     const x = r() * S;
     const y = r() * S;
-    g.fillStyle = r() > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(160,120,105,0.28)';
+    g.fillStyle = r() > 0.5 ? 'rgba(255,255,255,0.22)' : 'rgba(160,120,105,0.18)';
     g.fillRect(x, y, 1, 1);
   }
   const tex = new THREE.CanvasTexture(c);
@@ -482,6 +517,10 @@ export function makeWesternMaterials() {
   plasterTex.repeat.set(1, 1);
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
+    // 顶点色：给抹灰墙加**大尺度色偏**（几十米波长），
+    // 用来打散"一张 3m 周期的贴图铺满整面墙"的重复感。
+    // 幅度很小（±3%）—— 抹灰墙本来是连续浅色面。
+    vertexColors: true,
     // ⚠ 不能给纯白（0xffffff）：贴图底色本身就是浅粉白 #f2ded3，
     // 再乘白 + 太阳直射 → 整面墙过曝成**死白**，看不出是墙还是空。
     // 西洋楼的主立面是大面积墙，这个固有色必须压暗。

@@ -928,7 +928,11 @@ async function main() {
     });
   }
   for (const w of WEST_BUILDINGS) {
-    clearings.push({ x: toX(w.lon), z: toZ(w.lat), r: 20 });
+    // ⚠ 半径 20m **不够**：树直接长在西洋楼的立面前，
+    //   从任何角度看都先被树挡住 —— 建筑的几何做得再好也看不见。
+    //   西洋楼本就是"疏林草地"的开敞格局，30m 留空不违和，
+    //   反倒更接近欧洲式庭园的疏朗。
+    clearings.push({ x: toX(w.lon), z: toZ(w.lat), r: 30 });
   }
   const inClearing = (x, z) =>
     clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r);

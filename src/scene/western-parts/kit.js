@@ -429,6 +429,18 @@ export function pilaster(h, w = 0.6, d = 0.34) {
 
   // 柱身
   parts.push(boxAt(w, shaftH, d, 0, BASE_H + shaftH / 2, 0));
+  /**
+   * 柱身**水平线脚**（古典壁柱常见的"分节"）。
+   *
+   * ⚠ 没有它，柱身是一根**光板方柱** —— 远看就是"一根方柱子插在方块上"，
+   *   完全没有古典柱的层次 ⇒ 整个立面看着像积木。
+   *   两道细线脚一加，柱身分出三段，柱子的比例立刻立得住。
+   */
+  for (const bt of [0.34, 0.68]) {
+    const y = BASE_H + shaftH * bt;
+    parts.push(boxAt(w * 1.12, 0.055, d * 1.16, 0, y, 0));
+    parts.push(boxAt(w * 1.05, 0.035, d * 1.08, 0, y + 0.045, 0));
+  }
   // 柱础：方座
   parts.push(boxAt(w * 1.5, 0.12, d * 1.55, 0, 0.06, 0));
   // 柱础：圆转收分（车削的覆盆）
