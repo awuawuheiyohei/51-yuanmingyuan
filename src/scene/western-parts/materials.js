@@ -555,11 +555,24 @@ export function makeWesternMaterials() {
   // 法式铜窗玻璃 / 大玻璃镜
   // 之前太黑（0x27323f），远看每个窗洞都是个黑洞；提亮成带天光的蓝灰，
   // 靠环境反射把"玻璃"读出来。
+  /**
+   * 洋楼玻璃（法式铜窗后面的彩色玻璃）。
+   *
+   * ⚠ **必须 DoubleSide**：单面材质的背面会被背面剔除，
+   *   券花窗洞就直接**看穿**到建筑内部（能看见后面的柱子）——
+   *   看着像没装窗。
+   * ⚠ 半透 + 微弱自发光：室内比室外暗，玻璃该透出一点室内的光。
+   */
   const glass = new THREE.MeshStandardMaterial({
-    color: 0x9fb6c6,
-    roughness: 0.12,
-    metalness: 0.28,
-    envMapIntensity: 2.4,
+    color: 0xa9c3cf,
+    roughness: 0.08,
+    metalness: 0.1,
+    envMapIntensity: 2.6,
+    transparent: true,
+    opacity: 0.86,
+    side: THREE.DoubleSide,
+    emissive: 0x182a30,
+    emissiveIntensity: 0.4,
   });
 
   // 植被（线法松、矮松树篱、湘妃竹亭、庭院观赏树）

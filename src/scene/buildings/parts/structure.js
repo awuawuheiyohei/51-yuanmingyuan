@@ -1063,9 +1063,12 @@ export function buildStructure(spec) {
         const leafW = (bw - colDia * 1.2) / 4;
         for (let k = 0; k < 4; k++) {
           const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
+          // ⚠ 槅扇之间要**几乎无缝**（真实槅扇是紧挨着的）。
+          //   原来每扇只取格宽的 0.94 ⇒ 四扇之间露出 4 条黑缝，
+          //   从正面看像"四扇门之间有黑缝"，其实那是后面的暗底。
           const { frame, lattice, panel, paper } = buildShanGeParts(
-            leafW * 0.94,
-            wallH * 0.96
+            leafW * 0.995,
+            wallH * 0.985
           );
           frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
           lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);

@@ -190,8 +190,13 @@ export function lacquerMaterial(kind = 'red', seed = 1) {
     map.repeat.set(1, 1);
     return new THREE.MeshStandardMaterial({
       map,
-      roughness: kind === 'black' ? 0.55 : 0.42,
-      metalness: 0.04,
+      roughness: kind === 'black' ? 0.42 : 0.36,
+      metalness: 0.05,
+      // ⚠ 黑漆不能是**死黑**：裙板/绦环板多在阴影里，
+      //   纯黑 + 无光 ⇒ 近看就是一块挖空的黑洞。
+      //   给一点极弱的暖自发光，把漆面提起来（清式黑漆是深褐带漆光，不是纯黑）。
+      emissive: kind === 'black' ? 0x140f0b : 0x140806,
+      emissiveIntensity: kind === 'black' ? 0.9 : 0.35,
     });
   });
 }
@@ -501,9 +506,9 @@ export function paperMaterial() {
     map.repeat.set(7, 7);   // 纤维要细：repeat 太小 ⇒ 看着像麻布
     return new THREE.MeshStandardMaterial({
       map,
-      color: 0xe6d8b4,
-      emissive: 0x6b5a30,
-      emissiveIntensity: 0.42,
+      color: 0xe2d2a8,
+      emissive: 0x55461f,
+      emissiveIntensity: 0.3,
       roughness: 0.92,
       metalness: 0,
       side: THREE.DoubleSide,
