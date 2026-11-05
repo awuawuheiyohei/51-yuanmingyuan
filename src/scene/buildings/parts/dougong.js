@@ -63,8 +63,12 @@ const D = {
   armH: 0.14, // 拱高 = 1.4 斗口（单材拱）
   armLength: 0.30, // 每跳水平出挑 = 3 斗口
   angSlope: 0.28, // 昂的斜度（垂直/水平）—— 清式昂嘴约 1:3
-  tiaoLength: 0.22, // 蚂蚱头挑出 = 2.2 斗口
-  shuaLength: 0.20, // 耍头挑出 = 2 斗口
+  // 蚂蚱头 / 耍头的挑出。
+  // ⚠ 原来取 2.2 / 2.0 斗口 —— **偏大**。清式一斗三升三跳里，
+  //   蚂蚱头挑出约 1~1.2 斗口、耍头（勾头）约 1 斗口。
+  //   挑得太多 ⇒ 檐下每攒的"金舌头"又长又显眼，像挂着一条布带。
+  tiaoLength: 0.15, // 蚂蚱头挑出 = 1.5 斗口
+  shuaLength: 0.15, // 耍头挑出 = 1.5 斗口
 };
 
 /**
@@ -106,17 +110,27 @@ function mergeParts(parts, label = '斗栱零件') {
  */
 function makeDou(bottom, height, seed = 0) {
   const parts = [];
-  const ear = D.douEar * (bottom / D.zDouBottom);
-  const waist = D.douWaist * (bottom / D.zDouBottom);
-  const bevel = Math.max(0.02, height - ear - waist);
+  const ear = D.douEar * (bottom / D.zDouBottom); // 斗耳高 0.5 斗口
+  const waist = D.douWaist * (bottom / D.zDouBottom); // 斗腰（束腰）高 0.8 斗口
+  const waistSize = bottom * 0.86;
 
-  // 斗底（方）
-  const b = new THREE.BoxGeometry(bottom, waist, bottom);
-  b.translate(0, waist / 2, 0);
+  /**
+   * 清式斗的分层（自下而上）：**斗底 → 斗欹 → 斗腰 → 斗耳**。
+   *
+   * ⚠ 原来把"0.8 斗口"画成了底层方板、把"0.5 斗口"画成了顶层**整圈方块** ——
+   *   高度用反了，而且**斗耳根本没做**。
+   *   斗耳是栌斗最认得出的特征：束腰两侧竖起两片挡板，
+   *   **凸出在斗欹斜面之外**，用来卡住上面的拱。
+   */
+  const baseH = Math.max(0.015, height - ear - waist - (height - ear - waist) * 0.3);
+  const bevel = Math.max(0.02, height - ear - waist - baseH);
+
+  // ① 斗底：薄薄一方板（整个斗的底面 = bottom 见方）
+  const b = new THREE.BoxGeometry(bottom, baseH, bottom);
+  b.translate(0, baseH / 2, 0);
   parts.push(b);
 
-  // 斗欹（四面斜坡）—— 用截头方锥近似
-  const waistSize = bottom * 0.86;
+  // ② 斗欹：四面斜坡（截头方锥）—— 由斗底收到束腰
   const c = new THREE.CylinderGeometry(
     waistSize * 0.707,
     bottom * 0.707,
@@ -125,16 +139,57 @@ function makeDou(bottom, height, seed = 0) {
     1
   );
   c.rotateY(Math.PI / 4);
-  c.translate(0, waist + bevel / 2, 0);
+  c.translate(0, baseH + bevel / 2, 0);
   parts.push(c);
 
-  // 斗腰（略收）
-  const w = new THREE.BoxGeometry(waistSize, ear, waistSize);
-  w.translate(0, waist + bevel + ear / 2, 0);
+  // ③ 斗腰（束腰）：略收的方段，高 0.8 斗口
+  const w = new THREE.BoxGeometry(waistSize, waist, waistSize);
+  w.translate(0, baseH + bevel + waist / 2, 0);
   parts.push(w);
+
+  // ④ **斗耳**：两片竖直挡板，高 0.5 斗口
+  //
+  // 位置在**前后两个面**，且**凸出在束腰之外**（斗欹斜面收进去的地方）——
+  // 这正是它能卡住上面拱件的原因，也是栌斗最认得出的形体特征。
+  const earT = Math.max(0.012, bottom * 0.1); // 耳板厚
+  const earW = bottom * 0.42; // 耳板宽（沿 x）
+  for (const sz of [-1, 1]) {
+    const e = new THREE.BoxGeometry(earW, ear, earT);
+    e.translate(
+      0,
+      baseH + bevel + waist + ear / 2,
+      sz * (bottom / 2 - earT / 2)
+    );
+    parts.push(e);
+  }
 
   const merged = mergeParts(parts, '斗');
   return { body: merged, trim: null };
+}
+
+/**
+ * 拱身两侧的**纵向线脚**（清式单材拱的"梭抹线"）。
+ *
+ * ⚠ 原来拱身是一根**光方料**：正看一个面，侧看一个面，没有线脚，
+ *   近看就是一根方棍。真实的单材拱两侧各有一道通长的浅棱线，
+ *   它把拱身分成"边挺 + 梭抹"两段，是斗栱精细度的关键细节之一。
+ *
+ * @returns {THREE.BufferGeometry[]} 两片线脚（未定位，调用方负责旋转/平移）
+ */
+function armFillets(len, armH, armW) {
+  const out = [];
+  // ⚠ 尺寸要按**真实梭抹线**来：清式拱身两侧的线脚是**一道细棱**，
+  //   宽（露出拱面的高度）只有拱身高的 **1/4 左右**，不是半根拱那么高。
+  //   做成半根拱高的白条 ⇒ 近看像一条白布带挂在斗栱上。
+  const fd = armW * 0.085; // 凸出量（薄）
+  const fh = armH * 0.24; // 露出拱面的高度 ≈ 0.34 斗口
+  const fl = len - 0.06; // 比拱身略短
+  for (const sz of [-1, 1]) {
+    const g = new THREE.BoxGeometry(fl, fh, fd);
+    g.translate(len / 2 - 0.03, 0, sz * (armW / 2 + fd / 2 - 0.002));
+    out.push(g);
+  }
+  return out;
 }
 
 
@@ -181,6 +236,12 @@ function makeQiao(len) {
   const b = new THREE.BoxGeometry(len, D.armH, D.armW);
   b.translate(len / 2, 0, 0);
   body.push(b);
+  // 拱身两侧的纵向线脚（梭抹线）
+  // ⚠ 必须进 **trim（米白沥粉贴金）**桶，不能留在主体里：
+  //   主体是深青绿，又处在檐下阴影里 ⇒ 拱身整根看不见，
+  //   只剩米白的蚂蚱头像"爪子"浮在彩画上。
+  //   清式拱身两侧正是**沥粉贴金的白缘线脚** ⇒ 靠这条亮线把拱身勾出来。
+  for (const f of armFillets(len, D.armH, D.armW)) trim.push(f);
   // 前端**卷杀**：翘头向下弯折，分四段逐级收小。
   // 用侧影挤出 ⇒ 是真的弯，不是几个方块叠出来的台阶。
   const h = D.armH;
@@ -207,9 +268,17 @@ function makeAng(len) {
   const drop = len * D.angSlope;
   const g = new THREE.BoxGeometry(len, D.armH, D.armW);
   // 绕 Z 轴倾斜：前端（+X）下沉
-  g.rotateZ(-Math.atan2(drop, len));
+  const rot = -Math.atan2(drop, len);
+  g.rotateZ(rot);
   g.translate(len / 2, -drop / 2, 0);
   body.push(g);
+  // 拱身两侧的纵向线脚（**跟着一起斜转**，否则会浮在斜面外）
+  // ⚠ 进 trim 桶（沥粉贴金的亮线）—— 见 makeQiao 里的说明
+  for (const f of armFillets(len, D.armH, D.armW)) {
+    f.rotateZ(rot);
+    f.translate(len / 2, -drop / 2, 0);
+    trim.push(f);
+  }
   // **昂嘴**：昂头前端的勾形雕件。
   // 侧影是"斜下 → 前伸 → 回勾"，这是清式昂嘴的样子；
   // 用方块只能做出"斜切一刀"，远看就是一根斜木棍。

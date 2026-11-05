@@ -607,47 +607,40 @@ export function buildStructure(spec) {
     return g;
   };
 
-  const addBeam = (len, x, z, alongX, extraOff = 0) => {
+  /**
+   * 加一段檐枋（彩画）。
+   *
+   * @param len      枋长（米）
+   * @param uvScale  UV 跨度系数 = 段长 ÷ 基准开间宽
+   *                 ⇒ 断开成短段后，**彩画图案的密度不变**，
+   *                 否则 0.7m 的短段会把整张图案压碎，看着像马赛克。
+   */
+  const addBeam = (len, x, z, alongX, extraOff = 0, uvScale = 1) => {
     const g = alongX
       ? new THREE.BoxGeometry(len, beamH, beamD)
       : new THREE.BoxGeometry(beamD, beamH, len);
-    // 每开间再错开一点：相邻两间的彩画也不能是同一段贴图
+    // 每段再错开一点：相邻的彩画也不能是同一段贴图
     const uv = g.attributes.uv;
     if (uv) {
       for (let k = 0; k < uv.count; k++) {
-        uv.setXY(k, uv.getX(k) + uOff + extraOff, uv.getY(k) + vOff);
+        uv.setXY(
+          k,
+          uv.getX(k) * uvScale + uOff + extraOff,
+          uv.getY(k) + vOff
+        );
       }
       uv.needsUpdate = true;
     }
     g.translate(x, beamY, z);
     bucket(geoms, KEY.caihua).push(g);
   };
-  // 前后檐枋（沿 X）—— 每开间**按各自宽度**分段，明间枋自然最长
-  for (const j of [0, jin]) {
-    for (let i = 0; i < mian; i++) {
-      // 相邻开间的彩画在贴图里也错开（明间与次间的彩画内容本就不同）
-      addBeam(bayWidths[i], (colXs[i] + colXs[i + 1]) / 2, colZs[j], true, (i % 7) * 0.137);
-    }
-  }
-  // 两山檐枋（沿 Z）
-  for (const i of [0, mian]) {
-    for (let j = 0; j < jin; j++) {
-      addBeam(bayD, colXs[i], (colZs[j] + colZs[j + 1]) / 2, false);
-    }
-  }
-  // 垫板（枋下薄板，略暗）
-  const banH = 0.34;
-  const banY = beamY - beamH / 2 - banH / 2;
-  for (const j of [0, jin]) {
-    for (let i = 0; i < mian; i++) {
-      const g = new THREE.BoxGeometry(bayWidths[i] - 0.02, banH, beamD * 0.8);
-      g.translate((colXs[i] + colXs[i + 1]) / 2, banY, colZs[j]);
-      // 垫板 = 素漆（不是红砖墙）
-      bucket(geoms, KEY.lacquerDark).push(g);
-    }
-  }
-
   /* ----------------------------------------------------------- 斗栱 */
+  /**
+   * 斗栱攒位表（柱头科 + 平身科）。
+   * ⚠ 声明在**块外**：额枋要按攒位断开（清式：额枋只在两攒之间），
+   *   所以块外的额枋生成也要用到这张表。
+   */
+  const placements = [];
   if (hasDougong) {
     /**
      * 斗栱按**斗口制**排布：
@@ -703,7 +696,6 @@ export function buildStructure(spec) {
       bucket(geoms, KEY.dougong).push(g);
     }
 
-    const placements = [];
     // 柱头科：每个柱位一攒
     //
     // ⚠⚠ **出挑方向必须朝各自的檐口外面**（局部 ENU：+X 东、+Z 南）。
@@ -892,6 +884,104 @@ export function buildStructure(spec) {
             }
           }
         }
+      }
+    }
+  }
+
+  /* ------------------------------------------- 攒间额枋（在斗栱之后算） */
+  /**
+   * **额枋按攒位断开** —— 清式大式做法，也是"一攒一攒"读法的关键。
+   *
+   * ⚠ 原来额枋是**通长的一整条**（每开间一根），斗栱就贴在彩画带前面 ——
+   *   看着像"深色的蜘蛛爬在彩画上"，斗栱完全立不起来。
+   *   真实清式：额枋只出现在**两攒斗栱之间**（攒位上是斗栱本身）。
+   *
+   * 做法：按攒位把每条檐枋切成若干段，段落在攒与攒之间；
+   * 段长随攒距变化 ⇒ UV 也要按真实米数缩放（见 addBeam 的 uvScale）。
+   */
+  if (hasDougong && placements.length) {
+    const dgW = (spec.dougongScale ?? 0.8) * 0.1; // 斗栱宽（拱宽 = 1 斗口）
+    const GAP = dgW + 0.1; // 攒位两侧留出的空当
+    // 攒位：rot 决定在哪条檐上
+    const lineSouth = [];
+    const lineNorth = [];
+    const lineEast = [];
+    const lineWest = [];
+    for (const [px, pz, rot] of placements) {
+      if (rot === 0) lineSouth.push(px);
+      else if (rot === Math.PI) lineNorth.push(px);
+      else if (rot === Math.PI / 2) lineEast.push(pz);
+      else lineWest.push(pz);
+    }
+    const baseBay = bayWidths.reduce((a, b) => a + b, 0) / Math.max(1, bayWidths.length);
+    const segsOf = (list) => {
+      const arr = [...list].sort((a, b) => a - b);
+      const out = [];
+      for (let k = 0; k < arr.length - 1; k++) {
+        const len = arr[k + 1] - arr[k] - GAP;
+        if (len > 0.25) out.push({ c: (arr[k] + arr[k + 1]) / 2, len });
+      }
+      return out;
+    };
+    let segIdx = 0;
+    // 前后檐枋（沿 X）
+    for (const [list, z] of [
+      [lineSouth, colZs[jin]],
+      [lineNorth, colZs[0]],
+    ]) {
+      for (const sg of segsOf(list)) {
+        addBeam(sg.len, sg.c, z, true, (segIdx++ % 7) * 0.137, sg.len / baseBay);
+      }
+    }
+    // 两山檐枋（沿 Z）
+    for (const [list, x] of [
+      [lineEast, colXs[mian]],
+      [lineWest, colXs[0]],
+    ]) {
+      for (const sg of segsOf(list)) {
+        addBeam(sg.len, x, sg.c, false, (segIdx++ % 7) * 0.137, sg.len / baseBay);
+      }
+    }
+    // 垫板（垫栱板，枋下薄板）—— ⚠ **通长，不按攒位断开**。
+    //
+    // 垫栱板是**贯通的**：它在额枋之下、柱头枋之上，把整条檐枋的底封住。
+    // 若跟着额枋一起断开，攒位（斗栱只 1 斗口宽）处就会**漏出黑缝** ——
+    // 一排黑竖条插在彩画段之间，非常刺眼。
+    const banH = 0.34;
+    const banY = beamY - beamH / 2 - banH / 2;
+    for (const j of [0, jin]) {
+      for (let i = 0; i < mian; i++) {
+        const g = new THREE.BoxGeometry(bayWidths[i] - 0.02, banH, beamD * 0.8);
+        g.translate((colXs[i] + colXs[i + 1]) / 2, banY, colZs[j]);
+        bucket(geoms, KEY.lacquerDark).push(g);
+      }
+    }
+    for (const i of [0, mian]) {
+      for (let j = 0; j < jin; j++) {
+        const g = new THREE.BoxGeometry(beamD * 0.8, banH, bayD - 0.02);
+        g.translate(colXs[i], banY, (colZs[j] + colZs[j + 1]) / 2);
+        bucket(geoms, KEY.lacquerDark).push(g);
+      }
+    }
+  } else {
+    // **无斗栱的小式建筑**：额枋通长（没有攒位要避开）
+    for (const j of [0, jin]) {
+      for (let i = 0; i < mian; i++) {
+        addBeam(bayWidths[i], (colXs[i] + colXs[i + 1]) / 2, colZs[j], true, (i % 7) * 0.137);
+      }
+    }
+    for (const i of [0, mian]) {
+      for (let j = 0; j < jin; j++) {
+        addBeam(bayD, colXs[i], (colZs[j] + colZs[j + 1]) / 2, false);
+      }
+    }
+    const banH = 0.34;
+    const banY = beamY - beamH / 2 - banH / 2;
+    for (const j of [0, jin]) {
+      for (let i = 0; i < mian; i++) {
+        const g = new THREE.BoxGeometry(bayWidths[i] - 0.02, banH, beamD * 0.8);
+        g.translate((colXs[i] + colXs[i + 1]) / 2, banY, colZs[j]);
+        bucket(geoms, KEY.lacquerDark).push(g);
       }
     }
   }

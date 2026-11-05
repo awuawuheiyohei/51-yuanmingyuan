@@ -211,7 +211,10 @@ export function caihuaMaterial(style = 'xuanzi') {
 
 export function dougongMaterial() {
   return make('dougong', () =>
-    new THREE.MeshStandardMaterial({ color: 0x1f4a55, roughness: 0.7, metalness: 0.04 })
+    // ⚠ 主体色**不能太深**：斗栱整个处在檐下阴影里，
+    //   太深 ⇒ 拱身、升、斗全糊成一团黑，只剩亮色的勾头浮着。
+    //   略提亮 + 降粗糙度，让阴影里也还有层次。
+    new THREE.MeshStandardMaterial({ color: 0x2a5f68, roughness: 0.62, metalness: 0.05 })
   );
 }
 
@@ -224,7 +227,9 @@ export function dougongMaterial() {
  */
 export function dougongTrimMaterial() {
   return make('dougongTrim', () =>
-    new THREE.MeshStandardMaterial({ color: 0xd9c9a4, roughness: 0.55, metalness: 0.12 })
+    // ⚠ 用**暖金**而不是纯白：清式勾头线脚是**沥粉贴金**，
+    //   纯白在青绿底上像一条白布带；暖金才像描金的线脚。
+    new THREE.MeshStandardMaterial({ color: 0xd3bd82, roughness: 0.48, metalness: 0.2 })
   );
 }
 
