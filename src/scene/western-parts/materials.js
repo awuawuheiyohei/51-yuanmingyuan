@@ -88,6 +88,9 @@ function applyBigTint(geo) {
   return geo;
 }
 
+/** DEBUG：URL 里的 `?mat=<桶名>` —— 命中则把该桶染成品红 */
+const DBG_BUCKET = new URLSearchParams(location.search).get('mat');
+
 /** 收集器：按材质桶攒几何，最后一块 Mesh 一桶 */
 export function createCollector(materials) {
   const buckets = new Map();
@@ -134,6 +137,10 @@ export function createCollector(materials) {
       // 抹灰墙：**大尺度顶点色调制**（打散贴图周期）。
       // ⚠ 必须在 applyMatrix4 **之后**算 —— 否则每座建筑的图案完全一样。
       if (b === 'plaster') applyBigTint(geo);
+      // DEBUG：`?mat=<桶名>` 把西洋楼的某个桶染成品红（定位"这块是什么"）。
+      // ⚠ 中式建筑的染色在 `buildings/materials.js`；西洋楼原本没有这套机制，
+      //   查洋楼的"某个构件跑到哪去了"时只能靠猜。
+      if (DBG_BUCKET && DBG_BUCKET === b) tint(geo, 0xff00ff);
       if (!buckets.has(b)) buckets.set(b, []);
       buckets.get(b).push(geo);
     },

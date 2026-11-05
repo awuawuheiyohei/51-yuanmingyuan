@@ -225,14 +225,32 @@ export function buildHall(c, opts) {
     const doorBay = lv.door === false ? -1 : Math.floor(n / 2);
     const openingsF = bayOpenings(lw, n, lv.windowY ?? 0.9, wh, doorBay, h * 0.72);
 
+    /**
+     * **墙身高度**：只砌到**斗栱底**，其上让给柱头与檐下的空间。
+     *
+     * ⚠⚠ 原来墙一直砌到 h（檐口），而斗栱占 [h-1.62, h-0.42] ——
+     *   于是斗栱**贴在墙面上**，看着像一排深色斑块爬在墙上（严重穿帮）。
+     *   清式大式：墙砌到额枋/斗栱底，斗栱悬在墙外皮，**背后是檐下的空**，
+     *   由柱头与枋承托 —— 斗栱后面不该是墙。
+     */
+    const hasDgLv = lv.dougong !== false;
+    const dgScaleLv = lv.dougongScale ?? 0.92;
+    const wallH = h - (hasDgLv ? 0.42 + 1.3 * dgScaleLv : 0.28);
+
     // 前后墙板
     for (const sz of [1, -1]) {
-      const panel = archedPanel(lw, h, WALL_T, openingsF);
+      const panel = archedPanel(lw, wallH, WALL_T, openingsF);
       panel.translate(0, floorY, sz * (ld / 2 - WALL_T / 2));
       c.add(wallBucketLv, panel);
+      // **墙顶收头线脚**（墙只到斗栱底 ⇒ 顶上要有线脚收口）
+      {
+        const cap = cornice(lw + 0.24, 0.28, 0.26, 0);
+        cap.translate(0, floorY + wallH + 0.13, sz * (ld / 2 - WALL_T / 2));
+        c.add(trimBucket, cap);
+      }
       // **粗琢石皮**（真几何：凸出墙面的倒角石块）
       if (wallBucketLv === 'stone') {
-        const skin = rusticatedSkin(lw, h, openingsF, {
+        const skin = rusticatedSkin(lw, wallH, openingsF, {
           blockW: 0.95,
           blockH: 0.62,
           depth: 0.24,
@@ -254,12 +272,18 @@ export function buildHall(c, opts) {
       sideOpen.push({ x: cz, y: lv.windowY ?? 0.9, w: (sideW / sideN) * 0.5, h: wh });
     }
     for (const sx of [1, -1]) {
-      const panel = archedPanel(sideW, h, WALL_T, sideOpen);
+      const panel = archedPanel(sideW, wallH, WALL_T, sideOpen);
       panel.rotateY((Math.PI / 2) * sx);
       panel.translate(sx * (lw / 2 - WALL_T / 2), floorY, 0);
       c.add(wallBucketLv, panel);
+      {
+        const cap = cornice(sideW + 0.24, 0.28, 0.26, 0);
+        cap.rotateY((Math.PI / 2) * sx);
+        cap.translate(sx * (lw / 2 - WALL_T / 2), floorY + wallH + 0.13, 0);
+        c.add(trimBucket, cap);
+      }
       if (wallBucketLv === 'stone') {
-        const skin = rusticatedSkin(sideW, h, sideOpen, {
+        const skin = rusticatedSkin(sideW, wallH, sideOpen, {
           blockW: 0.95,
           blockH: 0.62,
           depth: 0.24,
@@ -409,32 +433,43 @@ export function buildHall(c, opts) {
       }
     }
 
-    // 斗栱（檐下可见）：每根柱头挑一攒，朝内外各挑一跳
+    /**
+     * 斗栱（檐下可见）：每根柱头挑一攒，**朝檐外**挑。
+     *
+     * ⚠⚠ 这里原来有三个错叠在一起：
+     * ① **出挑方向用反了**：前后檐用了沿 X 出挑的 unit（`unitX`）——
+     *    斗栱于是**横着贴在墙上**，看着像一排深色斑块爬在墙面上。
+     *    正确：前后檐用沿 Z 出挑的 `unitZ`，两侧用 `unitX`。
+     * ② **用 `scale(-1,1,1)` 镜像**：镜像会**翻转三角形绕向** ⇒
+     *    筒瓦/昂嘴全部被背面剔除 ⇒ 只剩几块碎片 ⇒ 墙上那些青蓝碎块。
+     *    反向一律用 `rotateY(Math.PI)`（转绕向，不翻法线）。
+     * ③ 每个位置放两攒（一内一外）⇒ 同一个位置叠两攒，只会更乱。
+     *    真实西洋楼的中国式屋顶：斗栱从柱头**朝檐外**挑一攒。
+     */
     if (lv.dougong !== false) {
       const dgScale = lv.dougongScale ?? 0.92;
       const unitX = buildDougongSet(dgScale, 'x');
       const unitZ = buildDougongSet(dgScale, 'z');
       const dgY = floorY + h - 0.42 - 1.3 * dgScale;
-      const place = (unit, px, pz, flip) => {
-        for (const s2 of [1, -1]) {
-          const g = unit.clone();
-          if (s2 < 0) {
-            if (flip) g.rotateY(Math.PI);
-            else g.scale(-1, 1, 1);
-          }
-          g.translate(px, dgY, pz);
-          c.add('dougong', g);
-        }
+      // 反向用 rotateY（**不能**用 scale —— scale 会翻转三角形绕向，
+      // 筒瓦与昂嘴会被背面剔除，整攒斗栱只剩碎片）
+      const place = (unit, px, pz, facingNeg) => {
+        const g = unit.clone();
+        if (facingNeg) g.rotateY(Math.PI);
+        g.translate(px, dgY, pz);
+        c.add('dougong', g);
       };
+      // 前后檐：斗栱沿 ±Z 出挑，坐在前后檐的柱头上
       for (let i = 0; i <= n; i++) {
         const x = -lw / 2 + bay * i;
-        for (const sz of [1, -1]) place(unitX, x, sz * (ld / 2 + 0.32), sz < 0);
+        for (const sz of [1, -1]) place(unitZ, x, sz * (ld / 2 + 0.32), sz < 0);
       }
+      // 两侧：斗栱沿 ±X 出挑
       const sideN = Math.max(1, Math.round(n / 2));
       for (const sx of [1, -1]) {
         for (let j = 0; j <= sideN; j++) {
           const cz = -ld / 2 + (ld * j) / sideN;
-          place(unitZ, sx * (lw / 2 + 0.32), cz, sx < 0);
+          place(unitX, sx * (lw / 2 + 0.32), cz, sx < 0);
         }
       }
       unitX.dispose();
