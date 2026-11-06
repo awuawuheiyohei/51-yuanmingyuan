@@ -1111,8 +1111,22 @@ export function buildStructure(spec) {
         if (i === Math.floor(mian / 2)) {
           const pw = Math.min(bw * 0.62, 3.2);
           const ph = Math.min(wallH * 0.2, 0.95);
+          /**
+           * 匾额的位置：**明间隔扇的上端、额枋之下**。
+           *
+           * ⚠ 原来按「墙高」定位：`floorY + wallH - 0.2 + ph*0.6`。
+           *   对**大式**（有斗栱）那个高度正好落在**斗栱那一排**里 ——
+           *   斗栱是向外挑的，从 35° 斜视时整块匾额被斗栱挡住，
+           *   正立面上一块匾都看不见（AGENTS.md 硬要求："立面要有字的匾额"）。
+           *   小式没有斗栱，那个高度又会**戳出屋面**。
+           *
+           * 现在钉在**隔扇顶往下 0.8m**：
+           *   · 一定在檐口之下（`eaveY - 0.12` 兜底）；
+           *   · 又一定在斗栱/额枋之下 ⇒ 正面看得见；
+           *   · 正好落在隔扇上部格心的位置（真实清式就是这么挂的）。
+           */
           const plateTop = Math.min(
-            floorY + wallH - 0.2 + ph * 0.6,
+            floorY + wallH * 0.985 - 0.8,
             eaveY - 0.12
           );
           const plateY = plateTop - ph * 0.6;

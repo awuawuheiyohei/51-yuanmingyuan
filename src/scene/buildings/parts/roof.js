@@ -29,6 +29,28 @@ function smoothstep(a, b, x) {
 }
 
 /**
+ * 生成一条**非均匀**的网格轴：均匀分段 + 强制插入若干特殊坐标。
+ *
+ * 用途：歇山屋面必须把 `±xh`（山花位置）与 `±zBreak`（折线）做成网格线，
+ * 否则跨越折线的那一格会被"山花区域"判定整格跳过 ⇒ **屋面缺一条山面**
+ * （从外面直接看见屋架与望板）。
+ *
+ * @param {number} a 轴起点
+ * @param {number} b 轴终点
+ * @param {number} n 均匀分段数
+ * @param {number[]} specials 必须落在 [a,b] 内的特殊坐标
+ * @returns {number[]} 升序坐标数组（长度 n+1 + 插入数）
+ */
+function gridAxis(a, b, n, specials = []) {
+  const set = new Set();
+  for (let i = 0; i <= n; i++) set.add(a + ((b - a) * i) / n);
+  for (const s of specials) {
+    if (s > a + 1e-6 && s < b - 1e-6) set.add(s);
+  }
+  return [...set].sort((p, q) => p - q);
+}
+
+/**
  * @typedef {object} RoofSpec
  * @property {number} width  面阔（X，建筑本体宽）
  * @property {number} depth  进深（Z，建筑本体深）
@@ -235,16 +257,36 @@ function buildRoofCore(spec, geomsIn) {
       }
     }
   } else {
-    // 矩形网格
+    /**
+     * 矩形网格 —— **非均匀**。
+     *
+     * ⚠⚠ 必须把 `x = ±xh`（山花位置）与 `z = ±zBreak`（歇山折线）
+     *   **插成网格线**，否则会缺一整条山面。
+     *
+     * 原来网格是均匀的（NU 列均分），而"山花区域"的判定是
+     * `|z| ≤ zBreak && |x| > xh`（**任一角点**满足就整格跳过）。
+     * 于是**跨越 z = ±zBreak 的那一格**在 |x| > xh 侧被整格跳过 ——
+     * 可那一格有一半属于**下段的 45° 山面**（不是竖直山花），
+     * 结果：**屋面沿折线缺了一整条**，从外面能直接看见屋架与望板
+     * （`/tmp/JQ_B.png` 里那片褐色望板 + 穿出来的檩架）。
+     *
+     * 插线之后：
+     *   · `z = ±zBreak` 正好是网格行 ⇒ 下段山面的第一排严丝合缝；
+     *   · `x = ±xh` 正好是网格列 ⇒ 山花区域是**整格**的，不会误伤下段。
+     */
+    const xs = gridAxis(-Wx, Wx, NU, type === 'xieshan' ? [xh, -xh] : []);
+    const zs = gridAxis(-Wz, Wz, NV, type === 'xieshan' ? [zBreak, -zBreak] : []);
+    // ⚠⚠ 循环边界必须用**数组实际长度**，不能用 NU/NV ——
+    //   gridAxis 插入了额外网格线，数组长度 = NU+1+插入数。
+    //   用旧长度 ⇒ 屋面两端被截掉（东侧/南侧各少一条），
+    //   檐口出现缺口，从下面能直接看见屋架。
+    const NX = xs.length;
+    const NZ = zs.length;
     const rows = [];
-    for (let i = 0; i <= NV; i++) {
-      const tz = i / NV;
-      const z = -Wz + 2 * Wz * tz;
+    for (let i = 0; i < NZ; i++) {
       const row = [];
-      for (let j = 0; j <= NU; j++) {
-        const tx = j / NU;
-        const x = -Wx + 2 * Wx * tx;
-        row.push([x, z]);
+      for (let j = 0; j < NX; j++) {
+        row.push([xs[j], zs[i]]);
       }
       rows.push(row);
     }
@@ -253,9 +295,9 @@ function buildRoofCore(spec, geomsIn) {
       type === 'xieshan' && Math.abs(z) <= zBreak && Math.abs(x) > xh;
 
     const grid = [];
-    for (let i = 0; i <= NV; i++) {
+    for (let i = 0; i < NZ; i++) {
       const row = [];
-      for (let j = 0; j <= NU; j++) {
+      for (let j = 0; j < NX; j++) {
         const [x0, z0] = rows[i][j];
         let x = x0;
         let z = z0;
@@ -274,28 +316,40 @@ function buildRoofCore(spec, geomsIn) {
           z = z0 * (1 + (bulge * cn) / Math.max(Wz, 0.001));
           y += lift;
         }
-        row.push(pushVert(x, y, z, j / NU, i / NV));
+        // UV 按**真实坐标**算（非均匀网格下不能再用 j/NU）
+        row.push(
+          pushVert(x, y, z, (x0 + Wx) / (2 * Wx), (z0 + Wz) / (2 * Wz))
+        );
       }
       grid.push(row);
     }
-    for (let i = 0; i < NV; i++) {
-      for (let j = 0; j < NU; j++) {
-        const x0 = -Wx + 2 * Wx * (j / NU);
-        const x1 = -Wx + 2 * Wx * ((j + 1) / NU);
-        const z0 = -Wz + 2 * Wz * (i / NV);
-        const z1 = -Wz + 2 * Wz * ((i + 1) / NV);
+    for (let i = 0; i < NZ - 1; i++) {
+      for (let j = 0; j < NX - 1; j++) {
+        const x0 = xs[j];
+        const x1 = xs[j + 1];
+        const z0 = zs[i];
+        const z1 = zs[i + 1];
         const corners = [
           [x0, z0],
           [x1, z0],
           [x1, z1],
           [x0, z1],
         ];
-        // 歇山：|z|<=zBreak 且 |x|>xh 的区域不铺屋面（山花另建）
+        /**
+         * 歇山：`|z| ≤ zBreak 且 |x| > xh` 的区域不铺屋面（山花另建）。
+         *
+         * ⚠⚠ 必须按**格心**判定，不能按角点！
+         *   网格现在把 `z = ±zBreak` 做成了网格线，于是"折线以下那一排"的
+         *   **上边角点恰好落在 z = zBreak** ⇒ 按角点判会 `<= zBreak` 成立
+         *   ⇒ **整排 45° 山面被跳过** ⇒ 屋面沿折线缺一条，
+         *   从外面直接看见褐色望板与穿出来的檩架（`/tmp/JQ_B.png`）。
+         *   按格心判：折线以下的格心 z > zBreak ⇒ 不跳过 ✓
+         */
         let skip = false;
         if (type === 'xieshan') {
-          for (const [cx, cz] of corners) {
-            if (Math.abs(cz) <= zBreak && Math.abs(cx) > xh) skip = true;
-          }
+          const cxm = (x0 + x1) / 2;
+          const czm = (z0 + z1) / 2;
+          if (Math.abs(czm) <= zBreak && Math.abs(cxm) > xh) skip = true;
         }
         if (skip) continue;
         const a = grid[i][j];
@@ -384,7 +438,12 @@ function buildRoofCore(spec, geomsIn) {
       g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
       g.setAttribute(
         'uv',
-        new THREE.Float32BufferAttribute([0, 1, 1, 0, 1, 1], 2)
+        // UV 按**真实比例**给：山花底边 = 折线宽度，顶点 = 脊。
+        // 原来给的是 (0,1)(1,0)(1,1) ⇒ 彩画贴图被拉成斜的怪块。
+        new THREE.Float32BufferAttribute(
+          [0.5, 1.0, 0.06, 0.0, 0.94, 0.0],
+          2
+        )
       );
       g.setIndex(sgn > 0 ? [0, 1, 2] : [0, 2, 1]);
       g.computeVertexNormals();
@@ -421,11 +480,27 @@ function buildRoofCore(spec, geomsIn) {
        */
       w.setIndex(sgn > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]);
       w.computeVertexNormals();
-      push('shanhua', w);
+      /**
+       * ⚠⚠ **山墙进 'wall' 桶，不进 'shanhua' 桶**。
+       *
+       * 山花（yBreak **以上**的三角）才是彩画板；
+       * yBreak 以下那一段是**建筑本体的山墙** —— 跟后檐墙一样是抹红灰砖墙。
+       *
+       * 原来两段都进 'shanhua'，而该材质是**平涂 0x27535c**（无贴图），
+       * 于是每座歇山殿的山头都挂着一块**死板的青色平面**，
+       * 从侧面/高处看过去像贴了张色板（`/tmp/JQ_G.png` 里的那块青色片）。
+       */
+      push('wall', w);
 
       /**
        * 山面棱柱的**南北两侧**（z = ±zBreak）：从前后方向看进去同样是空的。
        * 上边正好接住下段屋面的折线高度 yBreak，下边落在檐口高度。
+       *
+       * ⚠⚠ 这两块是**内部封板**，不是山花。
+       *   原来也进 'shanhua' 桶（青绿彩画）⇒ 从檐下往里看，
+       *   屋架之间挂着一块 4m×3.6m 的**青色大板**，
+       *   像贴了张色板（`/tmp/JQ_I.png` 右侧那块）。
+       *   改进 'board'（望板色）：它是屋面的内侧封板，本就该是素的。
        */
       for (const zs of [-1, 1]) {
         const z = zs * zBreak;
@@ -444,7 +519,7 @@ function buildRoofCore(spec, geomsIn) {
         const flip = (sgn > 0) === (zs > 0);
         s.setIndex(flip ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]);
         s.computeVertexNormals();
-        push('shanhua', s);
+        push('board', s);
       }
     }
   }

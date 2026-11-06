@@ -509,10 +509,25 @@ export function goldMaterial() {
   );
 }
 
+/**
+ * 山花（歇山山尖的三角板）。
+ *
+ * ⚠⚠ 原来只有**一个纯色** 0x27535c（没有任何贴图）⇒ 每座歇山殿的山头
+ *   都挂着一块**死板的青色平面**，近看就是"贴了张色板"。
+ *   清式山花施**彩画**（旋子/和玺），这里直接用彩画贴图。
+ */
 export function shanhuaMaterial() {
-  return make('shanhua', () =>
-    new THREE.MeshStandardMaterial({ color: 0x27535c, roughness: 0.78 })
-  );
+  return make('shanhua', () => {
+    const map = caihua('xuanzi').clone();
+    map.needsUpdate = true;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    return new THREE.MeshStandardMaterial({
+      map,
+      // 压成青绿底：山花的彩画以石青/石绿为主
+      color: 0x9fc4c6,
+      roughness: 0.78,
+    });
+  });
 }
 
 /**
