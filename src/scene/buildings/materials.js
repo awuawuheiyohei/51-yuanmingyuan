@@ -19,6 +19,7 @@ import {
   paveBrick,
   redBrick,
   stone,
+  stoneFace,
   wood,
   caoJing,
   latticeWindow,
@@ -26,6 +27,7 @@ import {
   windowPaper,
 } from './textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
+import { applyTriplanar } from '../triplanar.js';
 
 const cache = new Map();
 
@@ -117,22 +119,32 @@ export function eaveMaterial() {
 /**
  * 官式建筑的石材（须弥座、条石、栏杆、柱础）。
  *
- * 用**青砖**贴图而不是 AI 生成的那张"西洋番花浮雕石"——后者是给西洋楼
- * 用的，给中式须弥座贴上巴洛克卷草，一眼就串味。
+ * 用**程序化素石面**而不是 AI 生成的那张"西洋番花浮雕石"——
+ * 后者是给西洋楼用的，给中式须弥座贴上巴洛克卷草，一眼就串味。
+ *
+ * ⚠⚠ **也不再用 AI 的 `stone.png`**：
+ *   那是一张**切割石板照片**，板缝是**纯白的高光**。
+ *   贴到须弥座上就是两道发亮的白线，贴到御路石板上就是一张白网格。
+ *   真实石缝是灰浆（暗线），不是发光的白线。
+ *   → 改用 `stoneFace()`：**一根缝都不画**，缝交给几何。
+ *
+ * **三平面投影**：石构件的 UV 是 0~1 铺在整块料上的（须弥座、台基都没做
+ * 按米数细分），平面 UV 会被拉成"长条"。世界空间三平面投影让**所有石构件
+ * 的纹理密度一致**（1 个周期 = 1.5m），也不会有接缝。
  */
 export function stoneMaterial(variant = 0) {
   return make(`stone-v${variant}`, () => {
-    const map = (variantTexture('stone', variant) || stone()).clone();
+    const map = stoneFace().clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(2, 2);
-    return new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       map,
-      // 条石：再压一档。AI 那张石材贴图带白色石脉，
-      // 铺在向阳的须弥座上会亮得像大理石/冰面。
-      color: 0x928d85,
+      // 石作压一档：汉白玉/青石在日光下会发白，太亮就读成"塑料"。
+      color: 0xaca89f,
       roughness: 1,
+      metalness: 0,
     });
+    return applyTriplanar(mat, { scale: 1 / 1.5 });
   });
 }
 
@@ -216,12 +228,25 @@ export function caihuaMaterial(style = 'xuanzi') {
 }
 
 export function dougongMaterial() {
-  return make('dougong', () =>
+  return make('dougong', () => {
     // ⚠ 主体色**不能太深**：斗栱整个处在檐下阴影里，
     //   太深 ⇒ 拱身、升、斗全糊成一团黑，只剩亮色的勾头浮着。
     //   略提亮 + 降粗糙度，让阴影里也还有层次。
-    new THREE.MeshStandardMaterial({ color: 0x2a5f68, roughness: 0.62, metalness: 0.05 })
-  );
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x35707a,
+      roughness: 0.62,
+      metalness: 0.05,
+    });
+    /**
+     * ⚠ 檐下只有**天光**（IBL），没有直射太阳 ⇒ 斗栱整体落在阴影里，
+     *   纯靠漫反射就是一条**黑带**，"一攒一攒"完全读不出来。
+     *   给一点极弱的**青绿自发光**（相当于环境光在青绿漆面上的回光），
+     *   阴影里能看出层次，阳光下也不会发光。
+     */
+    mat.emissive = new THREE.Color(0x123c42);
+    mat.emissiveIntensity = 0.55;
+    return mat;
+  });
 }
 
 /**
@@ -232,11 +257,20 @@ export function dougongMaterial() {
  * 远看完全读不出斗栱的节奏（这是"看着假"的一大来源）。
  */
 export function dougongTrimMaterial() {
-  return make('dougongTrim', () =>
+  return make('dougongTrim', () => {
     // ⚠ 用**暖金**而不是纯白：清式勾头线脚是**沥粉贴金**，
     //   纯白在青绿底上像一条白布带；暖金才像描金的线脚。
-    new THREE.MeshStandardMaterial({ color: 0xd3bd82, roughness: 0.48, metalness: 0.2 })
-  );
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xe0c98c,
+      roughness: 0.48,
+      metalness: 0.2,
+    });
+    // 同上：檐下阴影里，沥粉贴金的线脚必须**自己发一点光**，
+    // 否则整排斗栱退化成一条黑带（"一攒一攒"读不出来）。
+    mat.emissive = new THREE.Color(0x4a3a14);
+    mat.emissiveIntensity = 0.85;
+    return mat;
+  });
 }
 
 export function wallMaterial(type = 'brick', tint = null, variant = 0) {
@@ -322,9 +356,13 @@ export function paveMaterial() {
     map.repeat.set(1, 1);
     return new THREE.MeshStandardMaterial({
       map,
-      color: 0xa9a49a,
-      // 顶点色是**逐砖**的明暗/色偏（调制系数，接近 1 的浅色）——
+      // 墁砖是**青灰**的，不是一块白地砖。固有色压到 0x8b877f，
+      // 否则阳光下整片地泛白，像浴室瓷砖。
+      color: 0x8b877f,
+      // 逐砖的明暗/色偏（调制系数，接近 1 的浅色）——
       // 这是打散"一张贴图铺满全院"重复感的主力。
+      // ⚠ 幅度必须小（±4%）：大了就成"花地毯/棋盘格"，
+      //   一眼看出地上贴了张贴图。
       vertexColors: true,
       roughness: 0.97,
     });
@@ -337,22 +375,40 @@ export function paveMaterial() {
  *
  * 贴图 repeat = (1,1)：一张贴图正好铺满一块石板（1.15m × 0.53m），
  * 石与石之间的缝是几何留出来的，不是画出来的。
+ *
+ * ⚠ 逐块石板会取**贴图里不同的区域**（见 layout.js 的 UV 偏移），
+ *   否则一排石板是同一张图反复贴，一眼看出复制粘贴。
+ * ⚠ 逐块石板还有独立的**明暗**（顶点色），真实石板是分块加工的，
+ *   不会块块一样亮。
  */
 export function flagstoneMaterial() {
   return make('flagstone', () => {
-    const map = (variantTexture('stone', 0) || stone()).clone();
+    const map = stoneFace('#a5a199').clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(1, 1);
-    const nrm = variantNormal('stone', 0);
-    if (nrm) nrm.repeat.set(1, 1);
-    return new THREE.MeshStandardMaterial({
+    /**
+     * ⚠⚠ **必须三平面（世界空间），不能用几何 UV**。
+     *
+     * 每块石板是一块独立几何体，UV 是 0~1 铺满整块 ⇒
+     * **每块石板上都是同一张图、同一个起手式** ⇒ 一条御路读作
+     * **印刷棋盘格**（`/tmp/T_YARD3.png` 的中缝）。
+     * UV 偏移只能挪动图案位置，改不了"图案本身重复"。
+     *
+     * 世界空间三平面 ⇒ 石面连续、每块只露出图案的一小段，
+     * **分块由几何接缝来表达**（这也才是真石板的样子）。
+     */
+    const mat = new THREE.MeshStandardMaterial({
       map,
-      normalMap: nrm || null,
-      normalScale: new THREE.Vector2(0.6, 0.6),
-      color: 0x9d9a92,
+      // 逐块石板的明暗差（顶点色）：分块加工的石头不会块块一样亮
+      vertexColors: true,
+      color: 0xa39e95,
       roughness: 0.95,
     });
+    // ⚠ 周期必须**远小于石板尺寸**（板 0.53m 宽）：
+    //   周期接近板宽时，贴图的低频斑正好一块板一个 ⇒
+    //   一条御路读作**印刷网格**（`/tmp/T_YARD4.png`）。
+    //   周期 0.3m ⇒ 一块板上约 1.8 个周期，看不出板与板的图案对应。
+    return applyTriplanar(mat, { scale: 1 / 0.3 });
   });
 }
 

@@ -719,18 +719,25 @@ export function paveBrick(tint = '#9c968b') {
   const rnd = mulberry32(20261031);
   const base = new THREE.Color(tint);
 
-  // 灰浆缝底色（比砖深）
-  g.fillStyle = '#6f6a62';
+  // 灰浆缝底色（比砖深，但**不能太深**）
+  //
+  // ⚠ 原来 INSET=2.5px（缝宽 3.9cm）+ 深灰缝 ⇒ 整片地读作"浴室瓷砖"。
+  //   官式墁砖是**磨砖对缝**，缝宽约 1~1.5cm，颜色只比砖深一点。
+  //   64px = 0.5m ⇒ 1px ≈ 7.8mm ⇒ INSET 0.9px ⇒ 缝宽 ≈ 1.4cm。✓
+  g.fillStyle = '#7b766d';
   g.fillRect(0, 0, S, S);
 
   // 逐块铺砖：分窑烧的方砖，明度与色相都有差
-  const INSET = 2.5; // 缝宽（绝对像素，**不随分辨率放大**，否则缝会变成沟）
+  //
+  // ⚠ 色差必须**小**：真实墁砖是同一窑、同一批、磨过之后颜色很接近。
+  //   差得大（原来 ±7% 明度）就成"花地毯/棋盘格"。
+  const INSET = 0.9; // 缝宽（绝对像素，**不随分辨率放大**，否则缝会变成沟）
   for (let r = 0; r < N; r++) {
     for (let q = 0; q < N; q++) {
-      const v = 0.93 + rnd() * 0.14;
-      const warm = (rnd() - 0.5) * 0.06;
+      const v = 0.965 + rnd() * 0.07;
+      const warm = (rnd() - 0.5) * 0.035;
       const col = base.clone();
-      col.offsetHSL(warm, (rnd() - 0.5) * 0.04, (v - 1) * 0.22);
+      col.offsetHSL(warm, (rnd() - 0.5) * 0.025, (v - 1) * 0.22);
       g.fillStyle = `#${col.getHexString()}`;
       g.fillRect(q * cell + INSET, r * cell + INSET, cell - INSET * 2, cell - INSET * 2);
     }
@@ -1114,6 +1121,137 @@ export function stone() {
   }
   const tex = toTexture(c);
   cache.set('stone', tex);
+  return tex;
+}
+
+/**
+ * **素石面** —— 官式石材（须弥座 / 柱础 / 栏杆 / 踏跺 / 御路石板）的通用面。
+ *
+ * ## 为什么不用 AI 那张 `stone.png`
+ *
+ * AI 生成的 stone 是一张**切割石板照片**：2×2 块板，板缝是**纯白**的高光。
+ * 贴到任何石构件上都会出现两条**发亮的白线** ——
+ * 须弥座上就是两道白光，御路石板上就是一张白网格。
+ * 真实石缝是**灰浆**（暗线），不是发光的白线。
+ *
+ * ## 缝是几何，不是贴图
+ *
+ * 官式建筑里凡是"分块"的石作（石板路、阶条石），缝都是**真实几何留出来的**。
+ * 所以这张贴图**只管石面本身**：斑驳、石脉、颗粒、凿痕，
+ * **一根缝都不画**。画了缝就变成"贴图上的格子"，正是要去掉的贴图感。
+ *
+ * @param {string} tint 石色（sRGB hex）
+ */
+export function stoneFace(tint = '#a9a49b') {
+  const key = `stoneface-${tint}`;
+  if (cache.has(key)) return cache.get(key);
+  const S = 512;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const rnd = mulberry32(90210);
+  g.fillStyle = tint;
+  g.fillRect(0, 0, S, S);
+
+  // ① 大块斑驳（低频）：石灰岩的色差
+  //    ⚠ 必须做 3×3 wrap —— 跨边的斑被切断后，平铺会出现竖向接缝。
+  for (let i = 0; i < 110; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 35 + rnd() * 150;
+    const dark = rnd() < 0.5;
+    const col = dark ? '92,90,84' : '228,224,214';
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, `rgba(${col},${(0.09 + rnd() * 0.14).toFixed(3)})`);
+        grd.addColorStop(1, `rgba(${col},0)`);
+        g.fillStyle = grd;
+        g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+  }
+
+  // ② 石脉：石灰岩里的浅色石英脉，细而断续
+  //
+  // ⚠ **必须 3×3 wrap**：三平面投影会把这张贴图平铺成 1.5m 一格，
+  //   跨边的笔画被切断 ⇒ 每一格边界都出现一条可见的接缝。
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const len = 30 + rnd() * 180;
+    const a = (rnd() - 0.5) * 0.9 + (rnd() < 0.5 ? 0 : Math.PI / 2);
+    const cx = x + Math.cos(a) * len * 0.5 + (rnd() - 0.5) * 22;
+    const cy = y + Math.sin(a) * len * 0.5 + (rnd() - 0.5) * 22;
+    g.strokeStyle = `rgba(236,232,222,${(0.09 + rnd() * 0.13).toFixed(3)})`;
+    g.lineWidth = 0.8 + rnd() * 2.2;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        g.moveTo(x + ox, y + oy);
+        g.quadraticCurveTo(cx + ox, cy + oy, x + Math.cos(a) * len + ox, y + Math.sin(a) * len + oy);
+        g.stroke();
+      }
+    }
+  }
+
+  // ③ 凿痕：细凿石面的短斜纹（须弥座、柱础这类细琢石）
+  //    方向大致一致才像人工凿出来的；完全随机会变成噪声。
+  //    同样 3×9 wrap（见上）。
+  const chisel = (rnd() - 0.5) * 0.7;
+  for (let i = 0; i < 700; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const len = 2.5 + rnd() * 7;
+    const a = chisel + (rnd() - 0.5) * 0.5;
+    g.strokeStyle = rnd() < 0.5
+      ? `rgba(255,255,255,${(rnd() * 0.16).toFixed(3)})`
+      : `rgba(62,60,56,${(rnd() * 0.2).toFixed(3)})`;
+    g.lineWidth = 0.7;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        g.moveTo(x + ox, y + oy);
+        g.lineTo(x + Math.cos(a) * len + ox, y + Math.sin(a) * len + oy);
+        g.stroke();
+      }
+    }
+  }
+
+  // ③b 开片：石灰岩表面细微的裂纹网（比凿痕更淡、更长）
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const len = 40 + rnd() * 160;
+    const a = rnd() * Math.PI * 2;
+    g.strokeStyle = `rgba(58,56,52,${(0.05 + rnd() * 0.09).toFixed(3)})`;
+    g.lineWidth = 0.9;
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        g.moveTo(x + ox, y + oy);
+        g.lineTo(x + Math.cos(a) * len + ox, y + Math.sin(a) * len + oy);
+        g.stroke();
+      }
+    }
+  }
+
+  // ④ 细颗粒：一次 ImageData 批量写，避免几万次 fillRect 卡住首屏
+  {
+    const img = g.getImageData(0, 0, S, S);
+    const d = img.data;
+    for (let i = 0; i < 26000; i++) {
+      const p = ((rnd() * S) | 0) * 4 + ((rnd() * S) | 0) * S * 4;
+      const a = Math.round(rnd() * 26);
+      const add = rnd() < 0.5 ? a : -a;
+      d[p] = Math.max(0, Math.min(255, d[p] + add));
+      d[p + 1] = Math.max(0, Math.min(255, d[p + 1] + add));
+      d[p + 2] = Math.max(0, Math.min(255, d[p + 2] + add));
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  const tex = toTexture(c);
+  cache.set(key, tex);
   return tex;
 }
 

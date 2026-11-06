@@ -10,6 +10,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { taihuStone } from './buildings/textures.js';
+import { applyTriplanar } from './triplanar.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -649,6 +650,18 @@ export function buildRockery(sceneData, heightAt, cameraPos = null) {
     flatShading: false,
     envMapIntensity: 0.45,
   });
+  /**
+   * ⚠⚠ **三平面投影**（不是几何 UV）。
+   *
+   * 资产自带的 UV 是**球面投影**（`gen-rock.py → planar_uv`）：
+   *   方位角 + 纬度 ⇒ 石头顶部（极点）纹理被挤成一团，
+   *   再叠上非均匀缩放（Y 向 0.8~1.3）⇒ 近景每块石头长出
+   *   **大楔形条纹**（`/tmp/IN_A.png`），像碎玻璃不像石头。
+   *
+   * 改用**世界空间三平面**：无接缝、无极点奇点、不受缩放影响。
+   * 代价是三次采样 —— 假山是大面积曲面，值得。
+   */
+  applyTriplanar(mat, { scale: 1 / 1.6 });
 
   const items = sceneData.rockery || [];
   /**
