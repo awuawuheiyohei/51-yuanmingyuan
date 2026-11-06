@@ -495,8 +495,11 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
         const x1 = x0 + bw;
         const z1 = z0 + bd;
         // 逐块色差（顶点色当**调制系数**，接近 1 的浅色）
-        const kv = 1 + (rnd() - 0.5) * 0.11;
-        const warm = (rnd() - 0.5) * 0.035;
+        //
+        // ⚠ 幅度必须小：真实墁砖是同窑同批磨出来的，颜色很接近。
+        //   原来 ±5.5% 叠上贴图自己的 ±7% ⇒ 一地"花地毯"。
+        const kv = 1 + (rnd() - 0.5) * 0.045;
+        const warm = (rnd() - 0.5) * 0.02;
         // 大尺度低频调制（第三层）
         const cx = (x0 + x1) / 2;
         const cz = (z0 + z1) / 2;
@@ -547,6 +550,17 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
         idx[ii++] = vi - 2;
       }
     }
+    /**
+     * ⚠ **这里不需要"灰浆底板"**。
+     *
+     * 逐块砖是**共享边界的连续四边形**（第 q 块从 `q*bw` 到 `(q+1)*bw`，
+     * 与第 q+1 块严丝合缝），**没有缝** ⇒ 缝里漏光的问题不存在。
+     *
+     * 之前加过一整块底板想"垫底"，结果底板**不跟着边缘下沉**
+     * （砖是 `edge^8*0.45` 下沉到土里的），于是院子最外一圈
+     * 反而露出一圈灰盘子。已撤掉。
+     */
+
     const pave = new THREE.BufferGeometry();
     pave.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     pave.setAttribute('uv', new THREE.BufferAttribute(uvA, 2));
@@ -633,6 +647,25 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
             0.13,
             alongX ? slabW - 0.04 : segLen - 0.04
           );
+          /**
+           * 逐块石板必须有**独立明暗**。
+           * ⚠ 原来还想"逐块 UV 偏移"（每块取贴图不同区域）——
+           *   但贴图改成**世界空间三平面**后 UV 完全不参与采样，
+           *   偏移毫无意义（而且偏移只能挪图案，改不了"图案本身重复"）。
+           *   分块感现在由**几何接缝**（4cm 真实缝）承担，
+           *   这才是真石板的样子；顶点色只补"块块不一样亮"。
+           */
+          {
+            const k = 0.92 + rnd() * 0.17; // ±8% 明暗
+            const warm = (rnd() - 0.5) * 0.04;
+            const col = new Float32Array(slab.attributes.position.count * 3);
+            for (let v = 0; v < slab.attributes.position.count; v++) {
+              col[v * 3] = k * (1 + warm);
+              col[v * 3 + 1] = k;
+              col[v * 3 + 2] = k * (1 - warm);
+            }
+            slab.setAttribute('color', new THREE.BufferAttribute(col, 3));
+          }
           slab.translate(sx, y0 + 0.12, sz);
           const m = new THREE.Mesh(slab, flagMat);
           m.name = 'paving';
