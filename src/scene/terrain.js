@@ -70,6 +70,48 @@ export function buildTerrain(sceneData, opts = {}) {
   const heightAt = (x, z) =>
     sampleHeight(heights, cols, rows, minX, minZ, sizeX, sizeZ, x, z);
 
+  /**
+   * **平滑高程场** —— 只用于**着色**（坡度 / 高程色 / 法线），不用于顶点高度。
+   *
+   * ## 为什么必须有
+   *
+   * DEM 是 **10m 分辨率**采样的，高度是**量化台阶**。
+   * 直接拿它算坡度（`h(x+6) − h(x−6)`）时，步长 6m < 网格 10m
+   * ⇒ 差分每次都跨格取样 ⇒ 坡度变成**锯齿状阶跃**。
+   * 锯齿坡度 → 顶点色锯齿 → 顶点之间线性插值 ⇒ 整个地面被切成
+   * **可见的三角面片** ⇒ 俯视满屏规则斜向灯芯绒
+   * （`?view=top` 一眼可见；AGENTS.md §4.1.2 记过这条坑）。
+   *
+   * ## 为什么不改顶点高度
+   *
+   * 顶点高度保持**原始 DEM**（不篡改真实地形），
+   * 只把着色用的场平滑掉。代价：地面轮廓仍有 10m 台阶，
+   * 但 10m 尺度上肉眼不可见，而着色面片是全园可见的。
+   */
+  const smoothHeights = (() => {
+    const out = new Float32Array(heights.length);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let s = 0;
+        let w = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const rr = r + dr;
+            const cc = c + dc;
+            if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+            const ww = (dr === 0 ? 2 : 1) * (dc === 0 ? 2 : 1);
+            s += heights[rr * cols + cc] * ww;
+            w += ww;
+          }
+        }
+        out[r * cols + c] = s / w;
+      }
+    }
+    return out;
+  })();
+  const heightSmooth = (x, z) =>
+    sampleHeight(smoothHeights, cols, rows, minX, minZ, sizeX, sizeZ, x, z);
+
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) + (minX + sizeX / 2);
     const z = pos.getZ(i) + (minZ + sizeZ / 2);
@@ -78,13 +120,13 @@ export function buildTerrain(sceneData, opts = {}) {
     const h = heightAt(x, z);
     pos.setY(i, h);
 
-    // 坡度
-    const d = 6;
-    const hx = heightAt(x + d, z) - heightAt(x - d, z);
-    const hz = heightAt(x, z + d) - heightAt(x, z - d);
+    // 坡度（用**平滑高程**，否则 DEM 量化台阶会被放大成三角面片）
+    const d = 12;
+    const hx = heightSmooth(x + d, z) - heightSmooth(x - d, z);
+    const hz = heightSmooth(x, z + d) - heightSmooth(x, z - d);
     const slope = Math.min(1, Math.hypot(hx, hz) / (2 * d) / 0.55);
 
-    const alt = THREE.MathUtils.clamp((h - 44) / 22, 0, 1);
+    const alt = THREE.MathUtils.clamp((heightSmooth(x, z) - 44) / 22, 0, 1);
     tmp.copy(cGrass).lerp(cEarth, alt * 0.55);
     tmp.lerp(cRock, slope * 0.85);
     // 沙色只出现在**园内低洼**。
@@ -128,12 +170,20 @@ export function buildTerrain(sceneData, opts = {}) {
     tmp.offsetHSL(low * 0.006 + mid * 0.003, low * 0.025 + mid * 0.013, low * 0.03 + mid * 0.016);
 
     // 高频抖动：打散 8bit 量化造成的等高线色带。
-    // 用**整数哈希**，不要用 sin 大数伪随机——sin(x*12.9898) 在 x 上千之后
-    // 精度掉光，输出变成沿网格的规则条纹，全园俯视就是一片斜向灯芯绒。
+    //
+    // ⚠⚠ **绝不能在这里做逐顶点白噪声**。
+    //   DEM 是 10m 网格 ⇒ 每个顶点一个独立随机值 ⇒ 顶点之间线性插值
+    //   ⇒ 整个地面被切成**可见的三角面片** ⇒ 俯视满屏规则斜向灯芯绒
+    //   （`?view=top` 一眼可见；AGENTS.md §4.1.2 记过这条坑，
+    //   但当时只治了"sin 大数伪随机变成条纹"，没治"白噪声变面片"）。
+    //
+    //   正确做法：抖动放到**逐像素**（材质 dithering），与网格无关。
+    //   这里只保留一个**极小**的逐顶点扰动（0.6%），作用是让顶点色
+    //   不落在同一个量化档位上，肉眼看不出面片。
     const hsh = (Math.imul(Math.round(x * 4), 374761393) +
       Math.imul(Math.round(z * 4), 668265263)) | 0;
     const j = Math.imul(hsh ^ (hsh >>> 13), 1274126177);
-    const n = (((j ^ (j >>> 16)) >>> 0) / 4294967296 - 0.5) * 0.044;
+    const n = (((j ^ (j >>> 16)) >>> 0) / 4294967296 - 0.5) * 0.012;
     tmp.offsetHSL(0, n * 0.5, n);
 
     // **钳制下限**：调制系数不能掉到很暗，否则局部出现黑斑
@@ -161,17 +211,19 @@ export function buildTerrain(sceneData, opts = {}) {
   }
   uv.needsUpdate = true;
   // 法线用**中心差分**重算，不用 computeVertexNormals。
-  // DEM 是 10m 分辨率上采样的，三角形化后每个 DEM 格子的台阶会变成一片
-  // 规则的斜向刻面（俯视时满屏灯芯绒）。差分步长取 6m（大于 DEM 格距），
-  // 法线就只反映真实坡度、不反映量化台阶。
+  //
+  // ⚠ 差分必须用**平滑高程**且步长 ≥ DEM 格距：
+  //   DEM 是 10m 分辨率采样的，直接差分（步长 6m）每次都跨格取样，
+  //   坡度变成锯齿阶跃 ⇒ 三角形化后每个 DEM 格子的台阶变成一片
+  //   规则的斜向刻面（俯视时满屏灯芯绒）。
   {
     const nrm = geo.getAttribute('normal');
-    const d = 6;
+    const d = 12;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const hx = heightAt(x + d, z) - heightAt(x - d, z);
-      const hz = heightAt(x, z + d) - heightAt(x, z - d);
+      const hx = heightSmooth(x + d, z) - heightSmooth(x - d, z);
+      const hz = heightSmooth(x, z + d) - heightSmooth(x, z - d);
       const len = Math.hypot(hx, 2 * d, hz) || 1;
       nrm.setXYZ(i, -hx / len, (2 * d) / len, -hz / len);
     }
@@ -183,7 +235,52 @@ export function buildTerrain(sceneData, opts = {}) {
     vertexColors: true,
     roughness: 0.98,
     metalness: 0,
+    // 逐像素抖动（three 内置）：打散 8bit 色带。
+    // ⚠ 必须在**片元**里做 —— 逐顶点做会随 DEM 网格切出三角面片。
+    dithering: true,
   });
+  /**
+   * **远处把贴图淡出到它的平均色**。
+   *
+   * ## 为什么
+   *
+   * 俯视全园时地面被缩小 ~50 倍 ⇒ 采样落在 mip 5~6（每张贴图只剩 16~8 px），
+   * 而**贴图周期（12m）在屏幕上只有 ~9 px** ——
+   * mip 层的纹素网格与屏幕像素网格**频率几乎相同** ⇒ 拍频（moiré）
+   * ⇒ 满屏**规则斜向灯芯绒**（AGENTS.md §4.1.2 记过这条坑，一直没定位到）。
+   *
+   * 去掉贴图（`map: null`）斜纹立刻消失，证实是**采样拍频**，
+   * 不是几何/顶点色/光照的问题。
+   *
+   * ## 怎么解
+   *
+   * 远处本来也看不清 2.3cm 的草叶 ⇒ 把贴图**淡出成它的平均色**，
+   * 只保留**顶点色**那层平滑的大尺度变化。
+   * 近景（< 25m）贴图全保留，细节一点不少。
+   *
+   * ⚠ 淡出目标是"平均色"而不是"白色"—— 否则远处地面会整体变亮好几倍。
+   */
+  const MAP_AVG = new THREE.Color('#79805a'); // 贴图底色（linear 工作空间）
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMapAvg = { value: new THREE.Vector3(MAP_AVG.r, MAP_AVG.g, MAP_AVG.b) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vTriDist;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvTriDist = -mvPosition.z;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform vec3 uMapAvg;\nvarying float vTriDist;'
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+  #ifdef USE_COLOR
+    float triFade = smoothstep(25.0, 110.0, vTriDist);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vColor * uMapAvg, triFade);
+  #endif`
+      );
+  };
+  mat.customProgramCacheKey = () => 'terrain-fade-v1';
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';

@@ -37,7 +37,14 @@ export function makeGroundTexture() {
   g.fillStyle = '#79805a';
   g.fillRect(0, 0, S, S);
 
-  // 大块色斑：枯草 / 湿草 / 裸土 —— 对比必须够大，否则远看还是死平一块
+  // 大块色斑：枯草 / 湿草 / 裸土
+  //
+  // ⚠⚠ 幅度必须**压住**：这些斑是**低频**结构，会一路存活到 mip 5~6。
+  //   俯视全园时贴图被缩小 ~50 倍，用的正是 mip 6（8×8）——
+  //   高对比的大斑在那一层就是一张 **8×8 的格子网**，
+  //   与屏幕像素拍频 ⇒ 满屏**斜向灯芯绒**（`?view=top` 一眼可见）。
+  //   大尺度的色变化交给**地形顶点色**（那里才是几十米尺度该有的地方），
+  //   贴图只保留"斑驳感"，不保留"大色块"。
   const PATCH = [
     '186,172,112', // 枯黄
     '78,92,52', // 深湿草
@@ -53,8 +60,8 @@ export function makeGroundTexture() {
     const y = rnd() * S;
     const r = 36 + rnd() * 120;
     const col = PATCH[Math.floor(rnd() * PATCH.length)];
-    const a0 = 0.42 + rnd() * 0.36;
-    const a1 = 0.16 + rnd() * 0.2;
+    const a0 = 0.16 + rnd() * 0.16;
+    const a1 = 0.06 + rnd() * 0.1;
     for (const ox of [-S, 0, S]) {
       for (const oy of [-S, 0, S]) {
         const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
@@ -76,34 +83,87 @@ export function makeGroundTexture() {
   // 真实草叶高 5~15cm ≈ 1.5~4px。
   // 原来画到 2~8px（7~28cm），近景看就是**一地 30cm 的绿色色块**，
   // 像铺了草皮地毯，完全不像草地。
-  for (let i = 0; i < 9000; i++) {
-    const x = rnd() * S;
-    const y = rnd() * S;
-    const len = 1.2 + rnd() * 2.6; // ≈ 4~13cm
-    const ang = -Math.PI / 2 + (rnd() - 0.5) * 1.4;
-    const v = rnd();
-    const col =
-      v < 0.22
-        ? 'rgba(146,152,104,0.62)' // 枯草高光（压暗）
-        : v < 0.62
-          ? 'rgba(62,74,42,0.66)' // 深湿草
-          : 'rgba(118,114,82,0.55)'; // 枯草
-    g.strokeStyle = col;
-    g.lineWidth = 0.8 + rnd() * 0.9;
-    for (const ox of [-S, 0, S]) {
-      for (const oy of [-S, 0, S]) {
-        g.beginPath();
-        g.moveTo(x + ox, y + oy);
-        g.lineTo(x + ox + Math.cos(ang) * len, y + oy + Math.sin(ang) * len);
-        g.stroke();
+  //
+  // ⚠⚠ **方向必须有空间变化，不能全园一个方向**。
+  //   原来所有笔触都取 `-π/2 ± 0.7`（近似竖直）⇒ 贴图自带强烈"直纹"。
+  //   12m 一张铺满 3.2km 的全园 ⇒ 满屏**规则斜纹网格**
+  //   （俯视 /view=top 一眼就能看见，AGENTS.md 也记过这条坑）。
+  //   修法：用一个 **4×4 的粗方向场**（每格一个随机倒伏方向，格间向量插值）——
+  //   草甸本来就成片倒伏，**局部**有方向、**全局**没有方向，
+  //   于是既自然又不再出现斜纹。
+  {
+    const DIR_N = 8;
+    const dirs = new Float32Array(DIR_N * DIR_N * 2);
+    for (let k = 0; k < DIR_N * DIR_N; k++) {
+      const a = rnd() * Math.PI * 2;
+      dirs[k * 2] = Math.cos(a);
+      dirs[k * 2 + 1] = Math.sin(a);
+    }
+    /** 该点的倒伏方向（单位向量），格间双线性插值 */
+    const dirAt = (x, y) => {
+      const fx = (x / S) * DIR_N;
+      const fy = (y / S) * DIR_N;
+      const i0 = Math.floor(fx) % DIR_N;
+      const j0 = Math.floor(fy) % DIR_N;
+      const i1 = (i0 + 1) % DIR_N;
+      const j1 = (j0 + 1) % DIR_N;
+      const tx = fx - Math.floor(fx);
+      const ty = fy - Math.floor(fy);
+      const g = (i, j) => dirs[(j * DIR_N + i) * 2];
+      const h = (i, j) => dirs[(j * DIR_N + i) * 2 + 1];
+      const sx = tx * tx * (3 - 2 * tx);
+      const sy = ty * ty * (3 - 2 * ty);
+      const vx =
+        (g(i0, j0) * (1 - sx) + g(i1, j0) * sx) * (1 - sy) +
+        (g(i0, j1) * (1 - sx) + g(i1, j1) * sx) * sy;
+      const vy =
+        (h(i0, j0) * (1 - sx) + h(i1, j0) * sx) * (1 - sy) +
+        (h(i0, j1) * (1 - sx) + h(i1, j1) * sx) * sy;
+      const l = Math.hypot(vx, vy) || 1;
+      return [vx / l, vy / l];
+    };
+    for (let i = 0; i < 9000; i++) {
+      const x = rnd() * S;
+      const y = rnd() * S;
+      const len = 1.2 + rnd() * 2.6; // ≈ 4~13cm
+      const [dx, dy] = dirAt(x, y);
+      const v = rnd();
+      const col =
+        v < 0.22
+          ? 'rgba(146,152,104,0.62)' // 枯草高光（压暗）
+          : v < 0.62
+            ? 'rgba(62,74,42,0.66)' // 深湿草
+            : 'rgba(118,114,82,0.55)'; // 枯草
+      g.strokeStyle = col;
+      g.lineWidth = 0.8 + rnd() * 0.9;
+      for (const ox of [-S, 0, S]) {
+        for (const oy of [-S, 0, S]) {
+          g.beginPath();
+          g.moveTo(x + ox, y + oy);
+          g.lineTo(x + ox + dx * len, y + oy + dy * len);
+          g.stroke();
+        }
       }
     }
   }
 
   // 细碎土粒
+  //
+  // ⚠⚠ **必须 3×9 wrap**：不环绕画就会在贴图边缘留下"被切断的土粒"，
+  //   贴图**不是无缝的** ⇒ 每 12m 一道接缝 ⇒ 俯视全园是一张规则网格。
+  //   （这就是 `?view=top` 满屏斜向灯芯绒的真正来源，
+  //   AGENTS.md §4.1.2 记过"地面规则斜纹"但一直没定位到这一层。）
   for (let i = 0; i < 3400; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const w = 1 + rnd() * 3.4;
+    const h = 1 + rnd() * 3.4;
     g.fillStyle = `rgba(${132 + rnd() * 64},${120 + rnd() * 58},${86 + rnd() * 52},${rnd() * 0.5})`;
-    g.fillRect(rnd() * S, rnd() * S, 1 + rnd() * 3.4, 1 + rnd() * 3.4);
+    for (const ox of [-S, 0, S]) {
+      for (const oy of [-S, 0, S]) {
+        g.fillRect(x + ox, y + oy, w, h);
+      }
+    }
   }
 
   const tex = new THREE.CanvasTexture(c);
