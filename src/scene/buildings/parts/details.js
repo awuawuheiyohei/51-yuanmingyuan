@@ -139,14 +139,22 @@ export function buildDiXia(len, h = 0.18) {
  */
 export function buildYuLu(width, h, depth) {
   const parts = [];
-  const slab = new THREE.BoxGeometry(width, 0.16, depth * 1.85);
-  slab.rotateX(-Math.atan2(h, depth * 1.7));
+  // 斜坡石：长度取**真实斜坡长**（原来固定 depth*1.85 ⇒ 一头戳进台基、一头悬空）
+  const slopeLen = Math.hypot(h, depth) * 1.06;
+  const ang = Math.atan2(h, depth);
+  const slab = new THREE.BoxGeometry(width, 0.16, slopeLen);
+  slab.rotateX(ang); // ⚠ 必须是 +ang：+Z 端**下降**才与踏跺同向（负号会让御路翘成一块楔子）
   parts.push(slab);
-  // 两侧雕线（凸起的边条）
+  // 两侧雕线（凸起的宽边条）
+  //
+  // ⚠ 原来只有 6cm 高、贴在 16cm 厚的御路板上 ⇒ 从斜上方看几乎看不见，
+  //   御路读作"一块光板"（AGENTS.md 硬要求："御路有雕线"）。
+  //   真实御路两侧是**凸起的宽边条**（宽约 12cm、高约 11cm），
+  //   中间是雕花坡面。现在把边条加高加宽，才读得出"御路"。
   for (const sx of [-1, 1]) {
-    const e = new THREE.BoxGeometry(width * 0.08, 0.06, depth * 1.85);
-    e.rotateX(-Math.atan2(h, depth * 1.7));
-    e.translate(sx * width * 0.46, 0.1, 0);
+    const e = new THREE.BoxGeometry(width * 0.12, 0.11, slopeLen);
+    e.rotateX(ang);
+    e.translate(sx * width * 0.44, 0.115, 0);
     parts.push(e);
   }
   const g = mergeGeometries(parts, false);

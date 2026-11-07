@@ -1050,6 +1050,34 @@ export function buildStructure(spec) {
     // 墙体收进柱径，柱子在开间之间露出来（清式"墙包柱"的做法）
     const frontZ = depth / 2 - wallThick / 2;
     const doorSet = new Set(doors);
+    /**
+     * 正面一开间的**四扇槅扇**（门扇 / 窗扇通用）：
+     * 框料 / 绦环板 / 步步锦格心 / 裙板，全是实体。
+     *
+     * ⚠ 槅扇之间要**几乎无缝**（真实槅扇是紧挨着的）：
+     *   每扇只取格宽的 0.94 ⇒ 四扇之间露出 4 条黑缝，
+     *   从正面看像"四扇门之间有黑缝"，其实那是后面的暗底。
+     */
+    const buildLeaves = (cx, bw) => {
+      const leafW = (bw - colDia * 1.2) / 4;
+      for (let k = 0; k < 4; k++) {
+        const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
+        const { frame, lattice, panel, paper } = buildShanGeParts(
+          leafW * 0.995,
+          wallH * 0.985
+        );
+        frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+        lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+        panel.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+        if (paper) paper.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
+        // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
+        bucket(geoms, KEY.lacquer).push(frame);
+        bucket(geoms, KEY.lacquerDark).push(panel);
+        bucket(geoms, KEY.lattice).push(lattice);
+        // 格心背后裱纸：清式门窗是纸窗，不是黑洞
+        if (paper) bucket(geoms, KEY.paper).push(paper);
+      }
+    };
     for (let i = 0; i < mian; i++) {
       const cx = (colXs[i] + colXs[i + 1]) / 2;
       const bw = bayWidths[i]; // 本开间实际宽（各间不等宽）
@@ -1059,28 +1087,8 @@ export function buildStructure(spec) {
         const back = new THREE.BoxGeometry(bw - colDia, wallH, 0.1);
         back.translate(cx, floorY + wallH / 2, frontZ - wallThick * 0.42);
         bucket(geoms, KEY.dark).push(back);
-        // 隔扇门（四扇槅扇）—— 框料/绦环板/步步锦格心/裙板，全是实体
-        const leafW = (bw - colDia * 1.2) / 4;
-        for (let k = 0; k < 4; k++) {
-          const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
-          // ⚠ 槅扇之间要**几乎无缝**（真实槅扇是紧挨着的）。
-          //   原来每扇只取格宽的 0.94 ⇒ 四扇之间露出 4 条黑缝，
-          //   从正面看像"四扇门之间有黑缝"，其实那是后面的暗底。
-          const { frame, lattice, panel, paper } = buildShanGeParts(
-            leafW * 0.995,
-            wallH * 0.985
-          );
-          frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          panel.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          if (paper) paper.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-          // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
-          bucket(geoms, KEY.lacquer).push(frame);
-          bucket(geoms, KEY.lacquerDark).push(panel);
-          bucket(geoms, KEY.lattice).push(lattice);
-          // 格心背后裱纸：清式门窗是纸窗，不是黑洞
-          if (paper) bucket(geoms, KEY.paper).push(paper);
-        }
+        // 隔扇门（四扇槅扇）
+        buildLeaves(cx, bw);
         // 门楣
         const lintel = new THREE.BoxGeometry(bw - colDia * 0.6, 0.22, wallThick * 1.1);
         lintel.translate(cx, floorY + wallH - 0.11, frontZ + wallThick * 0.1);
@@ -1138,13 +1146,28 @@ export function buildStructure(spec) {
           bucket(geoms, KEY.plaque).push(board);
         }
       } else {
+        /**
+         * **非门开间也要做隔扇窗**。
+         *
+         * ⚠ 原来只有门所在开间做隔扇，其余开间是**一整片实心红砖墙** ——
+         *   大式殿堂（太和殿式）的正面是**通高隔扇**：明间设门，
+         *   次间、稍间为隔扇窗。实墙正立面看着像"没做完"，
+         *   而且 AGENTS.md 硬要求里明写着立面要有「窗」。
+         *
+         * 做法：实墙照旧（作为窗后的墙），**前面再贴四扇槅扇**。
+         */
         const panelW = bw - colDia;
         const [sgx, sgy, sgz] = boxSegs(panelW, wallH, wallThick);
         const panel = new THREE.BoxGeometry(panelW, wallH, wallThick, sgx, sgy, sgz);
         scaleBoxUV(panel, panelW, wallH, wallThick);
-        panel.translate(cx, floorY + wallH / 2, frontZ);
+        // ⚠ 窗后的实墙要**往后退**：墙的**正面**必须落在槅扇之后，
+        //   否则槅扇整扇埋进墙体里（近看只有一片红砖）。
+        //   门扇那边没有墙（只有暗底），所以门扇看着正常 —— 差别就在这里。
+        panel.translate(cx, floorY + wallH / 2, frontZ - wallThick * 0.62);
         applyTint(panel, tint);
         bucket(geoms, KEY.wall).push(panel);
+        // 隔扇窗（与门扇同制式，只是不设门楣）
+        buildLeaves(cx, bw);
       }
     }
   }

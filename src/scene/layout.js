@@ -642,10 +642,13 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
           const sx = scene.x + (alongX ? t * lx : s * roadW);
           const sz = scene.z + (alongX ? s * roadW : t * lz);
           // 留 4cm 接缝（板与板之间能看见土/砖底）
+          // ⚠ 板缝 4cm 太宽：石板路读成"瓷砖格"。
+          //   真实石板对缝约 1~1.5cm。
+          const GAP = 0.015;
           const slab = new THREE.BoxGeometry(
-            alongX ? segLen - 0.04 : slabW - 0.04,
+            alongX ? segLen - GAP : slabW - GAP,
             0.13,
-            alongX ? slabW - 0.04 : segLen - 0.04
+            alongX ? slabW - GAP : segLen - GAP
           );
           /**
            * 逐块石板必须有**独立明暗**。

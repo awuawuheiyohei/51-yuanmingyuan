@@ -408,7 +408,7 @@ export function flagstoneMaterial() {
     //   周期接近板宽时，贴图的低频斑正好一块板一个 ⇒
     //   一条御路读作**印刷网格**（`/tmp/T_YARD4.png`）。
     //   周期 0.3m ⇒ 一块板上约 1.8 个周期，看不出板与板的图案对应。
-    return applyTriplanar(mat, { scale: 1 / 0.3 });
+    return applyTriplanar(mat, { scale: 1 / 0.6 });
   });
 }
 

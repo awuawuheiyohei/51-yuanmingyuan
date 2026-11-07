@@ -724,14 +724,14 @@ export function paveBrick(tint = '#9c968b') {
   // ⚠ 原来 INSET=2.5px（缝宽 3.9cm）+ 深灰缝 ⇒ 整片地读作"浴室瓷砖"。
   //   官式墁砖是**磨砖对缝**，缝宽约 1~1.5cm，颜色只比砖深一点。
   //   64px = 0.5m ⇒ 1px ≈ 7.8mm ⇒ INSET 0.9px ⇒ 缝宽 ≈ 1.4cm。✓
-  g.fillStyle = '#7b766d';
+  g.fillStyle = '#857f74';
   g.fillRect(0, 0, S, S);
 
   // 逐块铺砖：分窑烧的方砖，明度与色相都有差
   //
   // ⚠ 色差必须**小**：真实墁砖是同一窑、同一批、磨过之后颜色很接近。
   //   差得大（原来 ±7% 明度）就成"花地毯/棋盘格"。
-  const INSET = 0.9; // 缝宽（绝对像素，**不随分辨率放大**，否则缝会变成沟）
+  const INSET = 0.75; // 缝宽（绝对像素，**不随分辨率放大**，否则缝会变成沟）
   for (let r = 0; r < N; r++) {
     for (let q = 0; q < N; q++) {
       const v = 0.965 + rnd() * 0.07;
@@ -755,10 +755,14 @@ export function paveBrick(tint = '#9c968b') {
       const y0 = r * cell + INSET;
       const w = cell - INSET * 2;
       // 砖面细颗粒（方砖是磨过的，比墙砖细腻）
-      for (let k = 0; k < 40; k++) {
+      //
+      // ⚠ 数量要够：原来 40 粒/砖 ⇒ 砖面是**一片纯色**，
+      //   近景看就是"塑料方砖"。加到 120 粒并把幅度提到 ±7%，
+      //   才有"磨过的砖面"那种细密的颗粒感。
+      for (let k = 0; k < 120; k++) {
         const ix = x0 + Math.floor(rnd() * w);
         const iy = y0 + Math.floor(rnd() * w);
-        const a = Math.round(rnd() * 0.05 * 255);
+        const a = Math.round(rnd() * 0.07 * 255);
         const add = rnd() < 0.5 ? a : -a;
         const p = at(ix, iy);
         d[p] = Math.max(0, Math.min(255, d[p] + add));
@@ -766,7 +770,7 @@ export function paveBrick(tint = '#9c968b') {
         d[p + 2] = Math.max(0, Math.min(255, d[p + 2] + add));
       }
       // 四边微暗（磨圆的棱）
-      const edgeDark = 0.1;
+      const edgeDark = 0.055;
       for (let i = 0; i < w; i++) {
         for (const [ex, ey] of [
           [x0 + i, y0],
@@ -1194,19 +1198,23 @@ export function stoneFace(tint = '#a9a49b') {
     }
   }
 
-  // ③ 凿痕：细凿石面的短斜纹（须弥座、柱础这类细琢石）
-  //    方向大致一致才像人工凿出来的；完全随机会变成噪声。
-  //    同样 3×9 wrap（见上）。
-  const chisel = (rnd() - 0.5) * 0.7;
-  for (let i = 0; i < 700; i++) {
+  // ③ 凿痕：**点凿**（不是划痕）
+  //
+  // ⚠ 原来画的是 2.5~10px 的**细长划痕**、方向还大致一致
+  //   ⇒ 在 1.5m 贴图周期下读作"拉丝金属"，不像石头。
+  //   真实的细凿石面是**密集的点凿坑**（短、粗、方向随机）。
+  //   同样 3×9 wrap（见上）。
+  const chisel = 0; // 点凿：方向完全随机（不再是"拉丝"）
+  for (let i = 0; i < 1500; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
-    const len = 2.5 + rnd() * 7;
-    const a = chisel + (rnd() - 0.5) * 0.5;
-    g.strokeStyle = rnd() < 0.5
-      ? `rgba(255,255,255,${(rnd() * 0.16).toFixed(3)})`
-      : `rgba(62,60,56,${(rnd() * 0.2).toFixed(3)})`;
-    g.lineWidth = 0.7;
+    const len = 1.4 + rnd() * 2.6; // ≈ 4~11mm
+    const a = rnd() * Math.PI * 2;
+    g.strokeStyle = rnd() < 0.55
+      ? `rgba(255,255,255,${(rnd() * 0.2).toFixed(3)})`
+      : `rgba(56,54,50,${(rnd() * 0.26).toFixed(3)})`;
+    g.lineWidth = 1.4 + rnd() * 1.4; // 粗 ⇒ 读作凿坑不是划痕
+    g.lineCap = 'round';
     for (const ox of [-S, 0, S]) {
       for (const oy of [-S, 0, S]) {
         g.beginPath();

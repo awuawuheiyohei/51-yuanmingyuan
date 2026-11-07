@@ -94,6 +94,29 @@ export function buildXumizuo(w, d, h, out = 1.2) {
   parts.push(gui);
   y += hGui;
 
+  /**
+   * **叠涩线脚** —— 须弥座读不读得出层次，全看这道挑檐。
+   *
+   * ⚠ 原来六层只是**六个盒子直接堆叠**（圭角是斜的，其余全是平盒），
+   *   每层交界是一条**纯竖直的缝** ⇒ 远看近看都是"一块白板"，
+   *   六层完全读不出来（AGENTS.md 硬要求："须弥座分六层"）。
+   *
+   * 真实做法：每层交界处挑出一道**薄枭**（线脚），
+   * 挑出的那 5~8cm 会在自身下方投出一条**横向阴影线** ——
+   * 有了这道阴影，六层才一层层数得出来。
+   */
+  const lip = (lw, ld, ly, lh) => {
+    const g = new THREE.BoxGeometry(lw, lh, ld);
+    g.translate(0, ly, 0);
+    parts.push(g);
+    return g;
+  };
+
+  // 下枭：圭角顶挑出的一线
+  const wXia = W - out * 0.5;
+  const dXia = Dp - out * 0.5;
+  lip(wXia + 0.07, dXia + 0.07, y + hXia * 0.12, hXia * 0.24);
+
   // 下枋
   const xia = new THREE.BoxGeometry(W, hXia, Dp);
   xia.translate(0, y + hXia / 2, 0);
@@ -101,11 +124,16 @@ export function buildXumizuo(w, d, h, out = 1.2) {
   y += hXia;
 
   // 束腰（收进）+ 壸门式凹龛
-  const waistW = W - out * 0.55;
-  const waistD = Dp - out * 0.55;
+  const waistW = W - out * 0.72;
+  const waistD = Dp - out * 0.72;
   const shou = new THREE.BoxGeometry(waistW, hShou, waistD);
   shou.translate(0, y + hShou / 2, 0);
   parts.push(shou);
+  // 束腰上下各挑一道**枭**（这才是"收进"的关键）
+  const wShou = waistW + 0.12;
+  const dShou = waistD + 0.12;
+  lip(wShou, dShou, y + hShou * 0.05, hShou * 0.1);
+  lip(wShou, dShou, y + hShou * 0.95, hShou * 0.1);
   // 壸门：四面各一排
   for (const [mw, md, rot, ox, oz] of [
     [waistW, waistD, 0, 0, waistD / 2],
@@ -125,13 +153,13 @@ export function buildXumizuo(w, d, h, out = 1.2) {
   y += hShou;
 
   // 上枋
-  const shang = new THREE.BoxGeometry(waistW, hShang, waistD);
+  const shang = new THREE.BoxGeometry(wShou, hShang, dShou);
   shang.translate(0, y + hShang / 2, 0);
   parts.push(shang);
   y += hShang;
 
   // 上枭：斜面向外挑
-  const xiao = boxFrustum(waistW, waistD, W - out * 0.15, Dp - out * 0.15, hXiao);
+  const xiao = boxFrustum(wShou, dShou, W - out * 0.15, Dp - out * 0.15, hXiao);
   xiao.translate(0, y + hXiao / 2, 0);
   parts.push(xiao);
   y += hXiao;
@@ -158,26 +186,64 @@ export function buildSteps(width, h, depth, dirZ = -1) {
   const n = Math.max(3, Math.round(h / 0.165));
   const stepH = h / n;
   const stepD = depth / n;
+  /**
+   * 踏跺两侧的**斜收**：每一级向内收一点。
+   *
+   * ⚠ 原来每级加宽 0.18m（每边 9cm），10 级下来底部比顶部宽 **1.8m** ——
+   *   既不真实，也把**垂带整个埋掉**（垂带被埋在越来越宽的台阶里）。
+   *   真实踏跺每级收 5~8cm，10 级约 0.7m。
+   */
+  const FLARE = 0.07;
 
   for (let i = 0; i < n; i++) {
-    const w = width + (n - i) * 0.18;
+    const w = width + (n - i) * FLARE;
     const g = new THREE.BoxGeometry(w, stepH + 0.02, stepD * 1.2);
     g.translate(0, stepH * (i + 0.5), dirZ * (depth * 0.5 + stepD * (n - i - 0.5)));
     parts.push(g);
   }
 
-  // 垂带（两侧斜坡石）
+  /**
+   * 垂带（两侧斜立的长条石）。
+   *
+   * ⚠ 原来做成 `BoxGeometry(0.42, 0.16, 长)` —— **宽 42cm、厚 16cm 的扁条**躺在斜面上，
+   *   整条埋进台阶里 ⇒ 踏跺两侧是光的（AGENTS.md 硬要求："踏跺有垂带"）。
+   *
+   * 真实的垂带是一条**斜立的长石**，把台阶锯齿状的侧沿包成一条直线。
+   * 所以它的截面在 **X-Y 平面**里是一块楔形（不是绕 Z 倾斜的扁条）：
+   *   外侧面 = 从台阶底缘 (xBot, 0) 到顶缘 (xTop, h) 的直线；
+   *   内侧面 = 沿同样的方向平移 bandT。
+   */
+  const bandT = 0.12; // 厚度（沿 X）
+  const xTop = width / 2 + FLARE * 0.5;
+  const xBot = width / 2 + FLARE * n * 0.5;
+  const run = xBot - xTop;
+  const bandLen = Math.hypot(run, h);
+  const bandAng = Math.atan2(h, run);
   for (const sx of [-1, 1]) {
-    const g = new THREE.BoxGeometry(0.42, 0.16, depth * 1.9);
-    g.rotateX(dirZ * Math.atan2(h, depth * 1.7));
-    g.translate(sx * (width / 2 + 0.1), h / 2 + 0.05, dirZ * depth * 0.42);
+    const g = new THREE.BoxGeometry(bandT, bandLen, depth * 1.02);
+    // 绕 Z 轴倾斜 ⇒ 外侧面正好落在台阶侧沿的连线上
+    g.rotateZ(sx * bandAng);
+    g.translate(sx * ((xTop + xBot) / 2), h / 2, dirZ * depth);
     parts.push(g);
+    // 垂带顶上的**压条**（一条细线脚）
+    const cap = new THREE.BoxGeometry(bandT + 0.05, 0.05, depth * 1.02);
+    cap.rotateZ(sx * bandAng);
+    cap.translate(
+      sx * ((xTop + xBot) / 2),
+      h / 2 + (bandLen / 2) * Math.cos(bandAng),
+      dirZ * depth
+    );
+    parts.push(cap);
   }
 
   // 御路（中间斜坡石 + 两侧雕线）
+  //
+  // ⚠ 原来御路放在 `dirZ*depth*0.42` —— 那是**台基里面**，
+  //   而斜坡石本身长 `depth*1.85`（比斜坡长得多）⇒ 一头戳进台基、一头悬空。
+  //   现在：长度取真实斜坡长 hypot(h, depth)，中心落在斜坡中线上。
   const ramp = buildYuLu(width * 0.3, h, depth);
   ramp.rotateY(dirZ > 0 ? 0 : Math.PI);
-  ramp.translate(0, h / 2 + 0.13, dirZ * depth * 0.42);
+  ramp.translate(0, h / 2 + 0.14, dirZ * depth);
   parts.push(ramp);
 
   const merged = mergeGeometries(parts, false);
