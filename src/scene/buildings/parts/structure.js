@@ -416,6 +416,14 @@ const KEY = {
    */
   lacquer: 'lacquer',
   lacquerDark: 'lacquerDark',
+  /**
+   * **垫栱板 / 望板**（檐下封板）。
+   * ⚠ 桶键必须与 `materials.js` 的 `materialFor` switch **一一对应**。
+   *   原来 KEY 里**没有** board ⇒ `bucket(geoms, KEY.board)` 拿到 undefined
+   *   ⇒ 几何进一个名为 undefined 的桶 ⇒ `materialFor(undefined)` 落到
+   *   default 分支 ⇒ **一块 0x999999 的灰板子**（檐下一条惨白的灰带）。
+   */
+  board: 'board',
 };
 
 function bucket(map, key) {
@@ -763,6 +771,59 @@ export function buildStructure(spec) {
     unit.body.dispose();
     unit.trim?.dispose();
 
+    /* ------------------------------------------------- 垫栱板 + 山花（封檐） */
+    //
+    // 清式官式建筑：斗栱之上、檐檩之下由一道**通长的垫栱板**封住；
+    // 两山面另有**山花**（山面竖板）把山头封住。
+    //
+    // ⚠⚠ 原来补的垫板在**额枋之下**（柱头枋那块），
+    //   **斗栱之上、檐檩之下这一片一直是空的** ——
+    //   于是檐下是一道**通长的缝**，从外面能直接看穿到屋架与屋面另一侧，
+    //   远看就是"梁架全裸在外面"（`/tmp/P_W2.png` 用 ?mat=wood 看得最清楚）。
+    //
+    // ⚠ 垫栱板**必须通长**（不按攒位断开）：攒位处断开就会漏出一排黑竖缝。
+    {
+      // 贴着檐口的那一排斗栱的**顶**
+      const dgTop = floorY + colH + fangH + dgHeight;
+      // 檐檩底（檐檩半径 0.11，中心在 eaveY-0.12）
+      const isDouble = spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6;
+      /**
+       * 补一道**通长**的垫栱板：斗栱顶 → 本层檐檩底。
+       *
+       * ⚠⚠ **重檐要分两层各补一道**：
+       *   腰檐一道（主斗栱顶 → 腰檐檩底）、上檐一道（上檐斗栱顶 → 上檐檩底）。
+       *   原来只补一道、而且是从主斗栱顶一直补到**上檐**檩底 ——
+       *   那道板正好横在**腰檐与上檐之间**，把二层的隔扇窗带整个盖住 ✗。
+       */
+      const addBan = (topY, botY) => {
+        const h = botY - topY;
+        if (h <= 0.05) return;
+        // 前后檐（沿 X）
+        for (const j of [0, jin]) {
+          for (let i = 0; i < mian; i++) {
+            const g = new THREE.BoxGeometry(bayWidths[i] + 0.03, h, beamD * 0.85);
+            g.translate((colXs[i] + colXs[i + 1]) / 2, topY + h / 2, colZs[j]);
+            // 黑漆板：垫栱板在斗栱**背后**，檐下本该是暗的
+            bucket(geoms, KEY.lacquerDark).push(g);
+          }
+        }
+        // 两山檐（沿 Z）：这一道同时是**山花** —— 把山面竖板补上
+        for (const i of [0, mian]) {
+          for (let j = 0; j < jin; j++) {
+            const g = new THREE.BoxGeometry(beamD * 0.85, h, bayD + 0.03);
+            g.translate(colXs[i], topY + h / 2, (colZs[j] + colZs[j + 1]) / 2);
+            bucket(geoms, KEY.lacquerDark).push(g);
+          }
+        }
+      };
+      if (isDouble) {
+        addBan(dgTop, spec.lowerEaveY - 0.24); // 腰檐
+        addBan(eaveY - fangH, eaveY - 0.24); // 上檐
+      } else {
+        addBan(dgTop, eaveY - 0.24);
+      }
+    }
+
     // 重檐：下檐（腰檐）再挑一层斗栱，坐在同一圈柱头的中段
     if (spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6) {
       const lowerUnit = buildDougongParts(dgScale * 0.86, 'x');
@@ -772,7 +833,11 @@ export function buildStructure(spec) {
           .makeRotationY(rot)
           .setPosition(
             x + dir.x * out,
-            spec.lowerEaveY - fangH - dgHeight * 0.86,
+            // ⚠⚠ 这排斗栱是**上檐**的，必须坐在**上檐**的高度上
+            //   （eaveY = 腰檐高 + lowerRise 才是上檐）。
+            //   原来放在 `spec.lowerEaveY - ...`（腰檐的高度）⇒
+            //   与主檐那排斗栱**叠在一起**（两排重合、位置全错）。
+            eaveY - fangH - dgHeight * 0.86,
             z + dir.z * out
           );
         const g = lowerUnit.body.clone();
@@ -786,6 +851,50 @@ export function buildStructure(spec) {
       }
       lowerUnit.body.dispose();
       lowerUnit.trim?.dispose();
+
+      /**
+       * **腰檐到上檐之间的上部楼身** —— 重檐建筑最容易露馅的地方。
+       *
+       * 腰檐（=主檐）的屋顶在 `spec.lowerEaveY`，上檐在 `eaveY`，
+       * 中间是**二层楼身**（墙 + 隔扇窗）。模型里没有二层 ⇒ 这一圈是空的，
+       * 从外面能看穿到屋架。
+       *
+       * 做法：沿四面补一圈**隔扇窗带**（清式重檐的二层就是一圈窗），
+       * 上沿再压一道**额枋**，把腰檐顶与上部楼身连起来。
+       */
+      {
+        const zTop = spec.lowerEaveY;       // 腰檐顶（楼身下沿）
+        const zBot = eaveY - fangH - dgHeight * 0.86; // 上檐斗栱底（楼身上沿）
+        const h = zTop - zBot;
+        if (h > 0.4) {
+          const midY = (zTop + zBot) / 2;
+          // 前后檐：隔扇窗带
+          for (const j of [0, jin]) {
+            for (let i = 0; i < mian; i++) {
+              const cx = (colXs[i] + colXs[i + 1]) / 2;
+              const bw = bayWidths[i] - colDia;
+              const win = buildShanGeParts(bw * 0.92, h * 0.9);
+              for (const part of [win.frame, win.lattice, win.panel, win.paper]) {
+                if (!part) continue;
+                part.translate(cx, midY, colZs[j] + (j === 0 ? -wallThick * 0.1 : wallThick * 0.1));
+              }
+              bucket(geoms, KEY.lacquer).push(win.frame);
+              bucket(geoms, KEY.lacquerDark).push(win.panel);
+              bucket(geoms, KEY.lattice).push(win.lattice);
+              if (win.paper) bucket(geoms, KEY.paper).push(win.paper);
+            }
+          }
+          // 两山檐：山面竖板（山花）
+          for (const i of [0, mian]) {
+            for (let j = 0; j < jin; j++) {
+              const cz = (colZs[j] + colZs[j + 1]) / 2;
+              const g = new THREE.BoxGeometry(wallThick * 0.9, h, bayD + 0.03);
+              g.translate(colXs[i], midY, cz);
+              bucket(geoms, KEY.wall).push(g);
+            }
+          }
+        }
+      }
     }
   }
 

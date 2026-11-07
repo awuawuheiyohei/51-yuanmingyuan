@@ -11,7 +11,7 @@
     "fetch": "node scripts/fetch-osm.mjs && node scripts/fetch-dem.mjs && node scripts/fetch-guide.mjs",
     "scene": "node scripts/build-scene.mjs",
     "setup": "npm install && npm run fetch && npm run scene",
-    "check": "node scripts/check-proportions.mjs && node scripts/check-interpenetration.mjs && node scripts/check-building-overlap.mjs && node scripts/check-roof-coverage.mjs && node scripts/check-roof-built.mjs",
+    "check": "node scripts/check-proportions.mjs && node scripts/check-interpenetration.mjs && node scripts/check-building-overlap.mjs && node scripts/check-roof-coverage.mjs && node scripts/check-roof-built.mjs && node scripts/check-bucket-keys.mjs",
     "check:props": "node scripts/check-proportions.mjs",
     "check:clash": "node scripts/check-interpenetration.mjs",
     "check:roof": "node scripts/check-roof-coverage.mjs && node scripts/check-roof-built.mjs && node scripts/check-roof-winding.mjs"

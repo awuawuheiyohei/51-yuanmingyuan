@@ -669,6 +669,8 @@ function materialForBase(key, spec, glazed, tileColor, tileSpec) {
       );
     case 'eave':
       return eaveMaterial();
+    case 'gold':
+      return goldMaterial();
     case 'finial':
       return goldMaterial();
     case 'stone':
