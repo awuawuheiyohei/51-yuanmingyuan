@@ -803,8 +803,9 @@ export function buildStructure(spec) {
           for (let i = 0; i < mian; i++) {
             const g = new THREE.BoxGeometry(bayWidths[i] + 0.03, h, beamD * 0.85);
             g.translate((colXs[i] + colXs[i + 1]) / 2, topY + h / 2, colZs[j]);
-            // 黑漆板：垫栱板在斗栱**背后**，檐下本该是暗的
-            bucket(geoms, KEY.lacquerDark).push(g);
+            // ⚠ 垫栱板在清式里是**施彩画**的（青绿金饰），不是一块黑板。
+            //   塞黑漆 ⇒ 腰檐与上檐之间一条 1.5m 的死黑带，比不补还难看。
+            bucket(geoms, KEY.caihua).push(g);
           }
         }
         // 两山檐（沿 Z）：这一道同时是**山花** —— 把山面竖板补上
@@ -812,7 +813,8 @@ export function buildStructure(spec) {
           for (let j = 0; j < jin; j++) {
             const g = new THREE.BoxGeometry(beamD * 0.85, h, bayD + 0.03);
             g.translate(colXs[i], topY + h / 2, (colZs[j] + colZs[j + 1]) / 2);
-            bucket(geoms, KEY.lacquerDark).push(g);
+            // 山面竖板（山花）同样施彩画
+            bucket(geoms, KEY.caihua).push(g);
           }
         }
       };
