@@ -420,7 +420,13 @@ function growBranches(opts) {
   } = opts;
 
   const end = origin.clone().addScaledVector(dir, len);
-  const seg = new THREE.CylinderGeometry(rad * 0.72, rad, len, 4, 1);
+  /**
+   * ⚠ 原来 `CylinderGeometry(rad*0.72, rad, len, 4, 1)` ——
+   *   **四棱柱**（= 方料）且收分只有 28% ⇒ 近景就是一根**等粗的方木料**，
+   *   像架起来的椽子不像树枝。
+   *   改成六棱柱 + 收分到 58% ⇒ 圆一点、梢头明显变细。
+   */
+  const seg = new THREE.CylinderGeometry(rad * 0.58, rad, len, 6, 1);
   // 把圆柱对齐到 origin→end
   const q = new THREE.Quaternion().setFromUnitVectors(
     new THREE.Vector3(0, 1, 0),
@@ -595,8 +601,11 @@ function crownCluster(center, R, aspect, cfg, rnd, out) {
  *   aspect —— 竖向压扁/拉长系数（松冠扁、白杨高）
  *   shell  —— 外壳卡片数（破边的那层）
  *   core   —— 内芯卡片数（填实中间的那层）
- *   card   —— 卡片宽度（m）。512px 贴图铺在 2m 上 → 1px ≈ 4mm，
- *             单叶全长 30px ≈ 12cm（真实阔叶的量级）
+ *   card   —— 卡片宽度（m）。512px 贴图铺在 1.6m 上 → 1px ≈ 3mm，
+ *             单叶全长 30px ≈ 9~17cm（真实阔叶的量级）
+ *             ⚠ 卡片**不能太大**：2.2m 的卡片每一张的 alpha 轮廓就是一个
+ *               大圆饼，十几张叠起来读作"剪纸堆"（近景穿帮）。
+ *               卡片小 ⇒ 侧影碎、密度靠张数补。
  *   arc    —— 卡片柱面弧的半径（m）。越小弯得越狠，卡面高光越明显
  */
 const SPECIES = {
@@ -610,7 +619,7 @@ const SPECIES = {
     lenScale: 1.0,
     leaf: 1.5,
     // 松冠：扁、平顶、分层
-    crown: { r: [1.5, 2.2], aspect: [0.40, 0.55], shell: 13, core: 6, card: 2.2, arc: 1.3 },
+    crown: { r: [1.5, 2.2], aspect: [0.40, 0.55], shell: 17, core: 7, card: 1.6, arc: 1.0 },
     bark: 0x4a3d2e,
   },
   willow: {
@@ -623,7 +632,7 @@ const SPECIES = {
     lenScale: 1.15,
     leaf: 1.9,
     // 垂柳：冠略垂、叶片细碎
-    crown: { r: [1.4, 2.1], aspect: [0.62, 0.85], shell: 13, core: 6, card: 2.2, arc: 1.2 },
+    crown: { r: [1.4, 2.1], aspect: [0.62, 0.85], shell: 17, core: 7, card: 1.6, arc: 0.9 },
     bark: 0x544431,
   },
   blossom: {
@@ -636,7 +645,7 @@ const SPECIES = {
     lenScale: 0.9,
     leaf: 1.4,
     // 桃杏：冠矮而圆
-    crown: { r: [1.2, 1.8], aspect: [0.80, 1.00], shell: 12, core: 6, card: 2.0, arc: 1.0 },
+    crown: { r: [1.2, 1.8], aspect: [0.80, 1.00], shell: 16, core: 6, card: 1.5, arc: 0.85 },
     bark: 0x4e3f30,
   },
   poplar: {
@@ -649,7 +658,7 @@ const SPECIES = {
     lenScale: 0.85,
     leaf: 1.1,
     // 白杨：窄高（钻天杨）
-    crown: { r: [1.0, 1.6], aspect: [1.45, 1.95], shell: 12, core: 6, card: 2.0, arc: 1.0 },
+    crown: { r: [1.0, 1.6], aspect: [1.45, 1.95], shell: 16, core: 6, card: 1.5, arc: 0.85 },
     bark: 0x5c4c38,
   },
   maple: {
@@ -662,7 +671,7 @@ const SPECIES = {
     lenScale: 0.85,
     leaf: 1.5,
     // 枫/皂荚：冠圆而略宽
-    crown: { r: [1.4, 2.1], aspect: [0.80, 1.00], shell: 13, core: 6, card: 2.2, arc: 1.2 },
+    crown: { r: [1.4, 2.1], aspect: [0.80, 1.00], shell: 17, core: 7, card: 1.6, arc: 0.9 },
     bark: 0x4b3d2f,
   },
 };

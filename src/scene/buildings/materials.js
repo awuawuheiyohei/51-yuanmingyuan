@@ -110,9 +110,17 @@ export function ridgeMaterial(color = '#6e7176') {
   });
 }
 
+/**
+ * 檐椽 / 飞椽（椽头）。
+ *
+ * ⚠ 原来用**裸木色** 0x6b5a48 ⇒ 檐下一排褐色小方块，
+ *   和望板连成一大片**土黄带**（从下往上看整条檐口像块木板）。
+ *   清式官式建筑的檐下是**施彩画**的：椽头刷石绿、留白圈，
+ *   整条檐口读作青绿带，不是木头色。
+ */
 export function eaveMaterial() {
   return make('eave', () =>
-    new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 0.9 })
+    new THREE.MeshStandardMaterial({ color: 0x5d6b50, roughness: 0.86 })
   );
 }
 
@@ -439,8 +447,10 @@ export function brickMaterial(variant = 0) {
 export function boardMaterial() {
   return make('board', () =>
     new THREE.MeshStandardMaterial({
-      color: 0x6a5340,
-      roughness: 0.92,
+      // ⚠ 不是裸木色：望板是**施彩画的檐底**（清式连檐刷青绿），
+      //   用木头色 ⇒ 从廊下往上看是一大片土黄板，像没上漆。
+      color: 0x4c5c4d,
+      roughness: 0.9,
       side: THREE.DoubleSide,
     })
   );
