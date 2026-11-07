@@ -143,7 +143,7 @@ export function eaveMaterial() {
 export function stoneMaterial(variant = 0) {
   return make(`stone-v${variant}`, () => {
     // blobScale 0.65：大构件也要收着点，斑太重会读成"迷彩"
-    const map = stoneFace('#a9a49b', 0.4).clone();
+    const map = stoneFace('#a9a49b', 0.2).clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     const mat = new THREE.MeshStandardMaterial({
@@ -153,7 +153,8 @@ export function stoneMaterial(variant = 0) {
       roughness: 1,
       metalness: 0,
     });
-    return applyTriplanar(mat, { scale: 1 / 1.5 });
+    // 周期 1.0m：须弥座是**细琢**的，斑不能大到 50cm（那就成脏混凝土了）
+    return applyTriplanar(mat, { scale: 1 / 1.0 });
   });
 }
 
@@ -458,15 +459,26 @@ export function boardMaterial() {
 
 export function woodMaterial(variant = 0) {
   return make(`wood-v${variant}`, () => {
-    const map = (variantTexture('wood', variant) || wood()).clone();
+    /**
+     * ⚠⚠ **不用 AI 的 `wood.png`**。
+     *
+     * 那是一张**雕花木门照片**（AGENTS.md §4.1.1 记过：贴到柱子上就是
+     * "柱上画了半扇门"）。而这个桶装的是**檩、梁、桁架、门楣** ——
+     * 这些构件在檐下**露在外面**，用那张照片 ⇒ 屋架渲成一片**红彤彤的
+     * 雕花格子**，像挂了红灯笼，比裸木还假。
+     *
+     * 清式官式建筑檐下露出的梁架是**施彩画的**（青绿/沥粉），
+     * 所以这里用程序化木纹 + 青灰漆色。
+     */
+    const map = wood().clone();
     map.needsUpdate = true;
-    // AI 生成的木纹贴图偏亮红，直接用像塑料；压一档更像旧漆
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(3, 3);
     return new THREE.MeshStandardMaterial({
       map,
-      normalMap: variantNormal('wood', variant),
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      color: 0x9d9189,
-      roughness: 0.86,
+      // 青灰漆：檐下梁架是施彩画的，不是裸木
+      color: 0x6f7a68,
+      roughness: 0.88,
     });
   });
 }

@@ -142,7 +142,19 @@ function buildRoofCore(spec, geomsIn) {
   if (type === 'wudian') xh = Math.max(0, Wx - Wz);
   else if (type === 'zanjiandian') xh = 0;
   else if (type === 'xieshan' || type === 'juanpengxieshan')
-    xh = Math.max(0.5, Wx - hipRunX);
+    /**
+     * ⚠⚠ 歇山的**山花必须贴在建筑的山墙面上** ⇒ `xh = width/2`。
+     *
+     * 原来取 `Wx - hipRunX`（Wx **含出檐**）⇒ 山花往里缩了整整一个出檐+山面宽
+     * （本例 39m 宽的殿缩进 4m）⇒
+     *   · 山花悬在**建筑内部**，山墙面没有封板 ⇒ **从檐下能看穿到屋架**；
+     *   · 垂脊的戗脊线也整体内移，山面比例全错。
+     *
+     * 真实歇山：正脊**贯到山墙面**，山花就挂在山墙外皮上；
+     * 戗脊由山墙线的折线端斜向檐角（平面上是**斜线**，
+     * 代码里 `xHip = xh + t*(Wx-xh)` 正是在近似这条斜线）。
+     */
+    xh = Math.max(0.5, width / 2);
   else if (type === 'yingshan') xh = width / 2;
   else xh = Wx; // 悬山 / 卷棚
 
@@ -1260,6 +1272,7 @@ function buildXiTong(points, width) {
 }
 
 function buildRidgeBar(points, width, height) {
+  const parts = [];
   const shape = new THREE.Shape();
   const w = width / 2;
   const h = height;
@@ -1277,7 +1290,39 @@ function buildRidgeBar(points, width, height) {
     bevelEnabled: false,
     extrudePath: curve,
   });
-  return geo;
+  parts.push(geo);
+
+  /**
+   * **脊上垒一道筒瓦**。
+   *
+   * ⚠ 原来正脊/垂脊只是一条**挤出来的梯形** ⇒ 平滑着色把它渲成一根
+   *   **光溜溜的灰管子**，远看像塑料管，不像瓦垒的脊。
+   *   清式的正脊/垂脊是**一排筒瓦立着垒上去**的，脊顶那道圆弧
+   *   才是它的辨识特征（脊兽也骑在这道瓦上）。
+   */
+  const r = width * 0.23;
+  const tube = new THREE.TubeGeometry(curve, segs, r, 8, false);
+  // 沉进脊身，只露出上半截 ⇒ 读作"瓦垒的脊"而不是"一根管子"
+  tube.translate(0, height * 0.9 - r * 0.42, 0);
+  parts.push(tube);
+
+  /**
+   * ⚠⚠ **合并前必须统一索引状态**。
+   *   `ExtrudeGeometry` 是 **non-indexed**，`TubeGeometry` 是 **indexed**
+   *   ⇒ `mergeGeometries` 直接**返回 null**（只在 console 打一行 error），
+   *   null 传下去 ⇒ **整条正脊/垂脊消失** ⇒ 山面敞着口，
+   *   从外面直接看见屋架与望板（AGENTS.md §4.1.7 第一条）。
+   */
+  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  const merged = mergeGeometries(flat, false);
+  if (!merged) {
+    throw new Error(
+      `buildRidgeBar: mergeGeometries 返回 null（索引状态不一致），脊会整条消失`
+    );
+  }
+  for (const p of flat) p.dispose();
+  for (const p of parts) if (!flat.includes(p)) p.dispose();
+  return merged;
 }
 
 /** 攒尖宝顶 */

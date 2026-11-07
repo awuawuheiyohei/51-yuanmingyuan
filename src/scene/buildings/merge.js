@@ -66,13 +66,33 @@ export function mergeGroupByMaterial(group) {
 
   for (const [key, { mat, geos }] of buckets) {
     if (!geos.length) continue;
+    // ⚠⚠ 合并前必须**统一索引状态**（全 indexed 或全 non-indexed）。
+    //   `mergeGeometries` 遇到混合状态只会在 console 打一行 error 并
+    //   **返回 null** —— null 一路传到渲染层，整桶几何**无声消失**
+    //   （AGENTS.md §4.1.7 第一条：曾因此整园白屏）。
+    //   这里**指名道姓地抛错**，别让错误静默传播。
+    const flat = geos.map((g) => {
+      if (!g) return g;
+      if (!g.index) return g;
+      const n = g.toNonIndexed();
+      return n;
+    });
     let geo = null;
     try {
-      geo = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
-    } catch {
-      geo = geos[0];
+      geo = flat.length === 1 ? flat[0] : mergeGeometries(flat, false);
+    } catch (err) {
+      throw new Error(
+        `mergeGroupByMaterial: 合并材质桶 "${key}" 失败：${err.message}`
+      );
     }
-    if (!geo) continue;
+    if (!geo) {
+      throw new Error(
+        `mergeGroupByMaterial: 合并材质桶 "${key}" 返回 null（几何索引状态不一致或属性集不匹配），` +
+          `该桶的 ${flat.length} 个几何会整桶消失`
+      );
+    }
+    for (const g of flat) if (g !== geo) g.dispose();
+    for (const g of geos) if (g !== geo && !flat.includes(g)) g.dispose();
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -81,7 +101,6 @@ export function mergeGroupByMaterial(group) {
       mat?.name ||
       `${mat?.type || 'Mesh'}-${mat?.color?.getHexString?.() ?? '0'}`;
     group.add(mesh);
-    for (const g of geos) if (g !== geo) g.dispose();
   }
   return group;
 }
