@@ -1145,9 +1145,13 @@ export function stone() {
  * **一根缝都不画**。画了缝就变成"贴图上的格子"，正是要去掉的贴图感。
  *
  * @param {string} tint 石色（sRGB hex）
+ * @param {number} blobScale **大块色斑的强度倍率**
+ *   ⚠ 斑块太重 ⇒ 铺装面读作"迷彩/霉斑"（石板路尤其明显）：
+ *   石板路要的是**均匀细石 + 几何接缝**，不是大块色差。
+ *   须弥座/柱础等大构件可以用 1，石板路用 0.3。
  */
-export function stoneFace(tint = '#a9a49b') {
-  const key = `stoneface-${tint}`;
+export function stoneFace(tint = '#a9a49b', blobScale = 1) {
+  const key = `stoneface-${tint}-${blobScale}`;
   if (cache.has(key)) return cache.get(key);
   const S = 512;
   const c = makeCanvas(S, S);
@@ -1167,7 +1171,10 @@ export function stoneFace(tint = '#a9a49b') {
     for (const ox of [-S, 0, S]) {
       for (const oy of [-S, 0, S]) {
         const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
-        grd.addColorStop(0, `rgba(${col},${(0.09 + rnd() * 0.14).toFixed(3)})`);
+        grd.addColorStop(
+          0,
+          `rgba(${col},${((0.09 + rnd() * 0.14) * blobScale).toFixed(3)})`
+        );
         grd.addColorStop(1, `rgba(${col},0)`);
         g.fillStyle = grd;
         g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);

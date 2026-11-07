@@ -134,7 +134,8 @@ export function eaveMaterial() {
  */
 export function stoneMaterial(variant = 0) {
   return make(`stone-v${variant}`, () => {
-    const map = stoneFace().clone();
+    // blobScale 0.65：大构件也要收着点，斑太重会读成"迷彩"
+    const map = stoneFace('#a9a49b', 0.4).clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     const mat = new THREE.MeshStandardMaterial({
@@ -383,7 +384,10 @@ export function paveMaterial() {
  */
 export function flagstoneMaterial() {
   return make('flagstone', () => {
-    const map = stoneFace('#a5a199').clone();
+    // ⚠ blobScale 0：石板路要**均匀细石**。
+    //   大块色差（哪怕只剩 0.3）在 0.6m 的贴图周期下也有 4~20cm，
+    //   铺成一条路就是一片"迷彩" ⇒ 石板路**不要大斑**，靠几何接缝分块。
+    const map = stoneFace('#a5a199', 0).clone();
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     /**
@@ -401,14 +405,12 @@ export function flagstoneMaterial() {
       map,
       // 逐块石板的明暗差（顶点色）：分块加工的石头不会块块一样亮
       vertexColors: true,
-      color: 0xa39e95,
+      color: 0x948f86,
       roughness: 0.95,
     });
-    // ⚠ 周期必须**远小于石板尺寸**（板 0.53m 宽）：
-    //   周期接近板宽时，贴图的低频斑正好一块板一个 ⇒
-    //   一条御路读作**印刷网格**（`/tmp/T_YARD4.png`）。
-    //   周期 0.3m ⇒ 一块板上约 1.8 个周期，看不出板与板的图案对应。
-    return applyTriplanar(mat, { scale: 1 / 0.6 });
+    // 周期 0.35m：石面颗粒（点凿）尺度对得上真实细凿石，
+    // 又远小于石板尺寸（0.53m 宽），板与板的图案不会对上。
+    return applyTriplanar(mat, { scale: 1 / 0.35 });
   });
 }
 

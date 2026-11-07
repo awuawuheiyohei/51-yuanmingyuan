@@ -516,17 +516,50 @@ function addPerson(bin, M, o) {
 
   // ---- 头：卵形（别做成气球），带一点鼻提示朝向 ----
   const headM = new THREE.Matrix4().makeRotationY(pose.headYaw ?? 0);
-  const head = new THREE.SphereGeometry(headR, 4, 3);
-  head.scale(0.92, 1.04, 0.97);
+  /**
+   * ⚠ 段数不能太粗：原来 `SphereGeometry(headR, 4, 3)` = **24 个三角面**，
+   *   近景看就是一个**扁盒子**（"纸片人"）。
+   *   提到 8×6（≈80 面），脸型才有弧度；251 个人合计多 1.8 万面，可接受。
+   */
+  const head = new THREE.SphereGeometry(headR, 8, 6);
+  head.scale(0.9, 1.06, 0.95);
   head.translate(0, headCY, 0.005 * H);
   head.applyMatrix4(headM);
   put(bin, 'skin', head, skin, M);
 
-  const nose = new THREE.ConeGeometry(0.012 * H, 0.028 * H, 3);
+  // 鼻：四棱锥（三角锥太尖，近景像根刺）
+  const nose = new THREE.ConeGeometry(0.011 * H, 0.022 * H, 4);
   nose.rotateX(Math.PI / 2);
-  nose.translate(0, headCY - 0.010 * H, headR * 0.90);
+  nose.translate(0, headCY - 0.008 * H, headR * 0.86);
   nose.applyMatrix4(headM);
   put(bin, 'skin', nose, o.skinDark ?? darken(skin, 0.88), M);
+
+  // 眼 + 眉：两小块深色。
+  //
+  // ⚠ **没有五官的脸像 mannequin** —— 远看无所谓，
+  //   近景（人物常被镜头带到 1~2m）一眼就穿帮。
+  //   眼与眉都用**深色小块**（走 'skin' 桶 + 顶点色），不额外加材质桶。
+  const eyeY = headCY + 0.016 * H;
+  const eyeZ = headR * 0.84;
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.BoxGeometry(0.019 * H, 0.0085 * H, 0.006 * H);
+    eye.translate(sx * 0.030 * H, eyeY, eyeZ);
+    eye.applyMatrix4(headM);
+    put(bin, 'skin', eye, 0x241c16, M);
+    const brow = new THREE.BoxGeometry(0.022 * H, 0.005 * H, 0.005 * H);
+    brow.translate(sx * 0.030 * H, eyeY + 0.016 * H, eyeZ);
+    brow.applyMatrix4(headM);
+    put(bin, 'skin', brow, 0x241c16, M);
+  }
+
+  // 耳：两片扁球（低模即可，多半藏在帽下）
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.SphereGeometry(0.014 * H, 5, 4);
+    ear.scale(0.42, 1.0, 0.72);
+    ear.translate(sx * headR * 0.9, headCY - 0.004 * H, 0);
+    ear.applyMatrix4(headM);
+    put(bin, 'skin', ear, skin, M);
+  }
 
   // ---- 脑后发（帽下露出的部分） ----
   const hair = new THREE.SphereGeometry(
