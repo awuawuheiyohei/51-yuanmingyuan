@@ -185,6 +185,11 @@ const WEST_BUILDINGS = [
   { name: '线法山', lon: 116.307126, lat: 40.01306, kind: 'rockery' },
   { name: '泽兰堂', lon: 116.306694, lat: 40.012184, kind: 'chinese' },
   { name: '转湘帆', lon: 116.307975, lat: 40.012207, kind: 'chinese' },
+  // 养雀笼 / 独立蓄水楼：西洋楼景区缺失的两座（architecture-notes.md §5.4）。
+  // 坐标取 **OSM 实测**（公园官方标注的 tourism=attraction），
+  // 并已并入 data/guide-georef.json 的控制点表（scripts/regeoref.mjs）。
+  { name: '养雀笼', lon: 116.3019642, lat: 40.0115385, kind: 'chinese' },
+  { name: '蓄水楼', lon: 116.3055087, lat: 40.0118965, kind: 'chinese' },
 ];
 
 /* --------------------------------------------------------------- 主流程 */

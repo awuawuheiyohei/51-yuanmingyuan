@@ -672,9 +672,19 @@ function buildRoofCore(spec, geomsIn) {
       push('finial', buildFinial(r.apex, width));
     } else {
       const rw = r.kind === 'hip' ? 0.42 : 0.62;
-      push('ridge', buildRidgeBar(r.pts, rw, r.kind === 'hip' ? 0.42 : 0.62));
+      // ⚠ 只给**正脊**加那圈筒瓦。
+      //   戗脊（hip）的路径带翼角起翘、拐角很急 ⇒ 管状体在拐角处会
+      //   甩出一截"锯齿碎片"，浮在屋檐外侧（洋楼屋面上那些青色碎片）。
+      //   正脊是直的，加管没问题。
+      push('ridge', buildRidgeBar(r.pts, rw, r.kind === 'hip' ? 0.42 : 0.62, r.kind !== 'hip'));
       // 脊上垒的小筒瓦
-      for (const g of buildXiTong(r.pts, rw)) push('ridge', g);
+      //
+      // ⚠ **只给正脊铺**。戗脊的路径带翼角起翘、拐角很急，
+      //   逐个横放的半圆瓦在拐角处会甩成一圈**锯齿碎片**，
+      //   浮在屋檐外侧（西洋楼屋面上那些青色碎片就是它）。
+      if (r.kind !== 'hip') {
+        for (const g of buildXiTong(r.pts, rw)) push('ridge', g);
+      }
       // 正脊两端的鸱吻 + 脊上小兽
       if (r.kind === 'main') {
         push('finial', buildChiwen(r.pts, 0.62));
@@ -1271,7 +1281,7 @@ function buildXiTong(points, width) {
   return parts;
 }
 
-function buildRidgeBar(points, width, height) {
+function buildRidgeBar(points, width, height, addTube = true) {
   const parts = [];
   const shape = new THREE.Shape();
   const w = width / 2;
@@ -1301,10 +1311,12 @@ function buildRidgeBar(points, width, height) {
    *   才是它的辨识特征（脊兽也骑在这道瓦上）。
    */
   const r = width * 0.23;
-  const tube = new THREE.TubeGeometry(curve, segs, r, 8, false);
-  // 沉进脊身，只露出上半截 ⇒ 读作"瓦垒的脊"而不是"一根管子"
-  tube.translate(0, height * 0.9 - r * 0.42, 0);
-  parts.push(tube);
+  if (addTube) {
+    const tube = new THREE.TubeGeometry(curve, segs, r, 8, false);
+    // 沉进脊身，只露出上半截 ⇒ 读作"瓦垒的脊"而不是"一根管子"
+    tube.translate(0, height * 0.9 - r * 0.42, 0);
+    parts.push(tube);
+  }
 
   /**
    * ⚠⚠ **合并前必须统一索引状态**。

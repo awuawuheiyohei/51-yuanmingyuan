@@ -24,6 +24,7 @@ import { buildYuanYingGuan } from './western-parts/yuanying.js';
 import { buildGuanShuiFa } from './western-parts/guanshuifa.js';
 import { buildXianFaShan } from './western-parts/xianfashan.js';
 import { buildHall } from './western-parts/hall.js';
+import { buildYangQueLong, buildXuShuiLou } from './western-parts/yangque.js';
 
 /**
  * 中轴单位向量（西南 → 东北）与其"南侧"法向。
@@ -95,6 +96,22 @@ function buildWestern(sceneData, heightAt) {
       z: he.z,
       rotY: heRot,
       ground: makeGround(he.x, heightAt(he.x, he.z), he.z, heRot, heightAt),
+    });
+  }
+
+  /* ------------------------------------------------------------ 养雀笼 */
+  // 考据：砖砌楼身 + 汉白玉西洋番花石柱 + 孔雀绿琉璃瓦庑殿顶 + 露顶石栏杆；五间三进。
+  // 坐标：OSM 实测（公园官方标注），紧邻谐奇趣西侧 ⇒ 与考据「养雀笼东边是谐奇趣」相符。
+  const yq = byName.get('养雀笼');
+  if (yq) {
+    const yqRot = faceTo(yq.x, yq.z, anchor.x, anchor.z);
+    views.push({ name: '养雀笼', x: yq.x, z: yq.z, rotY: yqRot });
+    buildYangQueLong(c, {
+      x: yq.x,
+      y: heightAt(yq.x, yq.z),
+      z: yq.z,
+      rotY: yqRot,
+      ground: makeGround(yq.x, heightAt(yq.x, yq.z), yq.z, yqRot, heightAt),
     });
   }
 
@@ -183,6 +200,22 @@ function buildWestern(sceneData, heightAt) {
       z: xf.z,
       rotY: dwRot,
       ground: makeGround(xf.x, heightAt(xf.x, xf.z), xf.z, dwRot, heightAt),
+    });
+  }
+
+  /* ------------------------------------------------------------ 独立蓄水楼 */
+  // 考据：「屋顶四面斜坡，但没有正脊，取而代之是一个小小的平顶」—— 盝顶。
+  // 坐标：OSM 实测（在泽兰堂一带，与考据「谐奇趣西北」有出入，取实测，见 notes §5.5）。
+  const xs = byName.get('蓄水楼');
+  if (xs) {
+    const xsRot = faceTo(xs.x, xs.z, anchor.x, anchor.z);
+    views.push({ name: '蓄水楼', x: xs.x, z: xs.z, rotY: xsRot });
+    buildXuShuiLou(c, {
+      x: xs.x,
+      y: heightAt(xs.x, xs.z),
+      z: xs.z,
+      rotY: xsRot,
+      ground: makeGround(xs.x, heightAt(xs.x, xs.z), xs.z, xsRot, heightAt),
     });
   }
 
