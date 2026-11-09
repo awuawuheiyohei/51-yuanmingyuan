@@ -246,7 +246,7 @@ X → 东     Z → 南     Y → 上
 | `node scripts/check-roof-built.mjs` | 每景每殿**是否真的生成了屋面**（桶为空 = 缺失） |
 | `node scripts/check-roof-winding.mjs` | 屋面**大面片三角形绕向**（法线朝下 ⇒ 背面剔除 ⇒ 看不见） |
 | `node /tmp/xxx.mjs` + `Raycaster` **自上往下打** | 找"戳出屋面"的构件。⚠ **从下往上打会误报**（屋面下的构件也在射线下方） |
-| `scripts/shot.sh <out.png> "<query>"` | 无头 Chrome 截图（`http://localhost:5180/?hud=0&$Q`）。⚠ vite 绑 IPv6 `::1`，必须用 `localhost` |
+| `scripts/shot.sh <out.png> "<query>"` | 无头 Chrome 截图（`http://127.0.0.1:5180/?hud=0&$Q`）。✅ vite 现在绑 **IPv4 的 `127.0.0.1`**（`vite.config.js`）：`127.0.0.1` 与 `localhost` 都能开（原来只绑 IPv6 `::1`，`127.0.0.1` 连不上），且**不**对外暴露端口 |
 | `?mat=<材质桶>` | 把某个材质桶染色，定位"这块是什么"（`?roof=tile` 染屋面、`?mat=wood` 染木作…）。⚠ `?mat=tile` 会把所有瓦材质染成品红；**褐色望板不变色**就说明那处没有瓦 |
 | `?view=look&ex=&ez=&ey=&tx=&tz=&ty=` | **两点透视自由机位**（`ey`/`ty` 以 `+` 开头 = 相对该点地面高程） |
 | 桶键完整性自检 | `structure.js` 的 `KEY` 与 `materials.js` 的 `materialFor` switch **必须一一对应**；漏一个就落到 `default` 分支 → 变成 **0x999999 的灰板子**（楹联曾因此变成惨白板） |
