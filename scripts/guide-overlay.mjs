@@ -28,9 +28,6 @@ const geo = JSON.parse(fs.readFileSync(path.join(root, 'data/guide-georef.json')
 const GUIDE = path.join(root, 'data/raw/yuanmingyuan-guide.jpg');
 const OUT_HTML = '/tmp/guide-overlay.html';
 
-/** 本轮新补的两处（高亮） */
-const NEW_ONES = new Set(['养雀笼', '蓄水楼']);
-
 /** 放大核对区：西洋楼一带 */
 const ZOOM = { x: 4380, y: 1060, w: 1500, h: 620, scale: 1400 / 1500 };
 
@@ -47,16 +44,24 @@ const readPts = Object.entries(geo.readPoints || {})
   .filter(([k]) => k !== '_comment')
   .map(([name, p]) => ({ ...p, name, isRead: true, isNew: false }));
 
+/** 本轮新定位的两处（都在 readPoints 里：图上读现状轮廓，属推定锚点） */
+const NEW_ONES = new Set(['养雀笼', '蓄水楼']);
+
 const pts = geo.controlPoints.map((p) => {
   const [lon, lat] = pxToLonLat(p.x, p.y);
   return {
     ...p,
-    isNew: NEW_ONES.has(p.name),
+    isNew: false,
     isRead: false,
     dLon: (lon - p.lon) * 85250, // m
     dLat: (lat - p.lat) * 110574, // m
   };
 });
+
+/** 两处新锚点：像素 + 由拟合变换给出的经纬度 */
+const newPts = readPts
+  .filter((p) => NEW_ONES.has(p.name))
+  .map((p) => ({ ...p, isNew: true, isRead: false }));
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -71,7 +76,7 @@ function markers({ showAllLabels = false, big = 1 } = {}) {
       s += `<text x="${p.x + r * 1.5}" y="${p.y + r * 0.9}" font-size="${16 * big}" font-family="PingFang SC,Microsoft YaHei,sans-serif" fill="#ffb300" stroke="#0b0b0b" stroke-width="${3.4 * big}" paint-order="stroke">${esc(p.name)}</text>`;
     }
   }
-  for (const p of pts) {
+  for (const p of [...pts, ...newPts]) {
     const col = p.isNew ? '#ff2d9b' : '#00e5ff';
     const r = (p.isNew ? 13 : 7) * big;
     s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${col}" fill-opacity="${p.isNew ? 0.95 : 0.8}" stroke="#101010" stroke-width="${2 * big}"/>`;
@@ -99,12 +104,12 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 </style></head><body>
 <div class="bar">
   圆明园导览图配准核对 · 官方导览图 ${geo.source.pixelSize[0]}×${geo.source.pixelSize[1]}
-  · 控制点 <b>${pts.length}</b> 个（新增 ${NEW_ONES.size} 个）
+  · 控制点 <b>${pts.length}</b> 个 + 新定位 <b>${newPts.length}</b> 处
   · 残差中位 <b>${geo.method.residualMedianM} m</b> / 最大 <b>${geo.method.residualMaxM} m</b>
 </div>
 
 <div class="panel">
-  <div class="ttl">① 全图：${pts.length} 个控制点的分布（青＝原有 24 个，品红＝本轮新增 2 个；红框为下方放大区）</div>
+  <div class="ttl">① 全图：${pts.length} 个控制点的分布（青＝原有 24 个；品红＝本轮据史料新定位的养雀笼、蓄水楼；红框为下方放大区）</div>
   <div class="frame" id="f1" style="width:1400px;overflow:hidden">
     <img src="file://${GUIDE}" width="1400" style="display:block">
     <svg id="s1" width="1400" height="727" viewBox="0 0 ${geo.source.pixelSize[0]} ${geo.source.pixelSize[1]}">${markers({ big: 5 })}</svg>
@@ -112,7 +117,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
   <div class="legend">
     <span class="sw" style="background:#00e5ff"></span>原有控制点（OSM 实测 / 图上读像素）
     <span class="sw" style="background:#ffb300;margin-left:14px"></span>图上读出的标注点（OSM 无实测坐标）
-    <span class="sw" style="background:#ff2d9b;margin-left:14px"></span>本轮新增：养雀笼、蓄水楼（OSM 实测）
+    <span class="sw" style="background:#ff2d9b;margin-left:14px"></span>本轮据史料新定位：养雀笼、蓄水楼（图上读现状轮廓，推定锚点）
   </div>
 </div>
 
@@ -144,7 +149,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 
 fs.writeFileSync(OUT_HTML, html);
 console.log(`✓ ${OUT_HTML}`);
-console.log(`  控制点 ${pts.length} 个（新增：${[...NEW_ONES].join('、')}）`);
+console.log(`  控制点 ${pts.length} 个 + 新定位 ${newPts.length} 处（${[...NEW_ONES].join('、')}）`);
 
 if (process.argv.includes('--shot')) {
   const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';

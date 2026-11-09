@@ -28,11 +28,11 @@ import { buildYangQueLong, buildXuShuiLou } from './western-parts/yangque.js';
 
 /**
  * 中轴单位向量（西南 → 东北）与其"南侧"法向。
- * 由导览图实测坐标推出：谐奇趣 (490,-654) → 线法山 (906,-836)。
+ * 由导览图实测坐标推出：谐奇趣 (503,-659) → 线法山 (922,-842)。
  */
 const AXIS = (() => {
-  const a = new THREE.Vector2(490, -654);
-  const b = new THREE.Vector2(906, -836);
+  const a = new THREE.Vector2(503, -659);
+  const b = new THREE.Vector2(922, -842);
   const dir = b.clone().sub(a).normalize();
   // 法向取与远瀛观相反的一侧（远瀛观在大水法正北）
   const perp = new THREE.Vector2(-dir.y, dir.x);
@@ -204,11 +204,17 @@ function buildWestern(sceneData, heightAt) {
   }
 
   /* ------------------------------------------------------------ 独立蓄水楼 */
-  // 考据：「屋顶四面斜坡，但没有正脊，取而代之是一个小小的平顶」—— 盝顶。
-  // 坐标：OSM 实测（在泽兰堂一带，与考据「谐奇趣西北」有出入，取实测，见 notes §5.5）。
+  // 考据：《圆明园志》「蓄水楼五楹，楼北并连，有平台三楹，内为养水池。
+  //   楼内上层东北角通水井，上安吸水机」；屋顶「四面斜坡，但没有正脊」= 盝顶。
+  // 坐标：**图上读像素** —— 官方导览图现状上「谐奇趣西北」唯一的那座独立建筑
+  //   （详见 architecture-notes.md §5.7）。⚠ 推定锚点，非实测；
+  //   OSM 同名节点（方外观正东 151 m、现状图上无建筑）已否决。
+  //
+  // 朝向：rotY = 0（正面朝 +Z 即南）——
+  //   「楼**北**并连」说的是楼自身的方位，平台在北侧 ⇒ 楼坐北朝南。
   const xs = byName.get('蓄水楼');
   if (xs) {
-    const xsRot = faceTo(xs.x, xs.z, anchor.x, anchor.z);
+    const xsRot = 0;
     views.push({ name: '蓄水楼', x: xs.x, z: xs.z, rotY: xsRot });
     buildXuShuiLou(c, {
       x: xs.x,
