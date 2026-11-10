@@ -120,7 +120,7 @@ export function carvedColumn(h, r = 0.42, relief = true) {
 }
 
 /** 立面开洞：一排等距的券洞 */
-function bayOpenings(width, n, y0, wh, doorBay = -1, doorH = null) {
+function bayOpenings(width, n, y0, wh, doorBay = -1, doorH = null, doorW = 0.62) {
   const bay = width / n;
   const list = [];
   for (let i = 0; i < n; i++) {
@@ -129,7 +129,7 @@ function bayOpenings(width, n, y0, wh, doorBay = -1, doorH = null) {
     list.push({
       x: cx,
       y: y0,
-      w: bay * (isDoor ? 0.62 : 0.5),
+      w: bay * (isDoor ? doorW : 0.5),
       h: isDoor ? doorH ?? wh * 1.25 : wh,
       door: isDoor,
     });
@@ -223,7 +223,15 @@ export function buildHall(c, opts) {
     const wh = lv.windowH ?? Math.min(h * 0.42, bay * 0.66);
     const wallBucketLv = lv.wall || wallBucket;
     const doorBay = lv.door === false ? -1 : Math.floor(n / 2);
-    const openingsF = bayOpenings(lw, n, lv.windowY ?? 0.9, wh, doorBay, h * 0.72);
+    const openingsF = bayOpenings(
+      lw,
+      n,
+      lv.windowY ?? 0.9,
+      wh,
+      doorBay,
+      h * 0.72,
+      lv.doorW ?? 0.62
+    );
 
     /**
      * **墙身高度**：只砌到**斗栱底**，其上让给柱头与檐下的空间。
@@ -323,6 +331,20 @@ export function buildHall(c, opts) {
       sw.translate(o.x, floorY + o.y, face - out * 0.186);
       c.add(trimBucket, sw);
       if (o.door) {
+        /**
+         * **穿堂门**（`lv.portal`）：门洞**前后贯通**，不装门扇、不加暗底 ——
+         * 洞口里能一眼看穿到墙后，读作"过道"而不是"一扇门"。
+         *
+         * 考据：养雀笼「**明间为穿堂门**」，实为通往东部西洋各景的入口。
+         * 只加一道**门槛石**，其余留空。
+         */
+        if (lv.portal) {
+          const sill = box(o.w + 0.5, 0.22, WALL_T * 2.4);
+          if (yaw) sill.rotateY(yaw);
+          sill.translate(o.x, floorY + o.y - 0.11, face - out * 0.3);
+          c.add(trimBucket, sill);
+          return;
+        }
         // 门洞：铜雕花门 + 暗底（暗底退到墙里，铜门扇在暗底之前）
         const dark = box(o.w - 0.3, o.h - 0.2, 0.08);
         if (yaw) dark.rotateY(yaw);
