@@ -64,6 +64,7 @@ import {
   pilaster,
   columnCapital,
   falsePediment,
+  peacock,
   jetBetween,
   worldUV,
 } from './kit.js';
@@ -237,7 +238,7 @@ export function buildYangQueLong(c, opts) {
     for (const sx of [1, -1]) {
       for (const cz of cageZ) {
         const cx = sx * cageX;
-        const y0 = PLAT + 1.1; // 笼底（略高于窗台 PLAT+2.2 之下沿）
+        const y0 = PLAT + 2.2; // 笼底 = 窗台
         // 外框：底 / 顶 / 两侧
         c.add('metal', boxAt(CD, 0.06, CW, cx, y0, cz));
         c.add('metal', boxAt(CD, 0.06, CW, cx, y0 + CH, cz));
@@ -253,7 +254,13 @@ export function buildYangQueLong(c, opts) {
           c.add('metal', boxAt(0.04, 0.04, CW, fx, y0 + (CH * j) / 5, cz));
         }
         // 栖木
-        c.add('wood', cylAt(0.045, 0.045, CW * 0.78, cx, y0 + CH * 0.45, cz, 8).rotateX(Math.PI / 2));
+        c.add('wood', cylAt(0.045, 0.045, CW * 0.78, cx, y0 + CH * 0.34, cz, 8).rotateX(Math.PI / 2));
+        // **笼中的孔雀**（官网「南北侧室内笼展陈孔雀等鸟类」）
+        {
+          const bird = peacock(0.85);
+          bird.translate(cx, y0 + CH * 0.34 + 0.045, cz);
+          c.add('bird', bird);
+        }
       }
     }
   }

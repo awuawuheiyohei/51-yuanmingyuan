@@ -676,9 +676,25 @@ export function makeWesternMaterials() {
   rusticated.map.needsUpdate = true;
   rusticated.map.wrapS = rusticated.map.wrapT = THREE.RepeatWrapping;
 
+  /**
+   * **孔雀**（养雀笼里养的那种）—— 深孔雀蓝的羽毛，带一点金属光泽。
+   *
+   * ⚠ 必须**单独一桶**：孔雀既不是石材也不是木料，
+   *   塞进 `green`（叶绿 0x76975c）会把羽色压成草绿；
+   *   塞进 `tile` 会带上屋面的瓦垄法线。
+   *   顶点色承担"身蓝 / 冠尾铜绿"的区分（`tint()`）。
+   */
+  const bird = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.42,
+    metalness: 0.16,
+    envMapIntensity: 1.35,
+  });
+
   const mats = {
     stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, waterJet,
-    rusticated, tile,
+    rusticated, tile, bird,
   };
   return mats;
 }

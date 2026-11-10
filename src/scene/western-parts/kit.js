@@ -1906,6 +1906,96 @@ export function sheep(size = 1) {
 }
 
 /** 铜鹤：长颈长腿，颈作 S 形 */
+/**
+ * **孔雀**（养雀笼里养的那种）。
+ *
+ * 考据：圆明园遗址公园官网·养雀笼「南北侧室内**笼展陈孔雀**等鸟类」；
+ *       百度百科·养雀笼「明间为穿堂门，南北侧屋内**笼养孔雀**等鸟类」。
+ *
+ * 造型（**笼内栖立**）：深孔雀蓝的身与颈、青铜绿的冠羽、
+ * **收拢下垂**的一束尾羽。
+ * ⚠ 尾羽是**收拢**的 —— 笼子只有 1.35 m 见方，**开屏放不下**；
+ *   收拢的尾羽也不露眼斑（眼斑在羽梢，展开才看得见）⇒ 不做眼斑。
+ *
+ * 原点在**脚底**（y = 0），朝 **+Z**。
+ *
+ * @param {number} size 缩放（1 ≈ 肩高 0.6 m）
+ * @returns {THREE.BufferGeometry}
+ */
+export function peacock(size = 1) {
+  const S = size;
+  const parts = [];
+  const BLUE = 0x1e6b80; // 孔雀蓝（身、颈、头）
+  const DEEP = 0x245a55; // 深蓝绿（翅）
+  const BRONZE = 0x3d5f34; // 青铜绿（冠羽、尾羽）
+  const CLAW = 0x7a6a52; // 灰褐（腿足）
+
+  // 身
+  const body = sph(0.15 * S, 10, 8);
+  body.scale(0.8, 0.9, 1.45);
+  body.translate(0, 0.6 * S, 0);
+  parts.push(tint(body, BLUE));
+
+  // 翅（两片压扁的椭球）
+  for (const sx of [-1, 1]) {
+    const w = sph(0.12 * S, 8, 6);
+    w.scale(0.3, 0.9, 1.35);
+    w.rotateZ(sx * 0.12);
+    w.translate(sx * 0.12 * S, 0.6 * S, -0.02 * S);
+    parts.push(tint(w, DEEP));
+  }
+
+  // 颈（S 形两段）
+  const n1 = cyl(0.036 * S, 0.044 * S, 0.3 * S, 7);
+  n1.rotateX(-0.35);
+  n1.translate(0, 0.82 * S, 0.16 * S);
+  parts.push(tint(n1, BLUE));
+  const n2 = cyl(0.03 * S, 0.036 * S, 0.22 * S, 7);
+  n2.rotateX(0.3);
+  n2.translate(0, 1.02 * S, 0.2 * S);
+  parts.push(tint(n2, BLUE));
+
+  // 头
+  const head = sph(0.062 * S, 8, 6);
+  head.scale(0.9, 0.9, 1.25);
+  head.translate(0, 1.12 * S, 0.24 * S);
+  parts.push(tint(head, BLUE));
+
+  // 喙（浅角质）
+  const beak = cone(0.026 * S, 0.15 * S, 6);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, 1.1 * S, 0.34 * S);
+  parts.push(tint(beak, 0xcfc3a4));
+
+  // 冠羽（三根细锥）
+  for (let i = -1; i <= 1; i++) {
+    const c = cone(0.013 * S, 0.15 * S, 5);
+    c.rotateX(-0.32);
+    c.rotateZ(i * 0.2);
+    c.translate(i * 0.022 * S, 1.21 * S, 0.235 * S);
+    parts.push(tint(c, BRONZE));
+  }
+
+  // 尾羽束：7 根扁条，从臀部**向后下方**垂
+  for (let i = 0; i < 7; i++) {
+    const t = (i - 3) / 3;
+    const f = box(0.038 * S, 0.014 * S, 0.74 * S);
+    f.rotateX(0.62 + t * 0.025);
+    f.rotateY(t * 0.06);
+    f.translate(t * 0.05 * S, 0.4 * S, -0.44 * S);
+    parts.push(tint(f, BRONZE));
+  }
+
+  // 腿
+  for (const sx of [-1, 1]) {
+    const leg = cyl(0.014 * S, 0.019 * S, 0.46 * S, 5);
+    leg.translate(sx * 0.055 * S, 0.23 * S, 0.02 * S);
+    parts.push(tint(leg, CLAW));
+  }
+
+  return mergeAll(parts);
+}
+
 export function crane(size = 1) {
   const S = size;
   const parts = [];
