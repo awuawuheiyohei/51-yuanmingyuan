@@ -221,6 +221,43 @@ export function buildYangQueLong(c, opts) {
       .translate(0, PLAT + L1H * 0.72 + 0.12, -D / 2 - 0.14));
   }
 
+  /* ------------- 南北侧「屋内笼养孔雀」：窗内的铜丝雀笼 -------------
+   * 官网·养雀笼：「**南北侧室内笼展陈孔雀等鸟类**，因而得名养雀笼」
+   * 百度百科：「明间为穿堂门，**南北侧屋内笼养孔雀等鸟类**」
+   * ⇒ 南北两道侧墙的次间/梢间窗内，各挂一只**铜丝笼**。
+   * ⚠ 孔雀本身**未建模**（列为下一步）。
+   */
+  {
+    const WALL_T = 0.62; // 与 hall.js 的墙厚一致
+    const cageX = W / 2 - WALL_T - 0.34; // 笼子挂在墙内侧
+    const cageZ = [-(D - WALL_T * 2) / 3, (D - WALL_T * 2) / 3]; // 侧墙两端的窗（中间那扇对着穿堂）
+    const CW = 1.35; // 笼宽（顺墙）
+    const CH = 1.5; // 笼高
+    const CD = 0.55; // 笼深
+    for (const sx of [1, -1]) {
+      for (const cz of cageZ) {
+        const cx = sx * cageX;
+        const y0 = PLAT + 1.1; // 笼底（略高于窗台 PLAT+2.2 之下沿）
+        // 外框：底 / 顶 / 两侧
+        c.add('metal', boxAt(CD, 0.06, CW, cx, y0, cz));
+        c.add('metal', boxAt(CD, 0.06, CW, cx, y0 + CH, cz));
+        for (const sz of [-1, 1]) {
+          c.add('metal', boxAt(CD, CH, 0.06, cx, y0 + CH / 2, cz + (sz * CW) / 2));
+        }
+        // 正面铜丝网：7 根竖条 + 4 根横条
+        const fx = cx + sx * (CD / 2 - 0.05);
+        for (let i = 0; i <= 6; i++) {
+          c.add('metal', boxAt(0.04, CH, 0.04, fx, y0 + CH / 2, cz - CW / 2 + (CW * i) / 6));
+        }
+        for (let j = 1; j < 5; j++) {
+          c.add('metal', boxAt(0.04, 0.04, CW, fx, y0 + (CH * j) / 5, cz));
+        }
+        // 栖木
+        c.add('wood', cylAt(0.045, 0.045, CW * 0.78, cx, y0 + CH * 0.45, cz, 8).rotateX(Math.PI / 2));
+      }
+    }
+  }
+
   /* ------------------- 券窗下的小型喷水塔（东西两面各左右一座，共 4 座） */
   // 「东门和西门外的左右**券窗下**都设有小型喷水塔」
   // ⇒ 塔就立在**券窗正下方、贴着墙**，台面上起，高不过窗台（PLAT+1.5）。
