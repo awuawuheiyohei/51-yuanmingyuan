@@ -150,11 +150,16 @@ const SCENES = [
   { name: '西峰秀', lon: 116.292437, lat: 40.010308, source: 'guide', alias: '西峰秀色' },
   { name: '坐石临流', lon: 116.29255, lat: 40.007461, source: 'guide' },
   { name: '曲院风荷', lon: 116.293944, lat: 40.004753, source: 'guide' },
-  // 同天深处 = 福海中央**西北那座副岛**上的建筑群（导览图 px 3767,2027）。
-  // ⚠ 旧值把同天深处挂在「方壶胜境」标注上（局部 319,-762，在**岸上**）——
-  //   而它的考据是「位于**福海中央**」⇒ 2026-11-10 按导览图重定位。
-  { name: '同天深处', lon: 116.2977708, lat: 40.0088434, source: 'guide', alias: '蓬岛瑶台西北副岛' },
-  { name: '蓬岛瑶台', lon: 116.2982808, lat: 40.0085661, source: 'guide' },
+  // 洞天深处 = **四十景之一**，在勤政亲贤以东（导览图 px 3184,3470，标注旁画着四座方形院落）。
+  // ⚠ 旧版这条叫「同天深处」，是把蓬岛瑶台的注记整段抄过来的；四十景里没有「同天深处」，
+  //   有的是「洞天深处」⇒ 2026-11-11 正名并按考据重新定位（不在福海中央，在勤政亲贤以东）。
+  { name: '洞天深处', lon: 116.2947313, lat: 40.0028762, source: 'guide' },
+  // 蓬岛瑶台 = 福海中央三岛中的**中岛**（OSM 福海 multipolygon 的实测内环）。
+  // ⚠ 2026-11-11 由「导览图上的标注圈」改为「实测中岛」：考据明写
+  //   「三岛一大二小，**大岛坐中**」「东西二小岛」，而本景的辅楼偏移
+  //   （瀛海仙山 x=+44、北屿仙居 x=−46）**正好等于实测三岛的中岛↔小岛间距**（43 / 60 m）
+  //   ⇒ 真实布局就是实测那组「西—中—东」三岛；导览图只画了主岛+西北一岛（画法有误）。
+  { name: '蓬岛瑶台', lon: 116.2981067, lat: 40.0082312, source: 'osm', alias: 'OSM 福海内环（实测中岛）' },
   { name: '平湖秋月', lon: 116.29605, lat: 40.010754, source: 'guide' },
   { name: '宜书房', lon: 116.299513, lat: 40.011303, source: 'guide', alias: '藏密楼' },
   { name: '北远山村', lon: 116.28836, lat: 40.011536, source: 'osm' },
@@ -493,9 +498,13 @@ async function main() {
     console.log(`  ✓ 剔除重叠水面 ${dropped.length} 片`);
   }
 
+  // 三座岛取 **OSM 福海 multipolygon 的实测内环**（relation 18108375 的三个 inner）：
+  //   西小岛 (94,-322) 38×46m ｜ 中岛·蓬莱洲 (137,-302) 61×59m ｜ 东小岛 (197,-291) 39×37m
+  // ⇒ 与考据「大岛坐中 + 东西二小岛」完全对上（2026-11-11）。
   const islandDefs = [
-    { name: '福海仙山·主岛（蓬岛瑶台）', scene: '蓬岛瑶台', lon: 116.2985381, lat: 40.0085690, r: 52, h: 13 },
-    { name: '福海仙山·副岛（同天深处）', scene: '同天深处', lon: 116.2976691, lat: 40.0087922, r: 24, h: 11 },
+    { name: '福海仙山·中岛（蓬岛瑶台）', scene: '蓬岛瑶台', main: true, lon: 116.2981067, lat: 40.0082312, r: 34, h: 13 },
+    { name: '福海仙山·西小岛（北屿仙居）', scene: '蓬岛瑶台', lon: 116.2976024, lat: 40.0084121, r: 23, h: 10 },
+    { name: '福海仙山·东小岛（瀛海仙山）', scene: '蓬岛瑶台', lon: 116.2988103, lat: 40.0081317, r: 20, h: 9 },
   ].map((sp) => {
     const x = toX(sp.lon);
     const z = toZ(sp.lat);
@@ -868,8 +877,26 @@ async function main() {
       const rz = s.z + Math.sin(a) * r;
       // ⚠ 福海中央那两座是**岛**：假山只能堆在岛内 ——
       //   岛外的山峰会站在湖水里（2026-11-10 福海恢复水面后才暴露出来）。
-      const isl = islandDefs.find((i) => i.scene === s.name);
-      if (isl && Math.hypot(rx - isl.x, rz - isl.z) > isl.r - 6) continue;
+      let hitAux = false;
+      const isls = islandDefs.filter((i) => i.scene === s.name);
+      if (isls.length) {
+        // ⚠ 只有**大岛**叠山（考据：大岛「四周叠石成岸」）；
+        //   东西二小岛是「三座**高台**重檐亭子」—— 是高台，不是山石。
+        const rockIslands = isls.filter((i) => i.main);
+        const inside = rockIslands.some((i) => Math.hypot(rx - i.x, rz - i.z) <= i.r - 5);
+        if (!inside) continue;
+        // 岛上的假山也不许压在**辅楼**上（原来只避开正殿）：
+        // 蓬岛瑶台的东西二小岛上有三座重檐亭子，山峰会盖住屋面。
+        // ⚠ 只对岛上的景生效 —— 全园一刀切会把假山从 412 座砍到 246 座。
+        for (const a of SCENE_PROGRAM[s.name]?.aux || []) {
+          const rad = (a.rank === 'pavilion' ? 9 : a.rank === 'gate' ? 8 : 15) + 4;
+          if (Math.hypot(rx - (s.x + a.x), rz - (s.z + a.z)) < rad) {
+            hitAux = true;
+            break;
+          }
+        }
+        if (hitAux) continue;
+      }
       rockery.push({
         x: rx,
         z: rz,

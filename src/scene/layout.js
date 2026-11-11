@@ -435,14 +435,22 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
     }
   }
 
-  /* ---- 院落围墙 ---- */
-  const half = Math.max(
-    26,
-    Math.max(
-      Math.abs(m.mian * 3.6) / 2 + 12,
-      ...(program.aux || []).map((a) => Math.abs(a.x) + 12)
-    )
-  );
+  /* ---- 院落围墙 ----
+   * ⚠ 2026-11-11：允许景自己指定院落尺度（`program.yard`）。
+   *   默认值按"最远的辅楼 + 12 m"算 ⇒ **辅楼跨到别的岛上时，
+   *   整块墁砖地与院墙会跟着铺到水里**（蓬岛瑶台：东西二小岛的亭子在
+   *   x=±54 m，按默认算出来是 121×104 m 的砖地，整个压在湖面上）。
+   *   ⇒ 这类景自己给 `yard`（院落半长），只圈住本岛上的院子。
+   */
+  const half = program.yard
+    ? program.yard
+    : Math.max(
+        26,
+        Math.max(
+          Math.abs(m.mian * 3.6) / 2 + 12,
+          ...(program.aux || []).map((a) => Math.abs(a.x) + 12)
+        )
+      );
   group.add(buildCourtyardWall(half, half * 0.78, heightAt, scene.x, scene.z));
 
   /* ---- 院内地面：墁砖地 + 十字甬路 ----

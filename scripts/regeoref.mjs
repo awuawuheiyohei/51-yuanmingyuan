@@ -78,6 +78,13 @@ const dry = process.argv.includes('--dry');
 
 const geo = JSON.parse(fs.readFileSync(FILE, 'utf8'));
 
+/**
+ * **已作废的读点名**（改名/删除后要在这里清掉，否则会残留在 readPoints 里）。
+ * 2026-11-11：「同天深处」作废 —— 四十景里没有它，是蓬岛瑶台注记的误抄，
+ * 正名为「洞天深处」（在勤政亲贤以东，不在福海中央）。
+ */
+const RETIRED_POINTS = ['同天深处'];
+
 /* --------------------------------------------------- 控制点：OSM 实测坐标 */
 /* （原先这里放的是「养雀笼 / 蓄水楼」两个 OSM 点，现已全部否决，见下。） */
 const NEW_POINTS = [];
@@ -93,14 +100,15 @@ const GUIDE_POINTS = [
       '不在任何建筑上）。⚠ 推定锚点。详见 architecture-notes.md §5.8',
   },
   {
-    name: '同天深处',
-    x: 3767,
-    y: 2027,
+    name: '洞天深处',
+    x: 3184,
+    y: 3470,
     note:
-      '导览图现状上**蓬岛瑶台西北那座副岛**上的黄琉璃顶建筑群（导览图无单体标注，' +
-      '按现状轮廓读像素）。依据：官网/《圆明园志》同天深处「位于福海中央」；' +
-      'OSM 福海 multipolygon 的实测内环（蓬莱、方丈、瀛洲三岛之一）与图上的副岛对应。' +
-      '⚠ 推定锚点。详见 architecture-notes.md §5.9',
+      '导览图上「洞天深处 Dongtian Shenchu」的标注（**勤政亲贤以东**，' +
+      '标注旁画着四座方形院落）。依据：百度百科四十景「洞天深处，位于勤政亲贤以东，' +
+      '有四座方形院落，为皇子读书居住之所。东北为皇家画馆如意馆」。' +
+      '⚠ 2026-11-11 正名：原条目叫「同天深处」，是蓬岛瑶台注记的误抄。' +
+      '详见 architecture-notes.md §5.9',
   },
   {
     name: '蓄水楼',
@@ -211,6 +219,12 @@ for (const np of NEW_POINTS) {
       geo.controlPoints.splice(i, 1);
     }
     geo.readPoints = geo.readPoints || {};
+    for (const dead of RETIRED_POINTS) {
+      if (geo.readPoints[dead]) {
+        delete geo.readPoints[dead];
+        console.log(`  - 清掉已作废的读点名：${dead}`);
+      }
+    }
     geo.readPoints[gp.name] = { x: gp.x, y: gp.y, lon: 0, lat: 0, note: gp.note };
     console.log(`  + ${gp.name}：图上读像素 (${gp.x}, ${gp.y}) 写入 readPoints`);
   }
