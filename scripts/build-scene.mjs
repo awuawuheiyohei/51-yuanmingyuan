@@ -493,6 +493,33 @@ async function main() {
     console.log(`  ✓ 剔除重叠水面 ${dropped.length} 片`);
   }
 
+  const islandDefs = [
+    { name: '福海仙山·主岛（蓬岛瑶台）', scene: '蓬岛瑶台', lon: 116.2985381, lat: 40.0085690, r: 52, h: 13 },
+    { name: '福海仙山·副岛（同天深处）', scene: '同天深处', lon: 116.2976691, lat: 40.0087922, r: 24, h: 11 },
+  ].map((sp) => {
+    const x = toX(sp.lon);
+    const z = toZ(sp.lat);
+    // 水位：优先取**包含该岛**的那片水面（福海），否则取最近的
+    let near = null;
+    for (const w of waterKeep) {
+      if (pointInRing(x, z, w.ring)) {
+        near = w;
+        break;
+      }
+    }
+    if (!near) {
+      let nd = Infinity;
+      for (const w of waterKeep) {
+        const d = Math.hypot(w.cx - x, w.cz - z);
+        if (d < nd) {
+          nd = d;
+          near = w;
+        }
+      }
+    }
+    return { ...sp, x, z, level: near?.level ?? 41 };
+  });
+
   // 逐景水景：考据中明确有池的景，在其旁补一小片水面
   let pondAdded = 0;
   for (const s of sceneOut) {
@@ -837,9 +864,15 @@ async function main() {
       const r = (18 + rnd() * spread) * (0.55 + s.rock * 0.7);
       // 叠山不许压在正殿上：山头盖住屋面，比没有山还糟
       if (r < 20) continue;
+      const rx = s.x + Math.cos(a) * r;
+      const rz = s.z + Math.sin(a) * r;
+      // ⚠ 福海中央那两座是**岛**：假山只能堆在岛内 ——
+      //   岛外的山峰会站在湖水里（2026-11-10 福海恢复水面后才暴露出来）。
+      const isl = islandDefs.find((i) => i.scene === s.name);
+      if (isl && Math.hypot(rx - isl.x, rz - isl.z) > isl.r - 6) continue;
       rockery.push({
-        x: s.x + Math.cos(a) * r,
-        z: s.z + Math.sin(a) * r,
+        x: rx,
+        z: rz,
         r: 3 + rnd() * 9 * (0.45 + s.rock),
         h: 3 + rnd() * 12 * (0.45 + s.rock),
         seed: Math.floor(rnd() * 1e6),
@@ -1140,32 +1173,7 @@ async function main() {
    * ⚠ 原来这里是"凡是 `waterKind==='lake' && rock>=0.4` 的景都堆岛"，
    *   结果把**濂溪乐处、西峰秀**也堆成了岛（那两处不在福海）⇒ 改为显式指定。
    */
-  const islandSpecs = [
-    { name: '福海仙山·主岛（蓬岛瑶台）', lon: 116.2985381, lat: 40.0085690, r: 52, h: 13 },
-    { name: '福海仙山·副岛（同天深处）', lon: 116.2976691, lat: 40.0087922, r: 24, h: 11 },
-  ].map((sp) => {
-    const x = toX(sp.lon);
-    const z = toZ(sp.lat);
-    // 水位：优先取**包含该岛**的那片水面（福海），否则取最近的
-    let near = null;
-    for (const w of waterKeep) {
-      if (pointInRing(x, z, w.ring)) {
-        near = w;
-        break;
-      }
-    }
-    if (!near) {
-      let nd = Infinity;
-      for (const w of waterKeep) {
-        const d = Math.hypot(w.cx - x, w.cz - z);
-        if (d < nd) {
-          nd = d;
-          near = w;
-        }
-      }
-    }
-    return { ...sp, x, z, level: near?.level ?? 41 };
-  });
+  const islandSpecs = islandDefs;
   if (islandSpecs.length) {
     for (let r = 0; r < ROWS; r++) {
       const z = minZ + (sizeZ * r) / (ROWS - 1);

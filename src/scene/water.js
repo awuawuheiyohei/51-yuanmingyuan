@@ -68,6 +68,51 @@ export function buildWater(sceneData) {
     polygonOffsetUnits: -1,
   });
 
+  /**
+   * **远处把波纹淡出**（与地面同一类问题的同一解法）。
+   *
+   * ## 为什么
+   *
+   * 水面的法线图一张覆盖 3.5 m，纹理本身还有 2.7 cm 级的细纹。
+   * 俯视全园时湖面被缩小几十倍 ⇒ 采样落进 mip 高层，
+   * 细纹的纹素网格与**屏幕像素网格**频率接近 ⇒ 拍频，
+   * 于是一片湖会浮出一层**规则的白色点阵**（2026-11-10 福海恢复水面后才暴露）。
+   * 地面的同类问题见 `terrain.js` 的距离淡出。
+   *
+   * ## 怎么解
+   *
+   * 远处本来就看不清 3.5 cm 的波纹 ⇒ 把**法线扰动**按距离淡出，
+   * 让远处水面回到一块平整的镜子（只剩环境反射），
+   * 近景（< 25 m）波纹一点不少。
+   */
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vRipDist;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvRipDist = -mvPosition.z;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vRipDist;')
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#ifdef USE_NORMALMAP_OBJECTSPACE
+          normal = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+          #ifdef FLIP_SIDED
+            normal = - normal;
+          #endif
+          #ifdef DOUBLE_SIDED
+            normal = normal * faceDirection;
+          #endif
+          normal = normalize( normalMatrix * normal );
+        #elif defined( USE_NORMALMAP_TANGENTSPACE )
+          vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+          // 远处把波纹淡出，避免法线图在远处拍频成规则点阵
+          float ripFade = 1.0 - smoothstep( 25.0, 130.0, vRipDist );
+          mapN.xy *= normalScale * ripFade;
+          normal = normalize( tbn * mapN );
+        #endif`
+      );
+  };
+  mat.customProgramCacheKey = () => 'water-ripple-fade-v2';
+
   // 所有水面合并成一个 Mesh：各自的水位烘进顶点位置
   const parts = [];
   const shoreParts = [];
