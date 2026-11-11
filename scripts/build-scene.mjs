@@ -150,7 +150,11 @@ const SCENES = [
   { name: '西峰秀', lon: 116.292437, lat: 40.010308, source: 'guide', alias: '西峰秀色' },
   { name: '坐石临流', lon: 116.29255, lat: 40.007461, source: 'guide' },
   { name: '曲院风荷', lon: 116.293944, lat: 40.004753, source: 'guide' },
-  { name: '同天深处', lon: 116.300245, lat: 40.01239, source: 'guide', alias: '方壶胜境' },  { name: '蓬岛瑶台', lon: 116.298174, lat: 40.008536, source: 'guide' },
+  // 同天深处 = 福海中央**西北那座副岛**上的建筑群（导览图 px 3767,2027）。
+  // ⚠ 旧值把同天深处挂在「方壶胜境」标注上（局部 319,-762，在**岸上**）——
+  //   而它的考据是「位于**福海中央**」⇒ 2026-11-10 按导览图重定位。
+  { name: '同天深处', lon: 116.2977708, lat: 40.0088434, source: 'guide', alias: '蓬岛瑶台西北副岛' },
+  { name: '蓬岛瑶台', lon: 116.2982808, lat: 40.0085661, source: 'guide' },
   { name: '平湖秋月', lon: 116.29605, lat: 40.010754, source: 'guide' },
   { name: '宜书房', lon: 116.299513, lat: 40.011303, source: 'guide', alias: '藏密楼' },
   { name: '北远山村', lon: 116.28836, lat: 40.011536, source: 'osm' },
@@ -165,7 +169,7 @@ const SCENES = [
   //   **并不是任何建筑**，而且正好压在西洋楼景区里（与新定位的蓄水楼打架）。
   //   现按导览图取「方壶胜境」标注**南侧那组粉色建筑轮廓**的中心：
   //   导览图像素 (4264,1280) → lon/lat 116.300227 / 40.011984 → 局部 (318,-717)。
-  { name: '方壶胜境', lon: 116.300227, lat: 40.011984, source: 'guide', alias: '方壶胜境标注南侧建筑群' },
+  { name: '方壶胜境', lon: 116.300227, lat: 40.011984, source: 'guide', guide: '方壶胜境建筑群', alias: '方壶胜境标注南侧建筑群' },
   { name: '水流云在', lon: 116.290194, lat: 40.009108, source: 'osm' },
   { name: '紫碧山房', lon: 116.283042, lat: 40.010509, source: 'guide' },
   { name: '含卫城', lon: 116.292432, lat: 40.009347, source: 'guide' },
@@ -368,7 +372,43 @@ async function main() {
       `z[${garden.zMin.toFixed(0)}, ${garden.zMax.toFixed(0)}]（东西 ${(garden.xMax - garden.xMin).toFixed(0)}m）`
   );
 
-  /* ---- 四十景锚点 ---- */
+  /* ---- 四十景锚点 ----
+   * ⚠ 2026-11-10：SCENES 表里原本**硬编码**了一组 lon/lat，那是上一次拟合的结果 ——
+   *   每次 `scripts/regeoref.mjs` 重配准后它们就漂十几米，两处表各说各话。
+   *   现在改为：凡 `source === 'guide'` 的景，构建时**一律从 data/guide-georef.json
+   *   按点名取当前值** ⇒ 表与配准永远一致（这就是"统一校准"）。
+   *   点名优先用 `guide` 字段，其次 `alias`（若它恰是导览图上的点名），最后景名本身。
+   */
+  const geoFile = resolve(ROOT, 'data/guide-georef.json');
+  const guidePts = new Map();
+  try {
+    const geo = JSON.parse(await readFile(geoFile, 'utf8'));
+    for (const p of geo.controlPoints || []) guidePts.set(p.name, p);
+    for (const [k, p] of Object.entries(geo.readPoints || {})) {
+      if (k === '_comment') continue;
+      guidePts.set(k, p);
+    }
+  } catch {
+    console.warn('  ! 读不到 guide-georef.json，SCENES 表沿用硬编码坐标');
+  }
+  let synced = 0;
+  for (const s of SCENES) {
+    if (s.source !== 'guide') continue;
+    const key =
+      (s.guide && guidePts.has(s.guide) && s.guide) ||
+      (s.alias && guidePts.has(s.alias) && s.alias) ||
+      (guidePts.has(s.name) && s.name) ||
+      null;
+    if (!key) continue;
+    const p = guidePts.get(key);
+    const dx = (p.lon - s.lon) * 85250;
+    const dz = (p.lat - s.lat) * 110574;
+    if (Math.hypot(dx, dz) > 0.5) synced++;
+    s.lon = p.lon;
+    s.lat = p.lat;
+  }
+  if (synced) console.log(`  ✓ 导览图坐标同步：${synced} 处景按 guide-georef.json 校正`);
+
   const sceneOut = SCENES.map((s) => {
     const prog = SCENE_PROGRAM[s.name];
     return {
@@ -1063,14 +1103,21 @@ async function main() {
         const o = waterKeep[j];
         if (!o || o.level == null) continue;
         if (Math.abs(w.level - o.level) > levelTol) continue;
-        // 保留**更大**的那片；面积相等时保留序号靠前的
-        // （否则两片面积相同会互相"让位"，谁也删不掉）
-        if (w.area < o.area) continue;
-        if (w.area === o.area && j > i) continue;
         if (!ringCross(w.ring, o.ring)) continue;
-        waterKeep[i] = null;
-        removed++;
-        break;
+        // 同一高程且相交 ⇒ **保留面积更大的那片**，把小的删掉。
+        // ⚠ 2026-11-10 修正：原来写成"若 w 更大就删 w"，方向反了 ——
+        //   结果全园最大的湖（福海 28.6 ha）被一片 0.4 ha 的小池塘挤掉，
+        //   **福海中央整片湖在场景里根本没有水面**。
+        //   面积相等时保留序号靠前的（否则两片互相"让位"，谁也删不掉）。
+        let dropIdx;
+        if (w.area > o.area) dropIdx = j;
+        else if (w.area < o.area) dropIdx = i;
+        else dropIdx = j > i ? j : i;
+        if (waterKeep[dropIdx]) {
+          waterKeep[dropIdx] = null;
+          removed++;
+        }
+        if (dropIdx === i) break; // w 已被删，不必再找
       }
     }
     const kept = waterKeep.filter(Boolean);
@@ -1079,31 +1126,46 @@ async function main() {
     if (removed) console.log(`  ✓ 剔除同高程重叠水面 ${removed} 片（防 z-fighting）`);
   }
 
-  /* ---- 福海中的仙山（岛）----
-   * 蓬岛瑶台、同天深处是福海里的仙山楼阁。
-   * 必须在开凿之后堆：先挖出湖盆，再从湖底把岛堆起来，
-   * 否则挖湖会把刚堆的岛又挖平。高度取相对抬升，并保证高出水面。 */
-  const islandSpecs = [];
-  for (const s2 of sceneOut) {
-    if (s2.waterKind !== 'lake' || !s2.rock || s2.rock < 0.4) continue;
+  /* ---- 福海中央的仙山（岛）----
+   * 导览图现状上，福海中央画着**两座岛**：
+   *   · 主岛 —— 蓬岛瑶台的标注圈正落在岛上的粉色建筑群里；
+   *   · 副岛 —— 主岛西北的小岛，岛上有黄琉璃顶的小建筑，两岛以桥相连。
+   * 坐标按**导览图现状轮廓**读像素（architecture-notes.md §5.9）。
+   *
+   * ⚠ 为什么不用 OSM 实测：OSM 的福海 multipolygon 内环（三座岛）确实存在，
+   *   但它比导览图上偏北约 40 m —— 导览图的福海是**示意图**，
+   *   画得比实测小、整体偏南。本项目坐标以导览图为准（AGENTS §2），
+   *   故岛位取图上；实测环只用来**认岛**（哪座是哪处景点）。
+   *
+   * ⚠ 原来这里是"凡是 `waterKind==='lake' && rock>=0.4` 的景都堆岛"，
+   *   结果把**濂溪乐处、西峰秀**也堆成了岛（那两处不在福海）⇒ 改为显式指定。
+   */
+  const islandSpecs = [
+    { name: '福海仙山·主岛（蓬岛瑶台）', lon: 116.2985381, lat: 40.0085690, r: 52, h: 13 },
+    { name: '福海仙山·副岛（同天深处）', lon: 116.2976691, lat: 40.0087922, r: 24, h: 11 },
+  ].map((sp) => {
+    const x = toX(sp.lon);
+    const z = toZ(sp.lat);
+    // 水位：优先取**包含该岛**的那片水面（福海），否则取最近的
     let near = null;
-    let nd = Infinity;
     for (const w of waterKeep) {
-      const d = Math.hypot(w.cx - s2.x, w.cz - s2.z);
-      if (d < nd) {
-        nd = d;
+      if (pointInRing(x, z, w.ring)) {
         near = w;
+        break;
       }
     }
-    if (!near) continue;
-    islandSpecs.push({
-      x: s2.x,
-      z: s2.z,
-      r: 52 + s2.rock * 70,
-      h: 7 + s2.rock * 9,
-      level: near.level,
-    });
-  }
+    if (!near) {
+      let nd = Infinity;
+      for (const w of waterKeep) {
+        const d = Math.hypot(w.cx - x, w.cz - z);
+        if (d < nd) {
+          nd = d;
+          near = w;
+        }
+      }
+    }
+    return { ...sp, x, z, level: near?.level ?? 41 };
+  });
   if (islandSpecs.length) {
     for (let r = 0; r < ROWS; r++) {
       const z = minZ + (sizeZ * r) / (ROWS - 1);
@@ -1122,7 +1184,10 @@ async function main() {
         }
       }
     }
-    console.log(`  ✓ 福海仙山 ${islandSpecs.length} 处（开凿后堆岛）`);
+    console.log(
+      `  ✓ 福海仙山 ${islandSpecs.length} 处（开凿后堆岛）：` +
+        islandSpecs.map((i) => `${i.name} r=${i.r}m`).join('、')
+    );
   }
 
   /* ---- 西洋楼锚点 ----
