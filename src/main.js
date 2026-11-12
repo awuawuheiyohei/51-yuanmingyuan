@@ -10,6 +10,7 @@ import { buildTerrain, makeHeightSampler } from './scene/terrain.js';
 import { buildWater, animateWater } from './scene/water.js';
 import { buildRockery, preloadRockAssets } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
+import { buildGrass } from './scene/grass.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildAquatic } from './scene/aquatic.js';
 import { buildFigures } from './scene/figures.js';
@@ -480,6 +481,7 @@ let heightAt = () => 0;
 let tour = null;
 let sceneData = null;
 const waterGroup = { current: null };
+const grass = { current: null };
 
 /**
  * 载入本机用扩散模型生成的写实材质（若已生成）。
@@ -614,6 +616,21 @@ async function loadScene() {
   const trees = buildTrees(sceneData, heightAt);
   scene.add(trees);
   mark('树木');
+
+  // 草丛：**近景地面的实体草叶**。
+  // 地面贴图再细，30 m 外也只是一层颜色 —— 一片全平的绿板是全场景最容易露馅的地方。
+  // 全园 400 万 m² 撒不下 ⇒ 只在**相机周围 45 m**铺实例化的草丛（草位按格哈希决定，
+  // 相机移动时不会跳）。排除水面 / 路面 / 建筑与院落。
+  {
+    const wl = (sceneData.water || [])
+      .filter((w) => w.level != null)
+      .map((w) => w.level)
+      .sort((a, b) => b - a)[0];
+    grass.current = buildGrass(sceneData, heightAt, layout.footprints || [], wl ?? null);
+    scene.add(grass.current.group);
+    grass.current.update(camera.position.x, camera.position.z);
+  }
+  mark('草丛');
 
   tour = buildTour(sceneData, heightAt);
 
@@ -1318,6 +1335,8 @@ function animate() {
   sun.target.updateMatrixWorld();
 
   if (waterGroup.current) animateWater(waterGroup.current, t);
+  // 草丛：相机移动时重铺一片（超过 3 m 才重算）
+  if (grass.current) grass.current.update(camera.position.x, camera.position.z);
 
   renderer.render(scene, camera);
 }
