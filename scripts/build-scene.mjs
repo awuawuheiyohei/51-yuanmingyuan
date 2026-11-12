@@ -502,9 +502,12 @@ async function main() {
   //   西小岛 (94,-322) 38×46m ｜ 中岛·蓬莱洲 (137,-302) 61×59m ｜ 东小岛 (197,-291) 39×37m
   // ⇒ 与考据「大岛坐中 + 东西二小岛」完全对上（2026-11-11）。
   const islandDefs = [
-    { name: '福海仙山·中岛（蓬岛瑶台）', scene: '蓬岛瑶台', main: true, lon: 116.2981067, lat: 40.0082312, r: 34, h: 13 },
-    { name: '福海仙山·西小岛（北屿仙居）', scene: '蓬岛瑶台', lon: 116.2976024, lat: 40.0084121, r: 23, h: 10 },
-    { name: '福海仙山·东小岛（瀛海仙山）', scene: '蓬岛瑶台', lon: 116.2988103, lat: 40.0081317, r: 20, h: 9 },
+    // ⚠ 半径/高度按「桥要能起拱、岛要放得下建筑」重新定：
+    //   实测三岛几乎相接（岛缘只差 3~6 m），桥跨不出来；
+    //   故按实测**岛心**定位，半径收成能容下建筑与桥跨的空档。
+    { name: '福海仙山·中岛（蓬岛瑶台）', scene: '蓬岛瑶台', main: true, lon: 116.2981067, lat: 40.0082312, r: 28, h: 7 },
+    { name: '福海仙山·西小岛（北岛正宇）', scene: '蓬岛瑶台', lon: 116.2976024, lat: 40.0084121, r: 12, h: 4.5 },
+    { name: '福海仙山·东小岛（瀛海仙山）', scene: '蓬岛瑶台', lon: 116.2988103, lat: 40.0081317, r: 15, h: 5 },
   ].map((sp) => {
     const x = toX(sp.lon);
     const z = toZ(sp.lat);
@@ -528,6 +531,19 @@ async function main() {
     }
     return { ...sp, x, z, level: near?.level ?? 41 };
   });
+
+  /* ---- 给每个景记下所在水面的水位 ----
+   * 曲桥（蓬岛瑶台的十一座）要按**水面**定桥面高程：
+   * 端点若落在水里，`heightAt` 给的是湖底 ⇒ 整座桥沉到湖底看不见。 */
+  for (const s2 of sceneOut) {
+    for (const w of waterKeep) {
+      if (!w.ring || w.ring.length < 3) continue;
+      if (pointInRing(s2.x, s2.z, w.ring)) {
+        s2.waterLevel = w.level;
+        break;
+      }
+    }
+  }
 
   // 逐景水景：考据中明确有池的景，在其旁补一小片水面
   let pondAdded = 0;
@@ -1211,9 +1227,12 @@ async function main() {
           if (d > isl.r) continue;
           const t = 1 - d / isl.r;
           const idx = r * COLS + c;
+          // ⚠ 堆山要相对**水位**，不是相对湖底：
+          //   原来加在湖底上 ⇒ 岛心只露出水面 3 m，四周全被水盖住，
+          //   远看就是几座建筑浮在水上，桥也起不了拱。
           const target = Math.max(
-            isl.level + 1.6,
-            heights[idx] + isl.h * Math.pow(t, 0.75)
+            isl.level + 1.2 + isl.h * Math.pow(t, 0.75),
+            heights[idx]
           );
           if (target > heights[idx]) heights[idx] = target;
         }

@@ -83,7 +83,7 @@ export function buildWater(sceneData) {
    *
    * 远处本来就看不清 3.5 cm 的波纹 ⇒ 把**法线扰动**按距离淡出，
    * 让远处水面回到一块平整的镜子（只剩环境反射），
-   * 近景（< 15 m）波纹一点不少。
+   * 近景（< 12 m）波纹一点不少；中远景只剩环境的镜面反射。
    */
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -105,13 +105,13 @@ export function buildWater(sceneData) {
         #elif defined( USE_NORMALMAP_TANGENTSPACE )
           vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
           // 远处把波纹淡出，避免法线图在远处拍频成规则点阵
-          float ripFade = 1.0 - smoothstep( 15.0, 70.0, vRipDist );
+          float ripFade = 1.0 - smoothstep( 12.0, 48.0, vRipDist );
           mapN.xy *= normalScale * ripFade;
           normal = normalize( tbn * mapN );
         #endif`
       );
   };
-  mat.customProgramCacheKey = () => 'water-ripple-fade-v3';
+  mat.customProgramCacheKey = () => 'water-ripple-fade-v4';
 
   // 所有水面合并成一个 Mesh：各自的水位烘进顶点位置
   const parts = [];

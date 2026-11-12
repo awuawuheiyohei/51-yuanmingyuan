@@ -15,6 +15,7 @@ import {
   flagstoneMaterial,
 } from './buildings/materials.js';
 import { buildWesternEnsemble } from './western.js';
+import { buildCurveBridge } from './bridges.js';
 import { getTextureOverrides } from './buildings/textures.js';
 import { SCENE_PROGRAM, TILE_COLORS } from './scenes-program.js';
 import { deriveDimensions, separateFootprints } from './buildings/modular.js';
@@ -432,6 +433,52 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
     if (a.name) {
       b.name = a.name;
       b.userData.sceneName = scene.name;
+    }
+  }
+
+  /* ---- 曲桥（program.bridges）----
+   * 考据：蓬岛瑶台「内外周遭为桥者十一」（《日下尊闻录》），
+   * 「由蓬岛瑶台东南度桥为东岛……西北度桥为北岛」（《日下旧闻考》卷五）。
+   * 桥为**带栏杆的曲桥**（《四十景图》画的是斜向廊桥）。 */
+  if (program.bridges && program.bridges.length) {
+    const geos = [];
+    for (const br of program.bridges) {
+      const wx0 = scene.x + br.from[0];
+      const wz0 = scene.z + br.from[1];
+      const wx1 = scene.x + br.to[0];
+      const wz1 = scene.z + br.to[1];
+      const g = buildCurveBridge({
+        x0: wx0,
+        z0: wz0,
+        x1: wx1,
+        z1: wz1,
+        y0:
+          br.overWater && scene.waterLevel != null
+            ? scene.waterLevel + 1.4
+            : heightAt(wx0, wz0) + 0.15 + (br.lift ?? 0),
+        y1:
+          br.overWater && scene.waterLevel != null
+            ? scene.waterLevel + 1.4
+            : heightAt(wx1, wz1) + 0.15 + (br.lift ?? 0),
+        width: br.width ?? 3.2,
+        rise: br.rise ?? 1.4,
+        bow: br.bow ?? 0,
+        waterY: br.waterY ?? null,
+      });
+      if (g) {
+        g.userData.bridgeName = br.name;
+        geos.push(g);
+      }
+    }
+    if (geos.length) {
+      const merged = mergeGeometries(geos, false);
+      if (merged) {
+        const mesh = new THREE.Mesh(merged, stoneMaterial(1));
+        mesh.name = `bridges-${scene.name}`;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      }
     }
   }
 
