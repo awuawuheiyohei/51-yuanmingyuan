@@ -77,7 +77,7 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   //   0.33 时叶团内部透得出后面的叶子与天，
   //   卡片才读作"一把散开的叶子"。
   //   ⚠ 代价：整冠变疏 ⇒ 靠**加卡片数**补（见 SPECIES 的 shell/core）。
-  const targetCover = 0.42;
+  const targetCover = 0.52;
   // ⚠ **下限必须够高**，否则覆盖率公式算出来的小数会被下限压住，
   //   贴图实际覆盖率远低于目标。
   //   实测（`?leaf=1` 探针量 alpha 均值）：松树只有 12.5（几乎是光杆），
@@ -234,7 +234,8 @@ function clumpLayout(seed) {
   const out = [];
   for (let i = 0; i < 18; i++) {
     const a = rnd() * Math.PI * 2;
-    const rr = Math.pow(rnd(), 0.55) * 0.44;
+    // ⚠ 半径上限 0.33：叶团不许铺到画布边缘（否则卡片露方形硬边）
+    const rr = Math.pow(rnd(), 0.55) * 0.33;
     out.push({
       x: 0.5 + Math.cos(a) * rr,
       y: 0.5 + Math.sin(a) * rr,
@@ -418,8 +419,11 @@ function applyEdgeFalloff(c) {
       if (d[i + 3] === 0) continue;
       // 到最近一条边的距离（归一，0 = 贴边，1 = 画布中心）
       const e = Math.min(x, S - 1 - x, y, S - 1 - y) / half;
-      // 最外 8% 淡出
-      const f = e >= 0.08 ? 0.97 : 0.97 * (e / 0.08) * (e / 0.08) * (3 - 2 * (e / 0.08));
+      // 最外 11%（画布半宽的 22%）淡出。
+      // ⚠ 原来只淡 4% —— 叶团铺到画布边缘 ⇒ 卡片露出**方形硬边**，
+      //   近景读作"一张方形的绿板"。
+      const f =
+        e >= 0.22 ? 0.97 : 0.97 * (e / 0.22) * (e / 0.22) * (3 - 2 * (e / 0.22));
       d[i + 3] = Math.round(d[i + 3] * f);
     }
   }
