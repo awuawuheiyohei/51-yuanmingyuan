@@ -465,7 +465,15 @@ function updateSun(hour) {
   scene.fog.color.copy(horizon).lerp(bottom, 0.55);
   scene.fog.near = 300;
   scene.fog.far = 5200;
-  renderer.toneMappingExposure = 0.85 + day * 0.35;
+  // ⚠⚠ **曝光原来高了一倍，是"整园发白"的真正总因**（2026-11-13）。
+  //
+  //   本场景的总照度 ≈ 太阳 2.6 + 天光 0.85 + 环境 0.25 + 补光 0.35 + IBL 0.55
+  //   ≈ **3.4 倍**（真实户外阳光+天空 ≈ 1.2）。曝光再给 1.2 ⇒ 几乎全部材质
+  //   都被推到 near-white：草地读作枯草、灰瓦读作**奶油白瓦楞板**、
+  //   红墙读作粉红、石头读作雪白。
+  //   ⇒ 曝光降到 0.60~0.86（按太阳高度角），颜色与明暗立刻回到该有的样子。
+  //   ⚠ 改曝光等于改**全园**的影调，务必每个机位都看过再定。
+  renderer.toneMappingExposure = 0.6 + day * 0.26;
 
   // 天空变了，环境光要跟着重烘（限流，别每帧都做）
   const now = performance.now();

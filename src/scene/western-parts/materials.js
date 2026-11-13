@@ -115,10 +115,17 @@ export function createCollector(materials) {
       if (b.startsWith('tile-')) {
         // 琉璃瓦：瓦色按考据逐条定死，但**不需要一个色一个桶**——
         // 刷成顶点色后所有瓦色共用一个材质桶，draw call 从 7 降到 1。
+        //
+        // ⚠ **施釉与不施釉必须分桶**（2026-11-13）。
+        //   琉璃是**光滑釉面**（roughness 0.26、envMapIntensity 1.2），
+        //   掠射角会把天空镜面反射出来；
+        //   而**灰瓦不施釉**，用同一套釉面参数 ⇒ 屋顶在阳光下
+        //   反射成一片**奶油白的瓦楞板**（蓄水楼盝顶最明显）。
+        //   ⇒ 不施釉的另起一个**哑光**桶。
         const spec = TILE_COLORS[b.slice(5)];
         if (spec) {
           tint(geo, spec.color);
-          b = 'tile';
+          b = spec.glazed ? 'tile' : 'tilePlain';
         }
       } else if (BUCKET_ALIAS[b]) {
         b = BUCKET_ALIAS[b];
@@ -692,9 +699,28 @@ export function makeWesternMaterials() {
     envMapIntensity: 1.35,
   });
 
+  /**
+   * **素瓦（不施釉）** —— 灰瓦、青瓦等。
+   *
+   * ⚠ 不能与琉璃共用材质：琉璃是光滑釉面（roughness 0.26），
+   *   掠射角会把天空镜面反射出来；
+   *   素瓦是**哑光**的陶瓦，粗糙、几乎不反环境光。
+   *   用同一套参数 ⇒ 灰瓦屋顶在阳光下反射成**奶油白的瓦楞板**。
+   */
+  const tilePlain = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    normalMap: roofTilesNormal(),
+    // 素瓦的瓦垄比琉璃明显（釉面把凹凸填平了）
+    normalScale: new THREE.Vector2(0.55, 0.55),
+    roughness: 0.82,
+    metalness: 0.0,
+    envMapIntensity: 0.35,
+  });
+
   const mats = {
     stone, rock, plaster, paint, dougong, wood, board, glass, metal, green, bark, water, waterJet,
-    rusticated, tile, bird,
+    rusticated, tile, tilePlain, bird,
   };
   return mats;
 }
