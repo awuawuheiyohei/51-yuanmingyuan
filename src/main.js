@@ -10,6 +10,7 @@ import { buildTerrain, makeHeightSampler } from './scene/terrain.js';
 import { buildWater, animateWater } from './scene/water.js';
 import { buildRockery, preloadRockAssets } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
+import { buildLeafDetail } from './scene/leaf-detail.js';
 import { buildGrass } from './scene/grass.js';
 import { buildPaths, buildRevetment } from './scene/ground.js';
 import { buildAquatic } from './scene/aquatic.js';
@@ -490,6 +491,8 @@ let tour = null;
 let sceneData = null;
 const waterGroup = { current: null };
 const grass = { current: null };
+/** 近景实体叶 */
+const leafDetail = { current: null };
 
 /**
  * 载入本机用扩散模型生成的写实材质（若已生成）。
@@ -622,8 +625,15 @@ async function loadScene() {
   mark('假山');
 
   const trees = buildTrees(sceneData, heightAt);
-  scene.add(trees);
+  scene.add(trees.group);
   mark('树木');
+
+  // 近景**实体叶**：卡片树冠在 3 m 内必然露馅（贴图里一个叶团读作一张
+  // 30~60 cm 的巨型剪纸叶子）。近处改用真叶几何，远处保留卡片省面数。
+  leafDetail.current = buildLeafDetail(trees.treeInfo);
+  scene.add(leafDetail.current.group);
+  leafDetail.current.update(camera.position.x, camera.position.z);
+  mark('近景实体叶');
 
   // 草丛：**近景地面的实体草叶**。
   // 地面贴图再细，30 m 外也只是一层颜色 —— 一片全平的绿板是全场景最容易露馅的地方。
@@ -1345,6 +1355,8 @@ function animate() {
   if (waterGroup.current) animateWater(waterGroup.current, t);
   // 草丛：相机移动时重铺一片（超过 3 m 才重算）
   if (grass.current) grass.current.update(camera.position.x, camera.position.z);
+  // 近景实体叶：同理由相机位置决定哪几棵树换成真叶
+  if (leafDetail.current) leafDetail.current.update(camera.position.x, camera.position.z);
 
   renderer.render(scene, camera);
 }

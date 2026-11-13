@@ -45,6 +45,11 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   // 叶长与卡片尺寸的关系：树冠卡片世界尺度约 1.7m，
   // 512px 贴图上 1px ≈ 3.3mm，所以单叶**全** 40px ≈ 13cm。
   // 单叶面积 ≈ π·s·0.62s ≈ 1.95s²（s 为半长）。
+  // ⚠ 单叶半长（px）。
+  //   卡片从 1.3 m 缩到 0.65 m 后，贴图里的叶子要**画大一倍**，
+  //   单叶的**世界尺寸**才不变（10 cm）。
+  //   顺带把"叶团"的实际尺寸从 ~50 cm 降到 ~25 cm ——
+  //   近景里一团 50 cm 的绿块读作"一张大叶子"，25 cm 才是"一把叶"。
   const LEAF_LEN_PX = 20; // 单叶半长（px）
   const leafArea = Math.PI * LEAF_LEN_PX * LEAF_LEN_PX * 0.62;
   // 目标覆盖率 0.74。
@@ -65,7 +70,14 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   //   压到 0.55 ⇒ 叶团内部有真实的空隙 ⇒ 卡片读作"一把散开的叶子"，
   //   树冠透得出后面的枝条与天空，侧影也碎得开。
   //   密度靠**增加卡片数**补（见 SPECIES 的 shell/core）。
-  const targetCover = 0.55;
+  //
+  // ⚠⚠ 再压到 **0.33**：叶团内部要能**看见单叶之间的缝**。
+  //   之前 0.55 时，近景一个叶团（25~35 cm）读作**一块实心绿板**，
+  //   边缘是圆弧 ⇒ 整张卡片读作"一张 30 cm 的巨型剪纸叶子"。
+  //   0.33 时叶团内部透得出后面的叶子与天，
+  //   卡片才读作"一把散开的叶子"。
+  //   ⚠ 代价：整冠变疏 ⇒ 靠**加卡片数**补（见 SPECIES 的 shell/core）。
+  const targetCover = 0.42;
   // ⚠ **下限必须够高**，否则覆盖率公式算出来的小数会被下限压住，
   //   贴图实际覆盖率远低于目标。
   //   实测（`?leaf=1` 探针量 alpha 均值）：松树只有 12.5（几乎是光杆），
@@ -209,6 +221,29 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
 // 真正看得见的只有 0.9m 的一坨，远看就是"一叠剪纸圆饼"。
 // 现在簇半径放大到 0.32~0.38（叶团横跨画布 64~76%），
 // 加上 drawCluster 里随角度起伏的轮廓，整团不再是圆饼。
+
+/**
+ * 叶团在画布上的分布：**不规则的一簇簇**，不是规则网格、也不是一个大圆盘。
+ *
+ * ⚠ 规则网格 ⇒ 读作"格子"；一个大圆盘 ⇒ 读作"剪出来的圆片"。
+ *   这里用「半径按幂分布 + 角度随机」撒 18 簇：
+ *   中心密、外围疏 ⇒ 整体是自然衰减的团块，边缘是碎的。
+ */
+function clumpLayout(seed) {
+  const rnd = mulberry32(seed);
+  const out = [];
+  for (let i = 0; i < 18; i++) {
+    const a = rnd() * Math.PI * 2;
+    const rr = Math.pow(rnd(), 0.55) * 0.44;
+    out.push({
+      x: 0.5 + Math.cos(a) * rr,
+      y: 0.5 + Math.sin(a) * rr,
+      r: 0.085 + rnd() * 0.055,
+    });
+  }
+  return out;
+}
+
 const SPECIES_TEX = {
   pine: {
     kind: 'needle',
@@ -222,52 +257,33 @@ const SPECIES_TEX = {
     // ⚠ 簇与簇之间要**留得出缝**。
     //   簇散得太密 ⇒ 远看成"一坨实心的绿团"，
     //   近看像一把生菜；真实的针叶/阔叶树冠能看见簇与簇之间的空当。
-    clusters: [
-      { x: 0.26, y: 0.28, r: 0.14 },
-      { x: 0.70, y: 0.30, r: 0.13 },
-      { x: 0.46, y: 0.46, r: 0.15 },
-      { x: 0.18, y: 0.58, r: 0.12 },
-      { x: 0.80, y: 0.58, r: 0.13 },
-      { x: 0.40, y: 0.76, r: 0.12 },
-      { x: 0.62, y: 0.72, r: 0.11 },
-    ],
+    clusters: clumpLayout(7001),
+
   },
   willow: {
     kind: 'leaf',
     palette: ['#5d7a3f', '#6d8b4b', '#4e6a35', '#7d9955'],
     // 叶团压在上部，垂丝从叶团里挂下来
     // 柳：下垂细条为主，上部散几小簇（同样不能是一个大团）
-    clusters: [
-      { x: 0.38, y: 0.26, r: 0.13 },
-      { x: 0.62, y: 0.30, r: 0.12 },
-      { x: 0.50, y: 0.15, r: 0.11 },
-    ],
+    clusters: clumpLayout(7001),
+    strands: true,
+
     strands: true,
   },
   blossom: {
     kind: 'flower',
     palette: ['#e8a8bd', '#f0c0cf', '#d98aa4', '#f6d5de'],
-    clusters: [
-      { x: 0.28, y: 0.32, r: 0.12 },
-      { x: 0.64, y: 0.38, r: 0.11 },
-      { x: 0.45, y: 0.54, r: 0.12 },
-      { x: 0.78, y: 0.64, r: 0.10 },
-      { x: 0.26, y: 0.68, r: 0.10 },
-      { x: 0.50, y: 0.80, r: 0.09 },
-    ],
+    clusters: clumpLayout(7001),
+    leaves: ['#6d8b4b', '#5d7a3f'],
+
     leaves: ['#6d8b4b', '#5d7a3f'],
   },
   poplar: {
     kind: 'leaf',
     palette: ['#5b7a42', '#6a8a4e', '#4e6a35', '#75935a'],
     // 白杨：窄高，簇要小而多
-    clusters: [
-      { x: 0.42, y: 0.20, r: 0.12 },
-      { x: 0.60, y: 0.38, r: 0.13 },
-      { x: 0.38, y: 0.54, r: 0.12 },
-      { x: 0.62, y: 0.70, r: 0.12 },
-      { x: 0.48, y: 0.85, r: 0.10 },
-    ],
+    clusters: clumpLayout(7001),
+
   },
   maple: {
     kind: 'leaf',
@@ -276,15 +292,8 @@ const SPECIES_TEX = {
     //   圆明园的枫在夏天是绿色的（入秋才转红）。
     palette: ['#5f8038', '#719344', '#4d6d2e', '#7fa055'],
     // 枫：散开的小簇
-    clusters: [
-      { x: 0.26, y: 0.30, r: 0.12 },
-      { x: 0.70, y: 0.28, r: 0.11 },
-      { x: 0.46, y: 0.46, r: 0.13 },
-      { x: 0.22, y: 0.60, r: 0.10 },
-      { x: 0.78, y: 0.58, r: 0.11 },
-      { x: 0.38, y: 0.74, r: 0.10 },
-      { x: 0.64, y: 0.76, r: 0.10 },
-    ],
+    clusters: clumpLayout(7001),
+
   },
 };
 
@@ -299,16 +308,15 @@ function makeFoliageTexture(species, seed) {
   const spec = SPECIES_TEX[species] || SPECIES_TEX.maple;
 
   if (spec.strands) {
-    // 柳：上部一团叶，下垂细条（不能只是直棍，要软、要密）
-    drawCluster(
-      g,
-      S * 0.5,
-      S * 0.32,
-      S * 0.3,
-      rnd,
-      spec.palette,
-      'leaf'
-    );
+    // 柳：上部散几小簇叶（**必须走 clusters 数组**），
+    // 下垂细条（不能只是直棍，要软、要密）。
+    //
+    // ⚠ 原来这里写死 `drawCluster(g, S*0.5, S*0.32, S*0.3, ...)` ——
+    //   一个**半径 0.3 的中心实心圆盘**，完全无视 species 的 clusters 配置。
+    //   ⇒ 柳树的贴图永远是"一枚剪出来的圆片"，近景一眼假。
+    for (const cl of spec.clusters) {
+      drawCluster(g, cl.x * S, cl.y * S, cl.r * S, rnd, spec.palette, 'leaf');
+    }
     // ⚠ 柳条的**数量**也要够：520 条垂丝铺不满 512px 的树冠，
     // 柳树因此看着稀疏透光。加密到 900 条。
     for (let i = 0; i < 900; i++) {
@@ -387,44 +395,31 @@ function makeFoliageTexture(species, seed) {
 function applyEdgeFalloff(c) {
   const S = c.width;
   const g = c.getContext('2d');
-  // 直接重写 **alpha 通道**，RGB 一律不动。
   //
-  // 两个坑（都踩过）：
-  // ① 用 `destination-in` + 黑色渐变做衰减：黑色会参与运算，
-  //    把叶子的颜色也乘黑，越靠边越脏。必须只动 alpha。
-  // ② 衰减曲线中间留一段 alpha=1 的实心区：叶片画得满时，
-  //    中心区成了一块**不透明方片**，alphaTest 裁不掉——
-  //    远看是一块白卡片糊在屋面前，边缘还带一圈锯齿状绿噪点。
+  // ⚠⚠⚠ **绝对不能按半径切圆**。
   //
-  // 现在：alpha 全程平滑衰减（中心 0.92 → 边 0），四周自然透明，
-  // 不会切出硬边。
+  //   原来：alpha 在 r ≤ 0.42 处保持 0.97、r ≥ 0.5 处归零 ——
+  //   等于把每张卡片**剪成一个边缘清晰的实心圆盘**。
+  //   ⇒ 树冠在近景里读作"一枚剪出来的圆片"，
+  //   远看是"一串绿色圆饼"（这正是 AGENTS 记过的"剪纸圆饼"，
+  //   之前只调了叶团半径，**没动这个切圆**，所以一直治标不治本）。
+  //
+  //   现在：**只把画布最外一圈淡掉**（防止方形硬边），
+  //   卡片轮廓完全由**叶子自己的分布**决定 ⇒ 边缘是碎的、不规则的。
+  //
+  //   ⚠ 代价：若叶子把整个方形画满，中间会出现"不透明方片"。
+  //   ⇒ 所以叶团分布也必须**留出空当**（见 clumpLayout）。
   const img = g.getImageData(0, 0, S, S);
   const d = img.data;
-  const cx = S / 2;
-  const cy = S / 2;
-  const maxR = S * 0.5;
+  const half = S * 0.5;
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const i = (y * S + x) * 4;
       if (d[i + 3] === 0) continue;
-      const dx = (x - cx) / maxR;
-      const dy = (y - cy) / maxR;
-      const r = Math.sqrt(dx * dx + dy * dy);
-      // 衰减只作用在**贴图最外圈**（r > 0.42）。
-      //
-      // ⚠ 之前是 r>0.22 就开始衰减，而叶片撒在半径 0.3×S 的圆里 ——
-      // 外圈的叶子正好落在衰减最强的区域，被砍掉一大半。
-      // 近处看树就是"几根光杆 + 一点点叶"，远看才成团。
-      //
-      // 现在：r ≤ 0.42 全实心（0.97），最外 16% 平滑归零。
-      // 卡片边缘不会切出硬直边，但叶丛完整保留。
-      let f;
-      if (r <= 0.42) f = 0.97;
-      else if (r >= 0.5) f = 0;
-      else {
-        const t = (r - 0.42) / (0.5 - 0.42);
-        f = 0.97 * (1 - t) * (1 - t) * (1 + 2 * t); // smoothstep 反向
-      }
+      // 到最近一条边的距离（归一，0 = 贴边，1 = 画布中心）
+      const e = Math.min(x, S - 1 - x, y, S - 1 - y) / half;
+      // 最外 8% 淡出
+      const f = e >= 0.08 ? 0.97 : 0.97 * (e / 0.08) * (e / 0.08) * (3 - 2 * (e / 0.08));
       d[i + 3] = Math.round(d[i + 3] * f);
     }
   }
@@ -563,6 +558,7 @@ function growBranches(opts) {
     aspect,
     crownCfg,
     species,
+    crowns,
   } = opts;
 
   const end = origin.clone().addScaledVector(dir, len);
@@ -594,7 +590,7 @@ function growBranches(opts) {
     // 旧做法是"4 张大卡叠在枝端"：每张卡又是 6 片同心的面片，
     // 等于在一个点上糊了几十张**共面的大平板** ——
     // 侧影是一个剪出来的圆饼，整冠受光均匀，一眼看穿是贴图。
-    crownCluster(end, crownR, aspect, crownCfg, rnd, foliageOut);
+    crownCluster(end, crownR, aspect, crownCfg, rnd, foliageOut, crowns);
     return;
   }
 
@@ -739,7 +735,11 @@ function orientedCard(pos, normal, size, rnd, rArc, segs = 3, shade = 1) {
  * 每张卡片的法线在整个球面上取（sphereDir），不再是一个圆盘，
  * 所以同一簇里不同卡片的受光完全不同，整冠不再是一个调子。
  */
-function crownCluster(center, R, aspect, cfg, rnd, out) {
+function crownCluster(center, R, aspect, cfg, rnd, out, crowns) {
+  // 记录这个叶团的位置与半径 ——
+  // 近景**实体叶**（leaf-detail.js）要在同一批叶团里撒真叶，
+  // 否则实体叶与 impostor 卡片会长在两个地方，冠的形状对不上。
+  if (crowns) crowns.push({ p: center.clone(), R, aspect });
   // ---- 外壳：破边
   for (let i = 0; i < cfg.shell; i++) {
     const d = sphereDir(rnd);
@@ -883,6 +883,8 @@ function buildTemplate(species, variant) {
   const rnd = mulberry32(0x9e3779b9 ^ (variant * 2654435761) ^ species.length * 7919);
   const trunkParts = [];
   const foliageParts = [];
+  /** 叶团挂点（局部坐标）—— 近景实体叶用 */
+  const crowns = [];
 
   const h = spec.trunkH[0] + rnd() * (spec.trunkH[1] - spec.trunkH[0]);
   const lean = (rnd() - 0.5) * 2 * spec.lean;
@@ -954,6 +956,7 @@ function buildTemplate(species, variant) {
       aspect,
       crownCfg,
       species,
+      crowns,
     });
   }
 
@@ -961,6 +964,7 @@ function buildTemplate(species, variant) {
     trunk: mergeGeometries(trunkParts, false),
     foliage: mergeGeometries(foliageParts, false),
     height: h,
+    crowns,
   };
 }
 /* ------------------------------------------------------------ 总装 */
@@ -970,6 +974,12 @@ export function buildTrees(sceneData, heightAt) {
   group.name = 'trees';
   const trees = sceneData.trees || [];
   const VARIANTS = 4;
+  /**
+   * 每棵树的信息 —— 近景**实体叶**（`leaf-detail.js`）要用：
+   * 世界位置、朝向、缩放、叶团挂点，以及 impostor 冠的 mesh/索引
+   * （近处要把那一件隐去，换成真叶）。
+   */
+  const treeInfo = [];
 
   // 树皮：贴图是**接近白的细节图**，颜色由 instanceColor（树种色）承担。
   // ⚠ 贴图底色若给深棕，就成了 §4.1.2 的双重变暗（贴图 × 固有色）。
@@ -1100,6 +1110,20 @@ export function buildTrees(sceneData, heightAt) {
         m.compose(pos, qLeaf, scl);
         leafMesh.setMatrixAt(i, m);
 
+        // 记给近景实体叶用
+        treeInfo.push({
+          x: pos.x,
+          y: pos.y,
+          z: pos.z,
+          q: qLeaf.clone(),
+          s: scl.clone(),
+          species,
+          crowns: tpl.crowns,
+          foliage: leafMesh,
+          fIdx: i,
+          seed: t.seed,
+        });
+
         // 每株色相微差，避免"复制粘贴"
         const hueShift = (rnd() - 0.5) * 0.045;
         const valShift = 0.86 + rnd() * 0.28;
@@ -1118,5 +1142,5 @@ export function buildTrees(sceneData, heightAt) {
     }
   }
 
-  return group;
+  return { group, treeInfo };
 }
