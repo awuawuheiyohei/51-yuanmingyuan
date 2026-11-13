@@ -233,8 +233,31 @@ export function torus(r, t, seg = 8, rings = 16, arc = Math.PI * 2) {
   return worldUV(g);
 }
 
+/**
+ * 车削件（LatheGeometry）。
+ *
+ * ⚠⚠⚠ **必须把普通数组转成 Vector2**。
+ *
+ *   three 的 `LatheGeometry` 只读 `point.x` / `point.y`。
+ *   传普通数组 `[r, y]` ⇒ `point.x` 是 **undefined** ⇒
+ *   `vertex.x = undefined * sin(phi)` ⇒ **位置全是 NaN**。
+ *
+ *   这个 NaN 会顺着 `mergeGeometries` 污染**整个材质桶**：
+ *   合并后的包围球半径变 NaN ⇒ three 打一行
+ *   "computeBoundingSphere(): Computed radius is NaN" ⇒
+ *   **整桶几何被剔除**（西洋楼的石作、喷水塔顶盆、观水台边沿…集体消失），
+ *   渲染上还可能拉出一根**白色的尖刺**（退化三角形）。
+ *
+ *   实测：养雀笼喷水塔顶盆 ×4、蓄水楼边沿 ×1 直接是 NaN，
+ *   线上曾以"画面里有一根白尖刺"的形式出现过，根因就在这里。
+ *
+ *   ⇒ 这里统一转换，两种入参（Vector2[] / [r,y][]）都能用。
+ */
 export function lathe(pts, seg = 14) {
-  const g = new THREE.LatheGeometry(pts, seg);
+  const v = pts.map((p) =>
+    p instanceof THREE.Vector2 ? p : new THREE.Vector2(p[0], p[1])
+  );
+  const g = new THREE.LatheGeometry(v, seg);
   return worldUV(g);
 }
 

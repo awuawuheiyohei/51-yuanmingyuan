@@ -34,7 +34,10 @@ export function makeGroundTexture() {
 
   // 底色：园内草地是**偏冷**的绿（不是干草黄）。
   // 原来 #8f9463 偏黄，在太阳下整园看着像晒干的草场。
-  g.fillStyle = '#79805a';
+  // ⚠ 又压深到 #6d764f：本场景总照度约 3 倍，
+  //   #79805a (linear 0.19) 会被打到 sRGB 0.78 —— 读作**晒白的枯草地**。
+  //   压深后落在 sRGB 0.55~0.62，才是"园内草坪"的绿。
+  g.fillStyle = '#6d764f';
   g.fillRect(0, 0, S, S);
 
   // 大块色斑：枯草 / 湿草 / 裸土
@@ -164,6 +167,81 @@ export function makeGroundTexture() {
         g.fillRect(x + ox, y + oy, w, h);
       }
     }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/**
+ * 地面**细节贴图**（近景叠加层）。
+ *
+ * ## 为什么需要它
+ *
+ * 地面主贴图一张 512px 铺 **12 m**（1px ≈ 2.3cm），
+ * 这是"俯视全园不拍频"的前提下唯一能用的密度。
+ * 但人眼高度（1.7 m）看 3 m 外的草地，
+ * 12 m 一张 ⇒ 每个 texel 铺满十几像素 ⇒ 草地糊成一片没有质感的色块。
+ *
+ * 一张贴图不可能同时服务"3 cm/px 的近景"和"3 km 俯视"——
+ * 标准做法是**细节层（detail map）**：
+ * 一张高频小图，在近处叠上去，远处淡出。
+ *
+ * ## 关键：两个不共周期的采样
+ *
+ * 只用一个周期（哪怕只有 1.4 m），平铺的**网格规律**在近景一眼可见。
+ * ⇒ 用两个**互质**的周期（1.4 m 与 3.7 m）叠加，
+ *   重复周期变成两者的最小公倍数，肉眼看不出接缝。
+ *
+ * ## 关键：必须无方向性
+ *
+ * 与主贴图同理（AGENTS.md §4.1.1「全园地面一片规则斜纹」）——
+ * 笔触一律随机方向，只用**颗粒与斑点**。
+ */
+export function makeGroundDetailTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const rnd = mulberry32(20261112);
+
+  // 中灰为基准（0.5），叠上去是"明暗调制"而不是"染色"
+  g.fillStyle = '#808080';
+  g.fillRect(0, 0, S, S);
+
+  // 细颗粒：草叶与土粒的高频起伏
+  const img = g.getImageData(0, 0, S, S);
+  const d = img.data;
+  for (let i = 0; i < 14000; i++) {
+    const x = (rnd() * S) | 0;
+    const y = (rnd() * S) | 0;
+    const light = rnd() > 0.5;
+    const a = 0.08 + rnd() * 0.2;
+    const tgt = light ? 232 : 40;
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        const p = ((y + dy) * S + (x + dx)) * 4;
+        if (p + 3 >= d.length) continue;
+        d[p] = d[p] + (tgt - d[p]) * a;
+        d[p + 1] = d[p + 1] + ((light ? 236 : 44) - d[p + 1]) * a;
+        d[p + 2] = d[p + 2] + ((light ? 228 : 42) - d[p + 2]) * a;
+      }
+    }
+  }
+  g.putImageData(img, 0, 0);
+
+  // 零星深色土粒（种子、碎石）
+  for (let i = 0; i < 900; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const r = 0.6 + rnd() * 2.2;
+    g.fillStyle = `rgba(46,42,34,${0.14 + rnd() * 0.3})`;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
   }
 
   const tex = new THREE.CanvasTexture(c);

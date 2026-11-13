@@ -56,7 +56,16 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
   // 而簇的数量与分布照旧 ⇒ 树冠既厚实又有呼吸。
   // ⚠ 覆盖率不是随手定的：用 `?leaf=1` 探针量树冠贴图的 alpha 均值，
   //   目标 **35~55**（透光但饱满）；低于 25 就是稀疏的藤蔓，高于 70 就是实心绿块。
-  const targetCover = 0.85;
+  // ⚠⚠ 覆盖率从 0.85 压到 0.55。
+  //
+  //   叶团**内部**覆盖率太高 ⇒ 一张卡片就是一块**实心的绿板**：
+  //   近景（3 m）时单张卡片能占掉半个屏幕，读作"一片巨大的叶子"，
+  //   根本不像树冠（实测养雀笼西侧近景，整片树冠是一块实心深绿板）。
+  //
+  //   压到 0.55 ⇒ 叶团内部有真实的空隙 ⇒ 卡片读作"一把散开的叶子"，
+  //   树冠透得出后面的枝条与天空，侧影也碎得开。
+  //   密度靠**增加卡片数**补（见 SPECIES 的 shell/core）。
+  const targetCover = 0.55;
   // ⚠ **下限必须够高**，否则覆盖率公式算出来的小数会被下限压住，
   //   贴图实际覆盖率远低于目标。
   //   实测（`?leaf=1` 探针量 alpha 均值）：松树只有 12.5（几乎是光杆），
@@ -149,6 +158,13 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
       g.quadraticCurveTo(0, -s * 0.62, s, 0);
       g.quadraticCurveTo(0, s * 0.62, -s, 0);
       g.closePath();
+      // ⚠ **暗边轮廓**：每片叶子的边缘压一道暗线。
+      //   没有它，几十片叶子叠在一起就是**一整块平涂的绿色**——
+      //   叶子之间没有分界，读作"剪纸"而不是"叶子"。
+      //   这一道描边让每片叶子从邻居里"浮"出来。
+      g.strokeStyle = 'rgba(26,40,20,0.42)';
+      g.lineWidth = Math.max(0.9, s * 0.085);
+      g.stroke();
       g.fill();
       // 叶脉
       g.strokeStyle = 'rgba(30,44,24,0.4)';
@@ -161,6 +177,29 @@ function drawCluster(g, cx, cy, r, rnd, palette, kind) {
     }
   }
   g.globalAlpha = 1;
+
+  // ---- 整簇的方向光 ----
+  //
+  // ⚠ 叶团画完是**平涂**的：同一簇里每片叶子亮度一样，
+  //   近景读作"一张印着叶子的纸"。
+  // 这里用 `source-atop` 叠一层方向光渐变 ——
+  //   source-atop **只作用在已有像素上**，不改变 alpha 轮廓（剪影不变），
+  //   但让叶团左上亮、右下暗 ⇒ 立刻有了体积与光向。
+  //
+  // 成本：每簇一次 fillRect（不是每片叶子一次），
+  // 而"每片叶子一次"会多出上万次路径操作、拖慢场景构建。
+  g.save();
+  g.globalCompositeOperation = 'source-atop';
+  const rr = r * 1.25;
+  const grd = g.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
+  grd.addColorStop(0, 'rgba(255,255,236,0.26)');
+  grd.addColorStop(0.45, 'rgba(255,255,236,0.04)');
+  grd.addColorStop(0.62, 'rgba(10,26,8,0.10)');
+  grd.addColorStop(1, 'rgba(8,20,6,0.34)');
+  g.fillStyle = grd;
+  g.fillRect(cx - rr, cy - rr * 0.9, rr * 2, rr * 1.8);
+  g.restore();
+  g.globalCompositeOperation = 'source-over';
 }
 
 // 树冠贴图里叶团的位置与半径。
@@ -232,7 +271,10 @@ const SPECIES_TEX = {
   },
   maple: {
     kind: 'leaf',
-    palette: ['#9c6238', '#b5743f', '#8a5330', '#c68a4e'],
+    // ⚠ 原来给的是**枯棕色**（秋叶）—— 本场景是**夏日**，
+    //   一树枯叶在绿树里读作"一堆棕色纸板"，比绿树假得多。
+    //   圆明园的枫在夏天是绿色的（入秋才转红）。
+    palette: ['#5f8038', '#719344', '#4d6d2e', '#7fa055'],
     // 枫：散开的小簇
     clusters: [
       { x: 0.26, y: 0.30, r: 0.12 },
@@ -398,6 +440,110 @@ function finishTex(c) {
   return tex;
 }
 
+/* --------------------------------------------------------- 树皮 */
+
+/**
+ * 树皮贴图：**竖向**裂纹 + 灰白斑驳。
+ *
+ * ⚠ 原来树干只有一块纯色（barkMat 无 map，固有色全靠 instanceColor），
+ *   近景就是一根**塑料棒**。树皮的识别特征是竖向的深沟浅脊，
+ *   必须按"真实米数"铺 —— 见 scaleBarkUV。
+ *
+ * ⚠ 底色要**接近白**：这张图是当作**细节调制**用的，
+ *   颜色由 instanceColor（树种色）承担。
+ *   若底色再给深棕，就变成 §4.1.2 的**双重变暗**（贴图底色 × 固有色）。
+ */
+function makeBarkTexture() {
+  const W = 128;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const rnd = mulberry32(90210);
+
+  // 底：接近白的灰米色
+  g.fillStyle = '#e6e0d6';
+  g.fillRect(0, 0, W, H);
+
+  // 竖向深沟：树皮的骨架
+  //
+  // ⚠ 沟不能**通高**：原来每道都从头画到尾 ⇒ 树干读作"一捆竹竿/瓦楞纸"。
+  //   真实的树皮是**断续的板块**，沟有起止。
+  for (let i = 0; i < 62; i++) {
+    const x = rnd() * W;
+    const dark = rnd() < 0.62;
+    g.strokeStyle = dark
+      ? `rgba(104,90,72,${0.12 + rnd() * 0.26})`
+      : `rgba(255,252,244,${0.1 + rnd() * 0.2})`;
+    g.lineWidth = 0.6 + rnd() * rnd() * 4.2;
+    // 每道沟只占一段高度
+    const y0 = rnd() * H * 0.8;
+    const y1 = y0 + H * (0.12 + rnd() * 0.45);
+    g.beginPath();
+    let xx = x;
+    g.moveTo(xx, y0);
+    for (let y = y0; y <= y1; y += 10) {
+      xx += (rnd() - 0.5) * 4.5;
+      g.lineTo(xx, y);
+    }
+    g.stroke();
+  }
+
+  // 横向短裂纹（老的树皮板片）
+  for (let i = 0; i < 46; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    g.strokeStyle = `rgba(84,72,56,${0.14 + rnd() * 0.26})`;
+    g.lineWidth = 0.7 + rnd() * 1.4;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (rnd() - 0.5) * 34, y + (rnd() - 0.5) * 8);
+    g.stroke();
+  }
+
+  // 斑驳：明暗小色片
+  for (let i = 0; i < 260; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = 2 + rnd() * 9;
+    const dark = rnd() < 0.5;
+    g.fillStyle = dark
+      ? `rgba(120,106,88,${0.05 + rnd() * 0.12})`
+      : `rgba(255,250,240,${0.05 + rnd() * 0.12})`;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** 树皮贴图一张覆盖多少米（世界尺度） */
+const BARK_TILE_M = 0.5;
+
+/**
+ * 按**真实米数**重算圆柱的 UV。
+ *
+ * ⚠ CylinderGeometry 的 UV 是"整圈 0~1 / 整高 0~1"，
+ *   贴图会被拉成"整张贴图糊满一根 10 m 高的树干"。
+ *   ⇒ 按周长与长度换算成 repeat，贴图密度才有"每米几道沟"的实感。
+ */
+function scaleBarkUV(g, len, r) {
+  const uv = g.attributes.uv;
+  if (!uv) return;
+  const su = (2 * Math.PI * r) / BARK_TILE_M;
+  const sv = len / BARK_TILE_M;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  }
+  uv.needsUpdate = true;
+}
+
 /* --------------------------------------------------------- 枝干生成 */
 
 /** 从一段锥形枝干长出一棵小树的分枝系统 */
@@ -427,6 +573,8 @@ function growBranches(opts) {
    *   改成六棱柱 + 收分到 58% ⇒ 圆一点、梢头明显变细。
    */
   const seg = new THREE.CylinderGeometry(rad * 0.58, rad, len, 6, 1);
+  // 树皮按真实米数铺（见 scaleBarkUV）
+  scaleBarkUV(seg, len, rad);
   // 把圆柱对齐到 origin→end
   const q = new THREE.Quaternion().setFromUnitVectors(
     new THREE.Vector3(0, 1, 0),
@@ -527,10 +675,32 @@ function bowCard(w, h, rArc, segs = 3) {
 }
 
 /**
+ * 一张卡片的**明暗系数**。
+ *
+ * ⚠ 顶点色在这里是**乘在叶片贴图上的调制量**（接近 1 的浅色），
+ *   不是"叶子的真实颜色" —— 见 AGENTS.md §4.1.2 的顶点色约定。
+ *
+ * 为什么必须有：
+ *   真实树冠是**体积** —— 外壳受天光、内芯几乎全黑、朝下的面更暗。
+ *   原来所有卡片亮度一样，整冠读作"一块贴上去的绿色剪纸"，
+ *   平面感正是从这里来的。
+ *
+ * @param {number} up    0=朝下 1=朝上（卡片法线的 y 分量映射）
+ * @param {number} depth 0=冠心 1=冠缘
+ * @param {boolean} isCore 是否内芯层
+ */
+function cardShade(up, depth, isCore) {
+  const base = isCore ? 0.3 : 0.56 + 0.34 * depth;
+  return Math.max(0.12, Math.min(1.05, base * (0.68 + 0.32 * up)));
+}
+
+/**
  * 把一张卡片摆到指定位置、绕指定法线。
  * 卡片自身的平面法线对齐 normal，再绕 normal 随机自转（叶序不重样）。
+ *
+ * @param {number} shade 明暗系数（写进顶点色）
  */
-function orientedCard(pos, normal, size, rnd, rArc, segs = 3) {
+function orientedCard(pos, normal, size, rnd, rArc, segs = 3, shade = 1) {
   const w = size * (0.82 + rnd() * 0.42);
   const h = w * (0.7 + rnd() * 0.55);
   const g = bowCard(w, h, Math.max(0.3, rArc * (0.8 + rnd() * 0.5)), segs);
@@ -543,6 +713,15 @@ function orientedCard(pos, normal, size, rnd, rArc, segs = 3) {
   q.premultiply(spin);
   g.applyQuaternion(q);
   g.translate(pos.x, pos.y, pos.z);
+  // 明暗写进顶点色（线性空间的调制量）
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = shade;
+    col[i * 3 + 1] = shade;
+    col[i * 3 + 2] = shade;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
@@ -573,7 +752,19 @@ function crownCluster(center, R, aspect, cfg, rnd, out) {
     // 法线：整球面随机 + 一点朝外偏置（外壳那一片要"朝着外长"）
     const radial = new THREE.Vector3(d.x, d.y * aspect, d.z).normalize();
     const n = sphereDir(rnd).addScaledVector(radial, 0.5).normalize();
-    out.push(orientedCard(p, n, cfg.card * (0.85 + rnd() * 0.4), rnd, cfg.arc));
+    const up = 0.5 + 0.5 * n.y;
+    const depth = Math.min(1, rr / R);
+    out.push(
+      orientedCard(
+        p,
+        n,
+        cfg.card * (0.85 + rnd() * 0.4),
+        rnd,
+        cfg.arc,
+        3,
+        cardShade(up, depth, false)
+      )
+    );
   }
   // ---- 内芯：填实中间，不让树冠透光 ----
   //
@@ -587,8 +778,18 @@ function crownCluster(center, R, aspect, cfg, rnd, out) {
       center.y + d.y * rr * aspect,
       center.z + d.z * rr
     );
+    const n = sphereDir(rnd);
+    const up = 0.5 + 0.5 * n.y;
     out.push(
-      orientedCard(p, sphereDir(rnd), cfg.card * (0.75 + rnd() * 0.25), rnd, cfg.arc * 0.8, 1)
+      orientedCard(
+        p,
+        n,
+        cfg.card * (0.75 + rnd() * 0.25),
+        rnd,
+        cfg.arc * 0.8,
+        1,
+        cardShade(up, 0.1, true)
+      )
     );
   }
 }
@@ -601,9 +802,9 @@ function crownCluster(center, R, aspect, cfg, rnd, out) {
  *   aspect —— 竖向压扁/拉长系数（松冠扁、白杨高）
  *   shell  —— 外壳卡片数（破边的那层）
  *   core   —— 内芯卡片数（填实中间的那层）
- *   card   —— 卡片宽度（m）。512px 贴图铺在 1.6m 上 → 1px ≈ 3mm，
- *             单叶全长 30px ≈ 9~17cm（真实阔叶的量级）
- *             ⚠ 卡片**不能太大**：2.2m 的卡片每一张的 alpha 轮廓就是一个
+ *   card   —— 卡片宽度（m）。512px 贴图铺在 1.3m 上 → 1px ≈ 2.6mm，
+ *             单叶全长 40px ≈ 10~11cm（真实阔叶的量级）
+ *             ⚠ 卡片**不能太大**：1.6m 的卡片每一张的 alpha 轮廓就是一个
  *               大圆饼，十几张叠起来读作"剪纸堆"（近景穿帮）。
  *               卡片小 ⇒ 侧影碎、密度靠张数补。
  *   arc    —— 卡片柱面弧的半径（m）。越小弯得越狠，卡面高光越明显
@@ -619,7 +820,7 @@ const SPECIES = {
     lenScale: 1.0,
     leaf: 1.5,
     // 松冠：扁、平顶、分层
-    crown: { r: [1.5, 2.2], aspect: [0.40, 0.55], shell: 17, core: 7, card: 1.6, arc: 1.0 },
+    crown: { r: [1.5, 2.2], aspect: [0.40, 0.55], shell: 25, core: 10, card: 1.3, arc: 1.0 },
     bark: 0x4a3d2e,
   },
   willow: {
@@ -632,7 +833,7 @@ const SPECIES = {
     lenScale: 1.15,
     leaf: 1.9,
     // 垂柳：冠略垂、叶片细碎
-    crown: { r: [1.4, 2.1], aspect: [0.62, 0.85], shell: 17, core: 7, card: 1.6, arc: 0.9 },
+    crown: { r: [1.4, 2.1], aspect: [0.62, 0.85], shell: 25, core: 10, card: 1.3, arc: 0.9 },
     bark: 0x544431,
   },
   blossom: {
@@ -645,7 +846,7 @@ const SPECIES = {
     lenScale: 0.9,
     leaf: 1.4,
     // 桃杏：冠矮而圆
-    crown: { r: [1.2, 1.8], aspect: [0.80, 1.00], shell: 16, core: 6, card: 1.5, arc: 0.85 },
+    crown: { r: [1.2, 1.8], aspect: [0.80, 1.00], shell: 23, core: 9, card: 1.24, arc: 0.85 },
     bark: 0x4e3f30,
   },
   poplar: {
@@ -658,7 +859,7 @@ const SPECIES = {
     lenScale: 0.85,
     leaf: 1.1,
     // 白杨：窄高（钻天杨）
-    crown: { r: [1.0, 1.6], aspect: [1.45, 1.95], shell: 16, core: 6, card: 1.5, arc: 0.85 },
+    crown: { r: [1.0, 1.6], aspect: [1.45, 1.95], shell: 23, core: 9, card: 1.24, arc: 0.85 },
     bark: 0x5c4c38,
   },
   maple: {
@@ -671,7 +872,7 @@ const SPECIES = {
     lenScale: 0.85,
     leaf: 1.5,
     // 枫/皂荚：冠圆而略宽
-    crown: { r: [1.4, 2.1], aspect: [0.80, 1.00], shell: 17, core: 7, card: 1.6, arc: 0.9 },
+    crown: { r: [1.4, 2.1], aspect: [0.80, 1.00], shell: 25, core: 10, card: 1.3, arc: 0.9 },
     bark: 0x4b3d2f,
   },
 };
@@ -701,7 +902,9 @@ function buildTemplate(species, variant) {
   ]) {
     const dir = b.clone().sub(a);
     const len = dir.length();
-    const seg = new THREE.CylinderGeometry(r1, r0, len, 6, 1);
+    // 主干用 8 边：6 边在 5 m 内能看出棱角，是"六棱柱"不是树干
+    const seg = new THREE.CylinderGeometry(r1, r0, len, 8, 1);
+    scaleBarkUV(seg, len, r0);
     const q = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       dir.clone().normalize()
@@ -768,7 +971,14 @@ export function buildTrees(sceneData, heightAt) {
   const trees = sceneData.trees || [];
   const VARIANTS = 4;
 
-  const barkMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+  // 树皮：贴图是**接近白的细节图**，颜色由 instanceColor（树种色）承担。
+  // ⚠ 贴图底色若给深棕，就成了 §4.1.2 的双重变暗（贴图 × 固有色）。
+  const barkMat = new THREE.MeshStandardMaterial({
+    map: makeBarkTexture(),
+    color: 0xffffff,
+    roughness: 0.96,
+    metalness: 0,
+  });
 
   const byType = new Map();
   for (const t of trees) {
@@ -830,6 +1040,10 @@ export function buildTrees(sceneData, heightAt) {
         side: THREE.DoubleSide,
         roughness: 0.88,
         metalness: 0,
+        // ⚠ **顶点色必须开**：树冠的明暗（外壳受光 / 内芯全黑 / 朝下更暗）
+        //   是靠顶点色写进几何的 —— 这是"树冠读作体积而不是剪纸"的关键。
+        //   顶点色是**贴图的调制系数**（接近 1），不是叶子的真实颜色。
+        vertexColors: true,
       });
       const leafMesh = new THREE.InstancedMesh(tpl.foliage, leafMat, bucket.length);
       leafMesh.castShadow = true;

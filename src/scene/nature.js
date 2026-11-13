@@ -32,6 +32,17 @@ function mulberry32(seed) {
  */
 
 /**
+ * 单块主体石的**尺寸上限**（米）—— 人定的尺度，不是山定的。
+ *
+ * 清式叠山的主体石在 1.2~2.2 m。超过这个量级，一块石头就读作"巨岩"：
+ * 实测 r=14 m 的假山原算出 5.1 m 的石块，近景里一块横跨 20 m，
+ * 整座山是"一堆散落的大石头"，不是"叠石成山"。
+ *
+ * 加了上限之后，山越大石头越多（环排数量跟着涨），环始终闭得上。
+ */
+const MAX_STONE_SIZE = 2.2;
+
+/**
  * 给几何重算 UV：按每个顶点的**主法线轴**做平面投影。
  *
  * 为什么不用 IcosahedronGeometry 自带的球面 UV：球面 UV 在多面体上会绕成
@@ -287,6 +298,91 @@ function normalizeRockGeo(g) {
   return out;
 }
 
+/* -------------------------------------------------- 溶蚀起伏（几何） */
+
+/** 名字 → 稳定整数种子 */
+function hashName(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** 三维 value noise：hash + 三线性插值（无梯度，够用） */
+function hash3i(x, y, z) {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+function vnoise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const w = zf * zf * (3 - 2 * zf);
+  const c000 = hash3i(xi, yi, zi), c100 = hash3i(xi + 1, yi, zi);
+  const c010 = hash3i(xi, yi + 1, zi), c110 = hash3i(xi + 1, yi + 1, zi);
+  const c001 = hash3i(xi, yi, zi + 1), c101 = hash3i(xi + 1, yi, zi + 1);
+  const c011 = hash3i(xi, yi + 1, zi + 1), c111 = hash3i(xi + 1, yi + 1, zi + 1);
+  const x00 = c000 + (c100 - c000) * u;
+  const x10 = c010 + (c110 - c010) * u;
+  const x01 = c001 + (c101 - c001) * u;
+  const x11 = c011 + (c111 - c011) * u;
+  const y0 = x00 + (x10 - x00) * v;
+  const y1 = x01 + (x11 - x01) * v;
+  return y0 + (y1 - y0) * w;
+}
+
+/**
+ * 给一块石头加**溶蚀起伏**（沿法线的位移）。
+ *
+ * ⚠⚠ 为什么必须是**几何**而不是贴图：
+ *   AGENTS.md §4.1 ——「换更好的贴图 ≠ 精细化」。
+ *   贴图只改颜色，改不了**轮廓**。把一块石头放到 3 m 内看：
+ *   它的剪影必须是一块有坑有棱的石头，不是蛋。
+ *   原来的高模球体表面全平滑 ⇒ 近景读作"陶土捏的鹅卵石"。
+ *
+ * 做法：沿法线叠加两段噪声（粗起伏 + 细起伏），
+ * 再重算法线 ⇒ 表面自己产生明暗与自阴影。
+ *
+ * 在**资产加载时**做一次（每种石型只算一遍，18 + 6 块），
+ * 运行时零成本；石块之间的差异靠随机旋转 + 非均匀缩放拉开。
+ *
+ * @param {THREE.BufferGeometry} g  已归一化到「高度 1」的石头
+ * @param {number} seed 稳定种子
+ * @param {number} amp 起伏幅度（相对石头高度）
+ */
+function roughenRockAsset(g, seed, amp = 0.13) {
+  const pos = g.attributes.position;
+  if (!pos) return g;
+  // 起伏沿**法线**方向走 ⇒ 必须先有法线（GLB 一般自带，缺失就补算）
+  if (!g.attributes.normal) g.computeVertexNormals();
+  const nrm = g.attributes.normal;
+  g.computeBoundingSphere();
+  const R = Math.max(1e-4, g.boundingSphere.radius);
+  // 噪声频率以包围球半径为参照：粗起伏跨过石头约 1.7 个特征，细的约 5.5 个
+  const f1 = 1.7 / R;
+  const f2 = 5.5 / R;
+  const s = (seed % 997) * 0.137;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const n1 = vnoise3(x * f1 + s, y * f1 + s * 1.7, z * f1 - s);
+    const n2 = vnoise3(x * f2 - s, y * f2 + s * 0.6, z * f2 + s);
+    // 两段叠加后落在 -1..1
+    const d = (n1 - 0.5) * 1.55 + (n2 - 0.5) * 0.7;
+    const k = d * amp * R;
+    const nx = nrm.getX(i), ny = nrm.getY(i), nz = nrm.getZ(i);
+    pos.setXYZ(i, x + nx * k, y + ny * k, z + nz * k);
+  }
+  pos.needsUpdate = true;
+  // 位移后法线全变了 —— 必须重算，否则高光是旧的球面法线
+  g.computeVertexNormals();
+  return g;
+}
+
 /**
  * 从一份 manifest 加载石头几何。
  *
@@ -325,6 +421,10 @@ async function loadRockSet(base) {
     g.computeBoundingBox();
     const h = g.boundingBox.max.y - g.boundingBox.min.y || 1;
     g.scale(1 / h, 1 / h, 1 / h);
+    // ⚠ **溶蚀起伏**（几何，不是贴图）—— 见 roughenRockAsset。
+    // 放在归一化之后、贴地对齐之前：此时石头已是"高度 1"的单位尺度，
+    // 起伏幅度可以按比例给；贴地对齐放在扰动之后，底面才不会飘。
+    roughenRockAsset(g, hashName(raw), base.includes('lod') ? 0.17 : 0.13);
     g.computeBoundingBox();
     // 把底面对齐到 y=0
     g.translate(0, -g.boundingBox.min.y, 0);
@@ -514,13 +614,26 @@ function buildRockeryClusterFromAssets(kindPool, radius, height, seed, recalcUV 
     // 本层的石头大小：与该层截面挂钩，且不超过截面半径。
     // 石块数少了，石头就要**大一些**才撑得住这座山
     // （真实叠山就是"十几块大石"而不是"几十块小石"）。
-    const stoneSize = Math.min(layerR * 0.55, span * 0.36) * (0.8 + rnd() * 0.4);
+    //
+    // ⚠⚠ 但石块尺寸还有一条**人定的上限**：
+    //   叠山的主体石在 1.2~2.2 m。更大的读作"巨岩" ——
+    //   原来 r=14 的山算出 5.1 m 的石头，近景里一块横跨 20 m，
+    //   整座山看着是"一堆散落的大石头"，不是"叠石成山"。
+    //   加了上限之后，山越大石头越多（下面 ringCount 跟着涨），
+    //   环始终闭得上，读出来才是叠山。
+    const stoneSize =
+      Math.min(layerR * 0.55, span * 0.36, MAX_STONE_SIZE) * (0.8 + rnd() * 0.4);
 
-    // 环上排几块：周长 ÷ 石宽，但**上限收紧**。
-    // 上限 7 是预算与形态的平衡点：再少环就断了（山看着空心），
-    // 再多每山石块数就爆预算。
+    // 环上排几块：周长 ÷ 石宽，让环**闭合**（石头之间紧挨）。
+    //
+    // ⚠ 原来上限 7 —— 41 m 周长只排 7 块 2.4 m 的石头，
+    //   环根本不闭合，山体成了"散落巨岩"（近景一眼假）。
+    //   现在上限 18：山越大石头越多，环始终闭得上。
     const circumference = 2 * Math.PI * layerR;
-    const ringCount = Math.max(4, Math.min(7, Math.round(circumference / (stoneSize * 1.6))));
+    const ringCount = Math.max(
+      4,
+      Math.min(18, Math.round(circumference / (stoneSize * 1.3)))
+    );
 
     const cx = Math.cos(spineDir) * spineLean * t;
     const cz = Math.sin(spineDir) * spineLean * t;
@@ -575,15 +688,19 @@ function buildRockeryClusterFromAssets(kindPool, radius, height, seed, recalcUV 
       layerTop = Math.max(layerTop, top);
     }
 
-    // ② 填心：环内再放 0~1 块石头，山体才是实心的。
-    // 不放也行 —— 环排密时中心本来就是实的。
-    if (rnd() < 0.55) {
+    // ② 填心：环内再放若干块石头，山体才是实心的。
+    //
+    // ⚠ 环排密了以后（14~18 块）环心的洞有 5~7 m 宽，
+    //   只放 1 块填心石 ⇒ 从高处能看穿山体，看到"空壳"。
+    //   填心数量跟着该层截面走：底层洞大多放，上层洞小少放。
+    const fillCount = Math.min(4, Math.max(0, Math.round(layerR / 2.4) - 1));
+    for (let f = 0; f < fillCount; f++) {
       const a = rnd() * Math.PI * 2;
-      const d = layerR * rnd() * 0.35;
+      const d = layerR * rnd() * 0.38;
       const top = place(
         cx + Math.cos(a) * d,
         cz + Math.sin(a) * d,
-        0.7 + rnd() * 0.3,
+        0.55 + rnd() * 0.3,
         false
       );
       layerTop = Math.max(layerTop, top);
@@ -640,15 +757,25 @@ export function buildRockery(sceneData, heightAt, cameraPos = null) {
   const rockTex = taihuStone();
   const mat = new THREE.MeshStandardMaterial({
     map: rockTex,
-    // 太湖石是**冷灰**石灰岩，不是白水泥。
-    // 贴图底色已是灰白，固有色再压到 0x7d807c 才不至于在阳光下泛白。
-    color: 0x7d807c,
-    roughness: 0.99,
+    // ⚠⚠ **固有色必须由贴图与固有色共同承担，但不能双双压暗**。
+    //
+    //   AGENTS.md §4.1.2 的**双重变暗**：贴图底色 #a2a5a2 (linear 0.37)
+    //   再乘固有色 0x7d807c (linear 0.20) ⇒ albedo 0.074 ⇒ 阳光下也是黑的。
+    //   但反过来全给白（linear 1.0）也不行：本场景总照度约 3.4 倍，
+    //   albedo 0.37 会被打到 **纯白**，贴图里的溶蚀斑驳全部截断、看不出形体。
+    //
+    //   取中间：albedo ≈ 0.15（浅灰石灰岩），
+    //   阳光下 ACES 之后落在 sRGB 0.72 左右 —— 比地面亮、比天空暗，
+    //   石头的坑洼与层叠才读得出来。
+    color: 0xb0aca2,
+    roughness: 0.96,
     metalness: 0,
     // 不用 flatShading —— 平直着色会把低模石头的三角面棱线全部显出来，
     // 近处看像一堆碎纸片；平滑着色配合法线才像石头。
     flatShading: false,
-    envMapIntensity: 0.45,
+    // 石头在檐下/树影里主要靠**天光**成像，环境光太弱就只剩黑影；
+    // 但环境光太强会把形体冲平（一片死白），所以取中间值。
+    envMapIntensity: 0.6,
   });
   /**
    * ⚠⚠ **三平面投影**（不是几何 UV）。

@@ -2,7 +2,7 @@
  * 地形：把高程网格变成可渲染网格，并按高程/坡度做顶点着色
  */
 import * as THREE from 'three';
-import { makeGroundTexture } from './ground.js';
+import { makeGroundTexture, makeGroundDetailTexture } from './ground.js';
 import { getTextureOverrides } from './buildings/textures.js';
 
 export function buildTerrain(sceneData, opts = {}) {
@@ -230,6 +230,9 @@ export function buildTerrain(sceneData, opts = {}) {
     nrm.needsUpdate = true;
   }
 
+  // 近景细节层（1.4m / 3.7m 两个互质周期）
+  const detailTex = makeGroundDetailTexture();
+
   const mat = new THREE.MeshStandardMaterial({
     map: makeGroundTexture(),
     vertexColors: true,
@@ -260,16 +263,37 @@ export function buildTerrain(sceneData, opts = {}) {
    *
    * ⚠ 淡出目标是"平均色"而不是"白色"—— 否则远处地面会整体变亮好几倍。
    */
-  const MAP_AVG = new THREE.Color('#79805a'); // 贴图底色（linear 工作空间）
+  const MAP_AVG = new THREE.Color('#6b764c'); // 贴图底色（linear 工作空间）
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uMapAvg = { value: new THREE.Vector3(MAP_AVG.r, MAP_AVG.g, MAP_AVG.b) };
+    shader.uniforms.uDetailMap = { value: detailTex };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying float vTriDist;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvTriDist = -mvPosition.z;');
+      .replace('#include <common>', '#include <common>\nvarying float vTriDist;\nvarying vec3 vGroundPos;')
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nvTriDist = -mvPosition.z;\nvGroundPos = (modelMatrix * vec4(transformed,1.0)).xyz;'
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform vec3 uMapAvg;\nvarying float vTriDist;'
+        '#include <common>\nuniform vec3 uMapAvg;\nuniform sampler2D uDetailMap;\nvarying float vTriDist;\nvarying vec3 vGroundPos;'
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+  #ifdef USE_MAP
+    // ---- 近景细节层 ----
+    // 主贴图 12 m 一张，近景必然糊。叠一层高频细节，
+    // 24 m 之外淡出（远景本来也看不见细节）。
+    // 两个**互质**周期叠用 ⇒ 平铺网格规律被打散。
+    float dFade = 1.0 - smoothstep(4.0, 24.0, vTriDist);
+    if (dFade > 0.002) {
+      vec3 d1 = texture2D(uDetailMap, vGroundPos.xz * 0.72).rgb;
+      vec3 d2 = texture2D(uDetailMap, vGroundPos.xz * 0.27 + 0.37).rgb;
+      vec3 det = (d1 * 0.62 + d2 * 0.38) * 2.0;
+      diffuseColor.rgb *= mix(vec3(1.0), det, dFade * 0.42);
+    }
+  #endif`
       )
       .replace(
         '#include <color_fragment>',
@@ -280,7 +304,7 @@ export function buildTerrain(sceneData, opts = {}) {
   #endif`
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-fade-v1';
+  mat.customProgramCacheKey = () => 'terrain-fade-v2-detail';
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';

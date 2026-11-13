@@ -11,6 +11,37 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
+ * 把几何的属性集归一成 **position / normal / uv / color** 四个。
+ *
+ * ⚠ `mergeGeometries` 会逐个比对属性名与数量，
+ *   同一个桶里只要有一个几何多一个或少一个属性 ⇒ **整桶返回 null**
+ *   （只打一行 error，静默丢一桶几何）。
+ *
+ *   缺 `color` 的补一份全 1（= 不调制），
+ *   多的（uv1/uv2/tangent…）删掉。
+ *   顶点色是"贴图的调制系数"语义，全 1 就是不调制 ⇒ 语义安全。
+ */
+function normalizeAttrs(g) {
+  if (!g || !g.attributes || !g.attributes.position) return g;
+  if (!g.attributes.normal) g.computeVertexNormals();
+  if (!g.attributes.uv) {
+    const n = g.attributes.position.count;
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  }
+  if (!g.attributes.color) {
+    const n = g.attributes.position.count;
+    g.setAttribute(
+      'color',
+      new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3)
+    );
+  }
+  for (const k of Object.keys(g.attributes)) {
+    if (!['position', 'normal', 'uv', 'color'].includes(k)) g.deleteAttribute(k);
+  }
+  return g;
+}
+
+/**
  * 把 group 里的所有 Mesh 按材质名合并，返回同一个 group。
  * 非 Mesh 的子节点（灯光、组）原样保留。
  *
@@ -50,6 +81,17 @@ export function mergeGroupByMaterial(group) {
         if (!buckets.has(key)) buckets.set(key, { mat, geos: [] });
         const g = child.geometry.clone();
         g.applyMatrix4(child.matrixWorld);
+        // ⚠⚠ **属性集必须统一**（和索引状态一样）。
+        //   `mergeGeometries` 逐个比对属性名与数量，
+        //   同一个材质桶里只要有一个几何多/少一个属性 ⇒ **整桶返回 null**。
+        //
+        //   实测：给中式建筑的墙件补上 `color` 顶点色之后，
+        //   同一个 'wall' 桶里混进了没有 color 的屋面/线脚几何 ⇒
+        //   「合并材质桶 返回 null（该桶的 N 个几何会整桶消失）」，
+        //   而且这里抛的是**未捕获异常** ⇒ 整个场景构建中断、页面白屏。
+        //
+        //   ⇒ 合并前把每个几何归一成同一套属性：position/normal/uv/color。
+        normalizeAttrs(g);
         buckets.get(key).geos.push(g);
       } else if (child.isGroup || child.children?.length) {
         collect(child);

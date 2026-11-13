@@ -124,12 +124,34 @@ export function buildBuilding(spec) {
 
   // 合并前统一几何格式：ExtrudeGeometry 是非索引的、有些构件没有 uv，
   // 直接混合会让 mergeGeometries 静默返回 null（那一整个材质桶就没了）。
+  //
+  // ⚠⚠ **属性集必须完全一致**，不只是"有 position/normal/uv"就够。
+  //   `mergeGeometries` 逐个比对属性名与数量，
+  //   少一个就整桶失败（只打一行 error、返回 null）。
+  //
+  //   实测：`structure.js → applyTint` 给部分墙构件写了 **color** 顶点色
+  //   （大尺度调制、打散砖贴图周期），其余墙件没有 ⇒
+  //   「wall 几何合并失败（N 件），退回单件」——
+  //   每座建筑退化成 N 个单独 mesh ⇒ draw call 线性膨胀，
+  //   且桶内其他构件（墙裙/砖缝线脚）全部丢失。
+  //
+  //   ⇒ 统一成 **position / normal / uv / color** 四个属性：
+  //   缺 color 的补一份全 1（= 不调制），多余的（uv1/tangent…）删掉。
   const normalizeGeo = (g) => {
     if (!g || !g.attributes) return null;
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!g.attributes.uv) {
       const n = g.attributes.position.count;
       g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+    }
+    if (!g.attributes.color) {
+      const n = g.attributes.position.count;
+      const arr = new Float32Array(n * 3).fill(1);
+      g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    }
+    // 只留这四个，多余属性（uv1/uv2/tangent/…）会让整桶合并失败
+    for (const key of Object.keys(g.attributes)) {
+      if (!['position', 'normal', 'uv', 'color'].includes(key)) g.deleteAttribute(key);
     }
     if (!g.index) {
       const n = g.attributes.position.count;

@@ -35,6 +35,12 @@ const RADIUS = 38; // 铺多大半径（m）
 const PER_CELL = 3; // 每格几丛 ⇒ 约 2 丛/m²
 const MAX_TUFTS = 12000; // 实例上限
 
+/** 平滑阶跃（与 terrain.js / water.js 同一套写法） */
+function smoothstep(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a || 1e-6)));
+  return t * t * (3 - 2 * t);
+}
+
 /* ---------------------------------------------------------------- 草丛几何 */
 
 /**
@@ -243,38 +249,65 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
     const c1 = Math.floor((camX + RADIUS) / CELL);
     const d0 = Math.floor((camZ - RADIUS) / CELL);
     const d1 = Math.floor((camZ + RADIUS) / CELL);
-    let n = 0;
+
+    // ⚠⚠ **按到相机的距离排序后再铺**。
+    //
+    // 原来按行扫描（cz 从小到大）填，填满 MAX_TUFTS 就停 ——
+    // 而 MAX_TUFTS 恰好约等于铺满整个方形区所需的丛数，
+    // 于是远处被拒的格子（水面/路面/建筑）挤占名额后，
+    // 扫描线后面的整片区域**一片草都没有**：
+    // 画面里出现一道**笔直的横向截断线**（实测在福海岸边可见）。
+    //
+    // 改成按距离由近及远填 ⇒ 名额永远优先给近处，
+    // 被截掉的必然是**最远**的一圈，而那一圈本来就要渐隐。
+    const cells = [];
     for (let cz = d0; cz <= d1; cz++) {
       for (let cx = c0; cx <= c1; cx++) {
-        const h = hash2(cx, cz);
-        for (let k = 0; k < PER_CELL && n < MAX_TUFTS; k++) {
-          const hh = hash2(cx * 31 + k, cz * 17 + k * 7);
-          const x = (cx + ((hh & 0xffff) / 65535)) * CELL;
-          const z = (cz + (((hh >>> 16) & 0xffff) / 65535)) * CELL;
-          if (!okAt(x, z)) continue;
-          const y = heightAt(x, z);
-          if (!isFinite(y)) continue;
-          // ⚠ 不能用"全局最高水位"当阈值 —— 那是别的湖的高程，
-          //   会把整片低地判成水里、��不长草。水的排除已在 okAt() 里
-          //   按**水面多边形**逐格判定 ✓。
-          // 坡度：太陡不长草
-          const gx = heightAt(x + 1.2, z) - heightAt(x - 1.2, z);
-          const gz = heightAt(x, z + 1.2) - heightAt(x, z - 1.2);
-          if (Math.hypot(gx, gz) > 1.6) continue;
-          const sc = 0.7 + ((h >>> 7) % 100) / 180; // 0.7 ~ 1.25
-          const rot = ((h >>> 13) % 360) * (Math.PI / 180);
-          p3.set(x, y - 0.03, z);
-          q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
-          scl.set(sc, sc * (0.85 + ((h >>> 19) % 100) / 130), sc);
-          mtx.compose(p3, q, scl);
-          inst.setMatrixAt(n, mtx);
-          // 每丛一点色差（黄绿↔蓝绿）
-          const t = ((h >>> 23) % 100) / 100;
-          // 每丛一点色差：偏黄的枯草 ↔ 偏蓝的嫩草（幅度要小，不然像撒了荧光棒）
-          colr.setRGB(0.80 + t * 0.30, 0.86 - t * 0.10, 0.72 - t * 0.30);
-          inst.setColorAt(n, colr);
-          n++;
-        }
+        const dx = (cx + 0.5) * CELL - camX;
+        const dz = (cz + 0.5) * CELL - camZ;
+        const dist = Math.hypot(dx, dz);
+        if (dist > RADIUS) continue; // 圆形边界，不要方形
+        cells.push([cx, cz, dist]);
+      }
+    }
+    cells.sort((a, b) => a[2] - b[2]);
+
+    let n = 0;
+    for (const [cx, cz, dist] of cells) {
+      const h = hash2(cx, cz);
+      // 边缘渐隐：越靠近铺展半径，草丛越小 ⇒ 没有硬边
+      const fade =
+        dist > RADIUS * 0.72
+          ? 1 - smoothstep(RADIUS * 0.72, RADIUS, dist)
+          : 1;
+      for (let k = 0; k < PER_CELL && n < MAX_TUFTS; k++) {
+        const hh = hash2(cx * 31 + k, cz * 17 + k * 7);
+        const x = (cx + ((hh & 0xffff) / 65535)) * CELL;
+        const z = (cz + (((hh >>> 16) & 0xffff) / 65535)) * CELL;
+        if (!okAt(x, z)) continue;
+        const y = heightAt(x, z);
+        if (!isFinite(y)) continue;
+        // ⚠ 不能用"全局最高水位"当阈值 —— 那是别的湖的高程，
+        //   会把整片低地判成水里、��不长草。水的排除已在 okAt() 里
+        //   按**水面多边形**逐格判定 ✓。
+        // 坡度：太陡不长草
+        const gx = heightAt(x + 1.2, z) - heightAt(x - 1.2, z);
+        const gz = heightAt(x, z + 1.2) - heightAt(x, z - 1.2);
+        if (Math.hypot(gx, gz) > 1.6) continue;
+        const sc = 0.7 + ((h >>> 7) % 100) / 180; // 0.7 ~ 1.25
+        const rot = ((h >>> 13) % 360) * (Math.PI / 180);
+        p3.set(x, y - 0.03, z);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+        const f = fade * sc;
+        scl.set(f, f * (0.85 + ((h >>> 19) % 100) / 130), f);
+        mtx.compose(p3, q, scl);
+        inst.setMatrixAt(n, mtx);
+        // 每丛一点色差（黄绿↔蓝绿）
+        const t = ((h >>> 23) % 100) / 100;
+        // 每丛一点色差：偏黄的枯草 ↔ 偏蓝的嫩草（幅度要小，不然像撒了荧光棒）
+        colr.setRGB(0.80 + t * 0.30, 0.86 - t * 0.10, 0.72 - t * 0.30);
+        inst.setColorAt(n, colr);
+        n++;
       }
     }
     inst.count = n;
