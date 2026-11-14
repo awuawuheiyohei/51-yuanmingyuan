@@ -599,12 +599,25 @@ export function paperMaterial() {
     map.needsUpdate = true;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(7, 7);   // 纤维要细：repeat 太小 ⇒ 看着像麻布
+    //
+    // ⚠⚠ **棂心背板必须压暗、且不能自发光**（2026-11-14）。
+    //
+    //   原来：color 0xe2d2a8（linear ≈ 0.72）+ emissive 0x55461f / 0.3
+    //   ⇒ 棂心在**日光下自己发光**，比朱红棂条还亮，
+    //   整片立面读作"一张米黄色的方格纸"（AGENTS 的坑表里
+    //   「每栋殿的彩画带一模一样」「格心的步步锦像贴图」，
+    //   真凶其实是**背板太亮**，把实体棂条的立体感全吃掉了）。
+    //
+    //   真实槅扇：背板后面是**暗的殿内**，只有天光透过绢纱 ⇒
+    //   棂心是一块**偏暗的暖色**，朱红棂条在其上清清楚楚地浮出来。
     return new THREE.MeshStandardMaterial({
       map,
-      color: 0xe2d2a8,
-      emissive: 0x55461f,
-      emissiveIntensity: 0.3,
-      roughness: 0.92,
+      // 中性偏暖的暗色（不要发绿：绢纱在暗殿里是灰暖的，不是橄榄绿）
+      color: 0x5f574a,
+      // 绢纱透一点天光，但**不能发光** —— 自发光会让它在正午也亮成一张白纸
+      emissive: 0x241c0d,
+      emissiveIntensity: 0.06,
+      roughness: 0.95,
       metalness: 0,
       side: THREE.DoubleSide,
     });
