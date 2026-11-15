@@ -142,9 +142,22 @@ export function buildYuLu(width, h, depth) {
   // 斜坡石：长度取**真实斜坡长**（原来固定 depth*1.85 ⇒ 一头戳进台基、一头悬空）
   const slopeLen = Math.hypot(h, depth) * 1.06;
   const ang = Math.atan2(h, depth);
-  const slab = new THREE.BoxGeometry(width, 0.16, slopeLen);
-  slab.rotateX(ang); // ⚠ 必须是 +ang：+Z 端**下降**才与踏跺同向（负号会让御路翘成一块楔子）
-  parts.push(slab);
+  //
+  // ⚠⚠ **御路要逐块石板**（AGENTS.md 硬要求："逐块石板御路"）。
+  //   原来只造**一整条** BoxGeometry ⇒ 近景是一块**光板**，
+  //   读作"一块斜放的水泥板"，而不是石作。
+  //   ⇒ 沿坡向切成若干块，块间留 2 cm 石缝 ⇒ 读作逐块砌的御路石。
+  const N = Math.max(3, Math.round(slopeLen / 1.6));
+  const blockLen = slopeLen / N;
+  const joint = 0.02;
+  for (let i = 0; i < N; i++) {
+    // ⚠ 先在**局部 Z 向**摆好，再 rotateX —— 旋转的支点在御路中心。
+    const zc = -slopeLen / 2 + blockLen * (i + 0.5);
+    const b = new THREE.BoxGeometry(width, 0.16, blockLen - joint);
+    b.translate(0, 0, zc);
+    b.rotateX(ang);
+    parts.push(b);
+  }
   // 两侧雕线（凸起的宽边条）
   //
   // ⚠ 原来只有 6cm 高、贴在 16cm 厚的御路板上 ⇒ 从斜上方看几乎看不见，

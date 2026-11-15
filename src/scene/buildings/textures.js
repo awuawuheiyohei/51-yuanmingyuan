@@ -1186,15 +1186,21 @@ export function stoneFace(tint = '#a9a49b', blobScale = 1) {
   //
   // ⚠ **必须 3×3 wrap**：三平面投影会把这张贴图平铺成 1.5m 一格，
   //   跨边的笔画被切断 ⇒ 每一格边界都出现一条可见的接缝。
+  //
+  // ⚠⚠ **石脉必须又短又淡**（2026-11-15）。
+  //   原来：长 30~210px、宽 0.8~3px、rgba(236,232,222, 0.09~0.22) ——
+  //   贴图周期 1.5 m ⇒ 一条 0.6 m 长、9 mm 宽的**近白细线**，
+  //   在踏跺/御路/须弥座上读作**白头发、划痕、刮花的胶片**（近景一眼假）。
+  //   ⇒ 压到 20~90px、0.7~1.6px、alpha 0.04~0.09、色相也压暗。
   for (let i = 0; i < 26; i++) {
     const x = rnd() * S;
     const y = rnd() * S;
-    const len = 30 + rnd() * 180;
+    const len = 20 + rnd() * 70;
     const a = (rnd() - 0.5) * 0.9 + (rnd() < 0.5 ? 0 : Math.PI / 2);
     const cx = x + Math.cos(a) * len * 0.5 + (rnd() - 0.5) * 22;
     const cy = y + Math.sin(a) * len * 0.5 + (rnd() - 0.5) * 22;
-    g.strokeStyle = `rgba(236,232,222,${(0.09 + rnd() * 0.13).toFixed(3)})`;
-    g.lineWidth = 0.8 + rnd() * 2.2;
+    g.strokeStyle = `rgba(206,202,192,${(0.04 + rnd() * 0.05).toFixed(3)})`;
+    g.lineWidth = 0.7 + rnd() * 0.9;
     for (const ox of [-S, 0, S]) {
       for (const oy of [-S, 0, S]) {
         g.beginPath();
@@ -1217,8 +1223,9 @@ export function stoneFace(tint = '#a9a49b', blobScale = 1) {
     const y = rnd() * S;
     const len = 1.4 + rnd() * 2.6; // ≈ 4~11mm
     const a = rnd() * Math.PI * 2;
+    // ⚠ 亮点凿也要压：白点太亮会叠成"划痕感"，只留一点点高光。
     g.strokeStyle = rnd() < 0.55
-      ? `rgba(255,255,255,${(rnd() * 0.2).toFixed(3)})`
+      ? `rgba(248,246,240,${(rnd() * 0.11).toFixed(3)})`
       : `rgba(56,54,50,${(rnd() * 0.26).toFixed(3)})`;
     g.lineWidth = 1.4 + rnd() * 1.4; // 粗 ⇒ 读作凿坑不是划痕
     g.lineCap = 'round';
