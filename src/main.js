@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrain, makeHeightSampler } from './scene/terrain.js';
 import { buildWater, animateWater } from './scene/water.js';
+import { buildParkWall } from './scene/park-wall.js';
 import { buildRockery, preloadRockAssets } from './scene/nature.js';
 import { buildTrees } from './scene/trees.js';
 import { buildLeafDetail } from './scene/leaf-detail.js';
@@ -579,6 +580,13 @@ async function loadScene() {
   const terrain = buildTerrain(sceneData);
   scene.add(terrain);
   mark('地形');
+
+  // 园墙（虎皮石）：圆明园围墙是确证存在的皇家界墙，
+  // 原来只体现在地形顶点色上 ⇒ 俯视是一道笔直的色块边界。
+  // 高度/墙厚/素顶为**推定**（见 park-wall.js 文件头）。
+  const parkWall = buildParkWall(sceneData.park || [], heightAt);
+  scene.add(parkWall);
+  mark('园墙');
 
   const water = buildWater(sceneData);
   waterGroup.current = water;
