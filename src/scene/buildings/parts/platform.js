@@ -195,11 +195,39 @@ export function buildSteps(width, h, depth, dirZ = -1) {
    */
   const FLARE = 0.07;
 
+  /**
+   * 每级踏步 = **阶条（踏面）+ 阶石（踢面）**，且踏面**分块**。
+   *
+   * ⚠ 原来每级是**一整块** BoxGeometry ⇒ 踏面是一条连续的光板，
+   *   近景读作"清水混凝土楼梯"，没有石作感。
+   *   真实踏跺的踏面是**逐块阶条石**砌成的，块间有缝。
+   *
+   * 块的**长边顺进深方向**（缝垂直于建筑正面）——
+   * 这与真实做法一致（阶条石顺垂带方向排布）。
+   */
+  const TREAD = 0.09; // 阶条厚
+  const JOINT = 0.025; // 石缝
   for (let i = 0; i < n; i++) {
     const w = width + (n - i) * FLARE;
-    const g = new THREE.BoxGeometry(w, stepH + 0.02, stepD * 1.2);
-    g.translate(0, stepH * (i + 0.5), dirZ * (depth * 0.5 + stepD * (n - i - 0.5)));
-    parts.push(g);
+    const zc = dirZ * (depth * 0.5 + stepD * (n - i - 0.5));
+
+    // 阶石（踢面 + 主体）
+    const riser = new THREE.BoxGeometry(w, stepH + 0.02 - TREAD, stepD * 1.2);
+    riser.translate(0, stepH * (i + 0.5) - TREAD * 0.5, zc);
+    parts.push(riser);
+
+    // 阶条（踏面）：沿 X 分块，块间留缝
+    const nSlab = Math.max(2, Math.round(w / 1.2));
+    const slabW = w / nSlab;
+    for (let k = 0; k < nSlab; k++) {
+      const t = new THREE.BoxGeometry(slabW - JOINT, TREAD, stepD * 1.2);
+      t.translate(
+        -w / 2 + slabW * (k + 0.5),
+        stepH * (i + 1) + 0.01 - TREAD * 0.5,
+        zc
+      );
+      parts.push(t);
+    }
   }
 
   /**
