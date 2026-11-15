@@ -137,12 +137,36 @@ const _col = new THREE.Color();
 /** 给几何体刷上顶点色（sRGB 十六进制 → 线性工作空间） */
 function tint(geo, hex) {
   _col.set(hex);
-  const n = geo.attributes.position.count;
+  const pos = geo.attributes.position;
+  const n = pos.count;
   const arr = new Float32Array(n * 3);
+  //
+  // ⚠⚠ **每个构件要带"上亮下暗"的受光渐变**（2026-11-15）。
+  //
+  //   原来整片顶点色是**同一个值** ⇒ 长袍是一个**完全光滑的彩色圆锥**，
+  //   近看（8 m）读作"塑料棋子"，完全没有体积。
+  //
+  //   人物的程序化放样几何**没有 UV** ⇒ 贴图/normalMap 都用不了
+  //   ⇒ 体积感只能靠**顶点色**。
+  //
+  //   做法：按该构件**自身包围盒的高度**做竖向渐变
+  //   （下缘 0.70 自遮挡、上缘 1.06 受天光）。
+  //   ⚠ 用**构件自己的包围盒**而不是世界 Y：
+  //   不同人物站在不同地面高程上，世界 Y 会让高地上的人整体偏亮。
+  //
+  //   幅度要**温和**：构件越小（如斗笠、担子）渐变越不显著，
+  //   否则小构件会出现"一头亮一头暗"的怪相。
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const h = Math.max(1e-4, bb.max.y - bb.min.y);
+  // 渐变幅度随构件高度收敛：小件弱、大件强
+  const amp = Math.min(1, h / 0.8);
   for (let i = 0; i < n; i++) {
-    arr[i * 3] = _col.r;
-    arr[i * 3 + 1] = _col.g;
-    arr[i * 3 + 2] = _col.b;
+    const t = (pos.getY(i) - bb.min.y) / h; // 0=底 1=顶
+    const k = 1 + (0.06 * t - 0.30 * (1 - t)) * amp;
+    arr[i * 3] = _col.r * k;
+    arr[i * 3 + 1] = _col.g * k;
+    arr[i * 3 + 2] = _col.b * k;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
   return geo;
