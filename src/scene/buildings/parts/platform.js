@@ -207,8 +207,17 @@ export function buildSteps(width, h, depth, dirZ = -1) {
    */
   const TREAD = 0.09; // 阶条厚
   const JOINT = 0.025; // 石缝
+  //
+  // ⚠⚠ 踏步外沿必须落在**一条直线**上（垂带内侧面那条），不能是逐级退台的折线。
+  //   原来：每级宽度 = width + (n-i)*FLARE ⇒ 外沿是**折线**，
+  //   而垂带内侧面是**直线** ⇒ 两者对不上，
+  //   每级之间漏出**黑色三角缝**（近景一眼可见）。
+  //   ⇒ 改成：第 i 级的外沿 x = 直线在 y = stepH*(i+1) 处的取值。
+  const FLARE_TOTAL = FLARE * n; // 从底到顶的总收进量（与原来等量）
+  const edgeAt = (y) => width / 2 + FLARE_TOTAL * (1 - y / h);
   for (let i = 0; i < n; i++) {
-    const w = width + (n - i) * FLARE;
+    const yTop = stepH * (i + 1);
+    const w = 2 * edgeAt(yTop);
     const zc = dirZ * (depth * 0.5 + stepD * (n - i - 0.5));
 
     // 阶石（踢面 + 主体）
@@ -233,32 +242,44 @@ export function buildSteps(width, h, depth, dirZ = -1) {
   /**
    * 垂带（两侧斜立的长条石）。
    *
-   * ⚠ 原来做成 `BoxGeometry(0.42, 0.16, 长)` —— **宽 42cm、厚 16cm 的扁条**躺在斜面上，
-   *   整条埋进台阶里 ⇒ 踏跺两侧是光的（AGENTS.md 硬要求："踏跺有垂带"）。
+   * ⚠⚠⚠ 2026-11-16 修：**倾转角原来算反了**（这是"垂带与踏步之间一排黑缝"
+   * 的真正根因）。
    *
-   * 真实的垂带是一条**斜立的长石**，把台阶锯齿状的侧沿包成一条直线。
-   * 所以它的截面在 **X-Y 平面**里是一块楔形（不是绕 Z 倾斜的扁条）：
-   *   外侧面 = 从台阶底缘 (xBot, 0) 到顶缘 (xTop, h) 的直线；
-   *   内侧面 = 沿同样的方向平移 bandT。
+   *   `bandAng = atan2(h, run)` 是那条斜线**相对水平**的夹角；
+   *   而 `rotateZ(θ)` 转的是**相对竖直**的角度 ——
+   *   直接把 bandAng 传给 rotateZ ⇒ 垂带被放成**几乎水平**，
+   *   横着躺开 1.5 m 穿过整座踏步（近景看就是一块斜插的大板），
+   *   它的内侧面压根贴不住踏步 ⇒ 到处漏出黑色三角缝。
+   *
+   *   ⇒ 正确：`rotateZ(sx * (π/2 − bandAng))` ⇒ 垂带立起来，
+   *   长轴沿那条近垂直的斜边，内侧面正好压在踏步外沿上。
+   *
+   * 配套：踏步外沿也改成落在**同一条直线**上（见上面 edgeAt），
+   * 两者才严丝合缝。
    */
   const bandT = 0.12; // 厚度（沿 X）
-  const xTop = width / 2 + FLARE * 0.5;
-  const xBot = width / 2 + FLARE * n * 0.5;
+  const bandW = 0.3; // 带宽（垂直于坡向）
+  const xTop = width / 2;
+  const xBot = width / 2 + FLARE_TOTAL;
   const run = xBot - xTop;
   const bandLen = Math.hypot(run, h);
-  const bandAng = Math.atan2(h, run);
+  const bandAng = Math.atan2(h, run); // 斜边相对水平的夹角
+  const bandTilt = Math.PI / 2 - bandAng; // 相对竖直的倾角
   for (const sx of [-1, 1]) {
     const g = new THREE.BoxGeometry(bandT, bandLen, depth * 1.02);
-    // 绕 Z 轴倾斜 ⇒ 外侧面正好落在台阶侧沿的连线上
-    g.rotateZ(sx * bandAng);
+    // 绕 Z 轴倾斜 ⇒ 长轴沿斜边、内侧面压在踏步外沿上
+    g.rotateZ(sx * bandTilt);
     g.translate(sx * ((xTop + xBot) / 2), h / 2, dirZ * depth);
     parts.push(g);
-    // 垂带顶上的**压条**（一条细线脚）
+    // 垂带顶上的**压条**（一条细线脚）—— 贴在垂带顶端、略向外挑
     const cap = new THREE.BoxGeometry(bandT + 0.05, 0.05, depth * 1.02);
-    cap.rotateZ(sx * bandAng);
+    cap.rotateZ(sx * bandTilt);
+    // 垂带长轴（局部 +Y）转过之后的方向
+    const axX = sx * Math.cos(bandAng);
+    const axY = Math.sin(bandAng);
     cap.translate(
-      sx * ((xTop + xBot) / 2),
-      h / 2 + (bandLen / 2) * Math.cos(bandAng),
+      sx * ((xTop + xBot) / 2) + axX * (bandLen / 2) + sx * 0.025,
+      h / 2 + axY * (bandLen / 2) + 0.025 * Math.cos(bandAng),
       dirZ * depth
     );
     parts.push(cap);
