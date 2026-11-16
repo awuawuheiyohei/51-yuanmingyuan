@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildDragonRelief, placeReliefOnSlope } from './dragon-relief.js';
 
 /**
  * 覆盆式柱础：上小下大的圆台 + 一圈束腰
@@ -169,6 +170,24 @@ export function buildYuLu(width, h, depth) {
     e.rotateX(ang);
     e.translate(sx * width * 0.44, 0.115, 0);
     parts.push(e);
+  }
+
+  // ---- 中央云龙浮雕 ----
+  //
+  // ⚠ 御路中间按考据（清代官式御路中央即云龙石雕）应当是**云龙**，
+  //   原来只有两侧的雕线边条、中间是光板 ⇒ "御路有雕线"只做了一半。
+  //
+  // 做法：几何浮雕（不是贴图）—— 凸起的龙身与云头在斜坡上**投出自己的影子**，
+  // 一眼就能读出"这是刻出来的"；贴图画的龙永远只是"一张画着龙的板"。
+  //
+  // 尺寸按御路实际尺度参数化（御路约 2.85 m 宽 × 2.3 m 长），
+  // 浮雕底面贴在斜坡板顶（局部 y = 0.08），凸起高度与两侧边条齐平。
+  {
+    const bandW = width * 0.7; // 两条边条之间的可雕带宽
+    const bandL = slopeLen * 0.86;
+    const relief = buildDragonRelief(bandW, bandL);
+    parts.push(placeReliefOnSlope(relief, ang, 0.08));
+    relief.dispose();
   }
   const g = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
