@@ -32,8 +32,8 @@ import * as THREE from 'three';
 
 const CELL = 1.2; // 网格边长（m）
 const RADIUS = 38; // 铺多大半径（m）
-const PER_CELL = 3; // 每格几丛 ⇒ 约 2 丛/m²
-const MAX_TUFTS = 12000; // 实例上限
+const PER_CELL = 8; // 每格几丛 ⇒ 约 5.5 丛/m²（草坪要**密**）
+const MAX_INST = 26000; // 实例上限
 
 /** 平滑阶跃（与 terrain.js / water.js 同一套写法） */
 function smoothstep(a, b, x) {
@@ -80,11 +80,14 @@ function bladeGeometry(h, w, bend) {
 /** 一丛：6 片草叶绕 Y 均布，各带一点外倾与长短差 */
 function tuftGeometry() {
   const parts = [];
-  const N = 6;
+  const N = 5;
   for (let i = 0; i < N; i++) {
     const a = (i / N) * Math.PI * 2 + 0.37;
-    const h = 0.115 + ((i * 37) % 11) / 85; // 0.115 ~ 0.24 m（草地草，不是芦苇）
-    const b = bladeGeometry(h, 0.011, 0.028 + ((i * 53) % 7) / 160);
+    // ⚠ 2026-11-15：**压低到 0.055~0.115 m**（修剪过的草坪）。
+    //   原来 0.115~0.24 m ⇒ 近景是一丛丛**齐腰的杂草**插在平地上，
+    //   读作"荒地"而不是"草坪"。
+    const h = 0.055 + ((i * 37) % 11) / 185; // 0.055 ~ 0.115 m
+    const b = bladeGeometry(h, 0.008, 0.020 + ((i * 53) % 7) / 220);
     b.rotateY(a);
     b.rotateX(((i * 29) % 9) / 60);
     parts.push(b);
@@ -170,7 +173,7 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
   tuft.setIndex(new THREE.BufferAttribute(idx, 1));
   tuft.computeBoundingSphere();
 
-  const inst = new THREE.InstancedMesh(tuft, mat, MAX_TUFTS);
+  const inst = new THREE.InstancedMesh(tuft, mat, MAX_INST);
   inst.name = 'grass-tufts';
   inst.castShadow = false;
   inst.receiveShadow = true;
@@ -252,8 +255,8 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
 
     // ⚠⚠ **按到相机的距离排序后再铺**。
     //
-    // 原来按行扫描（cz 从小到大）填，填满 MAX_TUFTS 就停 ——
-    // 而 MAX_TUFTS 恰好约等于铺满整个方形区所需的丛数，
+    // 原来按行扫描（cz 从小到大）填，填满 MAX_INST 就停 ——
+    // 而 MAX_INST 恰好约等于铺满整个方形区所需的丛数，
     // 于是远处被拒的格子（水面/路面/建筑）挤占名额后，
     // 扫描线后面的整片区域**一片草都没有**：
     // 画面里出现一道**笔直的横向截断线**（实测在福海岸边可见）。
@@ -280,7 +283,7 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
         dist > RADIUS * 0.72
           ? 1 - smoothstep(RADIUS * 0.72, RADIUS, dist)
           : 1;
-      for (let k = 0; k < PER_CELL && n < MAX_TUFTS; k++) {
+      for (let k = 0; k < PER_CELL && n < MAX_INST; k++) {
         const hh = hash2(cx * 31 + k, cz * 17 + k * 7);
         const x = (cx + ((hh & 0xffff) / 65535)) * CELL;
         const z = (cz + (((hh >>> 16) & 0xffff) / 65535)) * CELL;
