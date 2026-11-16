@@ -35,7 +35,11 @@
 
 /** 瓦色键 → 材质参数 */
 export const TILE_COLORS = {
-  hui:   { glazed: false, color: '#9aa2a8' }, // 灰瓦（青瓦）
+  // ⚠⚠ 2026-11-16：灰瓦色由 '#9aa2a8' 压到 **'#6e7176'**，与中式青瓦
+  //   （`buildings/materials.js → roofMaterial` 里硬编码的 0x6e7176）**统一**。
+  //   原色 linear≈0.31，在本场景 ~3.4 倍照度下渲成 sRGB≈0.87 的**惨白**，
+  //   谐奇趣东西两侧的**抄手游廊屋面**因此读作两块**白铁皮**（"瓦楞铁皮墙"）。
+  hui:   { glazed: false, color: '#6e7176' }, // 灰瓦（青瓦）
   huang: { glazed: true,  color: '#d9a419' }, // 黄琉璃
   lv:    { glazed: true,  color: '#2f7a4a' }, // 绿琉璃
   keque: { glazed: true,  color: '#1d8b81' }, // 孔雀绿琉璃

@@ -290,16 +290,21 @@ export function buildHarmonyHall(c, opts) {
         c.add('stone', cap);
       }
     }
+    // ⚠⚠ 2026-11-16：**起翘与鼓起收小、坡度加大**。
+    //   原来 rise 只有 1.0 m（3.6 m 宽、20 m 长的廊子屋面几乎是平的），
+    //   而 upturn 0.4 / bulge 0.25 对这样的小屋面**起翘过大** ⇒
+    //   两端卷起、整片读作一块**弯起来的白铁皮**（"瓦楞铁皮墙"）。
+    //   ⇒ 坡度提到 1.5 m，起翘/鼓起收到只剩"微微翘檐"的量。
     const rf = buildRoof({
       width: cw,
       depth: cl,
       eaveY: 3.3,
-      rise: 1.0,
+      rise: 1.5,
       type: 'yingshan',
       overhang: 0.9,
       overhangX: 0.8,
-      upturn: 0.4,
-      bulge: 0.25,
+      upturn: 0.12,
+      bulge: 0.08,
     });
     for (const [k, list] of rf.geoms) {
       const bucket =

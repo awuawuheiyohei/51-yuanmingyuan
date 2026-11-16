@@ -391,17 +391,43 @@ function buildLuDing(c, rw, rd, tw, td, rh, y0) {
     [0, Math.sin(az), Math.cos(az)], [0, Math.cos(az), -Math.sin(az)],
     { x: Math.PI / 2 - az }
   );
-  // 东坡：上坡 (-sin, cos, 0)，外法线 (cos, sin, 0)，绕 Z 转 ax
+  //
+  // ⚠⚠⚠ **东西两坡的上坡向量与外法线向量原来写反了**（2026-11-16 修，
+  //   这是"西洋楼瓦楞铁皮墙"的**真正根因**，追了三轮才定位）。
+  //
+  //   盝顶东西坡：檐口在**外**缘（x = ±rw/2），脊在**内**缘（x = ±tw/2），
+  //   所以"上坡"是**向内**走的，几乎水平（坡角 ax ≈ 11°）：
+  //
+  //     东坡：上坡 = (-cos ax, sin ax, 0)   ← 几乎水平、向内、略升
+  //           外法线 = ( sin ax, cos ax, 0)  ← 几乎竖直、朝上偏外
+  //     西坡：上坡 = ( cos ax, sin ax, 0)
+  //           外法线 = (-sin ax, cos ax, 0)
+  //
+  //   原来写成：
+  //     东坡：上坡 = (-sin ax, cos ax, 0)  ← **几乎竖直**！
+  //           外法线 = ( cos ax, sin ax, 0)
+  //     西坡：上坡 = ( sin ax, cos ax, 0)  ← **几乎竖直**！
+  //           外法线 = (-cos ax, sin ax, 0)
+  //
+  //   ⇒ 8.97 m 长的筒瓦垄被**立起来**（包围盒高 8.8 m），
+  //     一片竖着的瓦楞栅栏从屋顶戳出来 ⇒ 远看就是一块**白铁皮/瓦楞板**。
+  //   （南北坡的向量本来就是对的，所以只有东西两坡出错。
+  //     探针实测：tile-hui 桶里有 58 件 h=8.8 / w=2.0 / d=0.3。）
+  //
+  // 绕转角也要跟着改：rotateZ(φ) 把 +Y 映射到 (-sinφ, cosφ, 0)，
+  // 要得到 (-cos ax, sin ax, 0) ⇒ φ = π/2 − ax。
+  //
+  // 东坡：上坡 (-cos, sin, 0)，外法线 (sin, cos, 0)，绕 Z 转 π/2−ax
   strips(
     rd, lx, [rw / 2, y0, 0], [0, 0, 1],
-    [-Math.sin(ax), Math.cos(ax), 0], [Math.cos(ax), Math.sin(ax), 0],
-    { z: ax }
+    [-Math.cos(ax), Math.sin(ax), 0], [Math.sin(ax), Math.cos(ax), 0],
+    { z: Math.PI / 2 - ax }
   );
-  // 西坡：上坡 (sin, cos, 0)，外法线 (-cos, sin, 0)，绕 Z 转 -ax
+  // 西坡：上坡 (cos, sin, 0)，外法线 (-sin, cos, 0)，绕 Z 转 −(π/2−ax)
   strips(
     rd, lx, [-rw / 2, y0, 0], [0, 0, 1],
-    [Math.sin(ax), Math.cos(ax), 0], [-Math.cos(ax), Math.sin(ax), 0],
-    { z: -ax }
+    [Math.cos(ax), Math.sin(ax), 0], [-Math.sin(ax), Math.cos(ax), 0],
+    { z: -(Math.PI / 2 - ax) }
   );
 
   /* ---- ③ 顶上那块小平顶（石板） + 檐口石线脚 ---- */

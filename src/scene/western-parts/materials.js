@@ -21,7 +21,7 @@ import {
   dougongMaterial,
   boardMaterial,
 } from '../buildings/materials.js';
-import { roofTilesNormal, rusticatedStone } from '../buildings/textures.js';
+import { roofTiles, roofTilesNormal, rusticatedStone } from '../buildings/textures.js';
 import { TILE_COLORS } from '../scenes-program.js';
 
 /**
@@ -124,8 +124,18 @@ export function createCollector(materials) {
         //   ⇒ 不施釉的另起一个**哑光**桶。
         const spec = TILE_COLORS[b.slice(5)];
         if (spec) {
-          tint(geo, spec.color);
-          b = spec.glazed ? 'tile' : 'tilePlain';
+          if (spec.glazed) {
+            // 琉璃：颜色逐条考据 ⇒ 刷成顶点色（同一桶、多色）
+            tint(geo, spec.color);
+            b = 'tile';
+          } else {
+            // ⚠⚠ 素瓦（灰瓦）：**不刷顶点色**。
+            //   原来把 '#9aa2a8' 刷成顶点色，而 tilePlain 材质**只有法线图、没有颜色贴图**
+            //   ⇒ 屋面是一块**毫无纹理的光板**，加上 3.4 倍照度 ⇒ 读作**白铁皮**。
+            //   ⇒ 素瓦改为与**中式青瓦完全一致**的做法：
+            //   颜色由材质固有色承担（0x6e7176），纹理由同一张屋面贴图提供。
+            b = 'tilePlain';
+          }
         }
       } else if (BUCKET_ALIAS[b]) {
         b = BUCKET_ALIAS[b];
@@ -708,14 +718,20 @@ export function makeWesternMaterials() {
    *   用同一套参数 ⇒ 灰瓦屋顶在阳光下反射成**奶油白的瓦楞板**。
    */
   const tilePlain = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
+    // ⚠⚠ **必须有颜色贴图**（2026-11-16）。
+    //   原来只有 normalMap、没有 map ⇒ 屋面是一块**毫无纹理的光板**，
+    //   在 3.4 倍照度下读作**白铁皮**（谐奇趣两侧抄手游廊屋面最明显）。
+    //   ⇒ 改用与**中式青瓦同一张**屋面贴图（`roofTiles()`），
+    //   颜色由固有色 0x6e7176 承担 —— 两边屋面从此完全一致。
+    map: roofTiles().map?.clone() || null,
+    color: 0x6e7176,
+    side: THREE.DoubleSide,
     normalMap: roofTilesNormal(),
     // 素瓦的瓦垄比琉璃明显（釉面把凹凸填平了）
-    normalScale: new THREE.Vector2(0.55, 0.55),
-    roughness: 0.82,
+    normalScale: new THREE.Vector2(0.85, 0.85),
+    roughness: 0.88,
     metalness: 0.0,
-    envMapIntensity: 0.35,
+    envMapIntensity: 0.5,
   });
 
   const mats = {
