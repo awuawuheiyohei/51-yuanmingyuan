@@ -292,12 +292,36 @@ export function buildDaShuiFa(c, opts) {
     pl.rotateY(a);
     pl.translate(px, 0.0, pz);
     c.add('stone', pl);
-    // 盆中三层线法松（简化为三层叠置的绿丛）
+    // 盆中三层线法松
+    //
+    // 考据：大水法「安放带座石花盆，内植三层线法松」
+    // —— 三层是**制度**，层形是**手剪出来的云片**（边缘有起伏、有缺口）。
+    //
+    // ⚠ 2026-11-17 原来每层是**一个光滑的压扁椭球** ⇒ 三层叠起来
+    //   读作**一摞蘑菇**（近景一眼假）。
+    //   ⇒ 每层改成 6~8 片子叶团围成的**不规则云片**，
+    //     单片小、扁、位置带随机 ⇒ 轮廓碎开，读作一丛修剪过的松。
     for (let k = 0; k < 3; k++) {
-      const t = sph(0.62 - k * 0.13, 8, 6);
-      t.scale(1.25, 0.62, 1.25);
-      t.translate(px, 1.35 + k * 0.36, pz);
-      c.add('green', t);
+      const R = 0.62 - k * 0.13;
+      const y0 = 1.35 + k * 0.36;
+      const lobes = 6 + (i % 3);
+      for (let b = 0; b < lobes; b++) {
+        const a = (b / lobes) * Math.PI * 2 + k * 0.7;
+        const rr = R * (0.58 + 0.42 * (((b * 37 + i * 11) % 7) / 7));
+        const t = sph(rr * (0.62 + 0.3 * (((b * 53 + k * 7) % 5) / 5)), 8, 6);
+        t.scale(1.3, 0.55, 1.3);
+        t.translate(
+          px + Math.cos(a) * R * 0.72,
+          y0,
+          pz + Math.sin(a) * R * 0.72
+        );
+        c.add('green', t);
+      }
+      // 中心补一小团，避免云片中间是空的
+      const ctr = sph(R * 0.58, 8, 6);
+      ctr.scale(1.22, 0.6, 1.22);
+      ctr.translate(px, y0, pz);
+      c.add('green', ctr);
     }
   }
 

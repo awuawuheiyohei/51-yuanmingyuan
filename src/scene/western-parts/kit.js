@@ -162,11 +162,16 @@ export function ornamentalTree(h = 5, seed = 1) {
       wood.push(g2);
 
       // 叶簇：几个压扁椭球围成一团，不是正球
-      const nBlob = 3 + Math.floor(rnd() * 2);
-      const cr = h * (0.085 + rnd() * 0.045);
+      //
+      // ⚠ 2026-11-17 **叶团加多、压扁减轻**（3~4 个 → 6~9 个；y 压到 0.62~0.86 → 0.74~0.98）：
+      //   原来一棵树只有三四片**压得很扁**的椭球、还上下叠着 ⇒ 远看是
+      //   **一摞绿碟**（"修剪过的蘑菇"），不是一棵树。
+      //   ⇒ 叶团多一倍、单片小一点、扁一点 ⇒ 轮廓碎开、读作一团叶。
+      const nBlob = 6 + Math.floor(rnd() * 3);
+      const cr = h * (0.072 + rnd() * 0.04);
       for (let b = 0; b < nBlob; b++) {
-        const blob = new THREE.SphereGeometry(cr * (0.72 + rnd() * 0.5), 12, 9);
-        blob.scale(1, 0.62 + rnd() * 0.24, 1);
+        const blob = new THREE.SphereGeometry(cr * (0.72 + rnd() * 0.5), 10, 7);
+        blob.scale(1, 0.74 + rnd() * 0.24, 1);
         blob.rotateY(rnd() * Math.PI * 2);
         blob.rotateX((rnd() - 0.5) * 0.6);
         blob.translate(
@@ -180,10 +185,10 @@ export function ornamentalTree(h = 5, seed = 1) {
   }
 
   // 树顶叶簇（收头，避免顶部秃头）
-  for (let b = 0; b < 3; b++) {
-    const cr = h * 0.1;
-    const blob = new THREE.SphereGeometry(cr * (0.75 + rnd() * 0.4), 12, 9);
-    blob.scale(1, 0.7, 1);
+  for (let b = 0; b < 6; b++) {
+    const cr = h * 0.085;
+    const blob = new THREE.SphereGeometry(cr * (0.75 + rnd() * 0.4), 10, 7);
+    blob.scale(1, 0.82, 1);
     blob.rotateY(rnd() * Math.PI * 2);
     blob.translate(
       px + (rnd() - 0.5) * cr * 1.6,
@@ -2462,21 +2467,54 @@ function mulberry32Local(seed) {
   };
 }
 
-/** 从 A 射到 B 的水柱（兽首喷水用） */
+/**
+ * 从 A 射到 B 的水柱（兽首喷水用）。
+ *
+ * ⚠⚠ 2026-11-17 **改成抛物线 + 末端渐细**。
+ *
+ *   原来是一条**笔直的锥形管**（A→B 一根圆柱）⇒ 满屏**白色直棍**：
+ *   大水法的"层层喷水"是西洋楼最标志性的景观，却读作一堆插在草地上的白签子。
+ *
+ *   真实喷泉的水柱走**抛物线**（初速向上、途中受重力下落），
+ *   而且越往下越细、末端散成水花 ⇒ 远看是"一道弧线"，不是"一根棍"。
+ *
+ *   ⇒ 这里按「水平距离的 22%（上限 1.8 m）」起拱，沿抛物线切 8 段短管，
+ *     每段半径按 t 递减到 15% ⇒ 末端自然收细、消散。
+ */
 export function jetBetween(a, b, r = 0.10) {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const dz = b[2] - a[2];
-  const len = Math.hypot(dx, dy, dz) || 0.001;
-  const g = new THREE.CylinderGeometry(r * 0.72, r, len, 6, 1, true);
-  const q = new THREE.Quaternion().setFromUnitVectors(
-    new THREE.Vector3(0, 1, 0),
-    new THREE.Vector3(dx, dy, dz).normalize()
-  );
-  g.applyQuaternion(q);
-  g.translate(a[0] + dx / 2, a[1] + dy / 2, a[2] + dz / 2);
-  g.computeVertexNormals();
-  const out = tint(worldUV(g), 0xdceaf5);
+  const A = new THREE.Vector3(a[0], a[1], a[2]);
+  const B = new THREE.Vector3(b[0], b[1], b[2]);
+  const horiz = Math.hypot(B.x - A.x, B.z - A.z);
+  // 拱高：喷得越远越高，但有上限（不然近处的水柱会拱成一个球）
+  const arc = Math.min(1.8, horiz * 0.22 + 0.15);
+  const N = 8;
+  const at = (t) => {
+    const p = A.clone().lerp(B, t);
+    p.y += arc * 4 * t * (1 - t); // 抛物线拱
+    return p;
+  };
+
+  const segs = [];
+  for (let i = 0; i < N; i++) {
+    const p0 = at(i / N);
+    const p1 = at((i + 1) / N);
+    const d = p1.clone().sub(p0);
+    const len = d.length() || 0.001;
+    // 末端渐细：半径线性收到 15%
+    const rr = r * (1 - 0.85 * (i / N));
+    const g = new THREE.CylinderGeometry(rr * 0.88, rr, len * 1.08, 6, 1, true);
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      d.clone().normalize()
+    );
+    g.applyQuaternion(q);
+    g.translate(p0.x + d.x / 2, p0.y + d.y / 2, p0.z + d.z / 2);
+    segs.push(g);
+  }
+  const merged = mergeGeometries(segs, false);
+  for (const g of segs) if (g !== merged) g.dispose();
+  merged.computeVertexNormals();
+  const out = tint(worldUV(merged), 0xdceaf5);
   out.userData.isJet = true;
   return out;
 }
