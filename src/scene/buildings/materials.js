@@ -243,7 +243,10 @@ export function dougongMaterial() {
     //   太深 ⇒ 拱身、升、斗全糊成一团黑，只剩亮色的勾头浮着。
     //   略提亮 + 降粗糙度，让阴影里也还有层次。
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x35707a,
+      // ⚠ 2026-11-17 0x35707a → 0x4a8f96：斗栱要比**攒间的额枋亮**一档。
+      //   檐下没有直射太阳，斗栱与额枋只靠天光成像 ⇒ 两边同色就糊成一条带，
+      //   "一攒一攒"的节奏读不出来（真照片里斗栱在阴影檐下是**亮**的聚点）。
+      color: 0x3f7d7e,
       roughness: 0.62,
       metalness: 0.05,
     });
@@ -253,8 +256,10 @@ export function dougongMaterial() {
      *   给一点极弱的**青绿自发光**（相当于环境光在青绿漆面上的回光），
      *   阴影里能看出层次，阳光下也不会发光。
      */
-    mat.emissive = new THREE.Color(0x123c42);
-    mat.emissiveIntensity = 0.55;
+    // ⚠ 自发光 0.55 → 0.38：自发光是为了"别全黑"，不是为了当光源。
+    //   给太足会把斗栱自己的明暗层次填平 ⇒ 又回到"一条平带"。
+    mat.emissive = new THREE.Color(0x0e3036);
+    mat.emissiveIntensity = 0.38;
     return mat;
   });
 }
@@ -612,11 +617,17 @@ export function paperMaterial() {
     //   棂心是一块**偏暗的暖色**，朱红棂条在其上清清楚楚地浮出来。
     return new THREE.MeshStandardMaterial({
       map,
-      // 中性偏暖的暗色（不要发绿：绢纱在暗殿里是灰暖的，不是橄榄绿）
-      color: 0x5f574a,
+      // ⚠ 2026-11-17 0x5f574a → 0x9c907c：上一轮"压暗"压**过头**了。
+      //   0x5f574a 乘在米黄纸纹上 ⇒ 近景读作**发木的暗棕**（竖向纤维像木纹），
+      //   整排槅扇后面是一根根"木条"，立面少了一块该有的亮。
+      //   真槅扇：棂条是朱红、棂心后面是**裱纸窗**（浅米黄，阴影里也偏亮），
+      //   它是立面上**最亮的一块**——隔着院子就能看见一排暖色的门窗。
+      //   ⇒ 提到 0x9c907c（约原亮度的 0.42 倍），**不发荧光**，
+      //     靠天光与地面反光自然亮起来 ⇒ 既不发白，纸味也对。
+      color: 0x9c907c,
       // 绢纱透一点天光，但**不能发光** —— 自发光会让它在正午也亮成一张白纸
       emissive: 0x241c0d,
-      emissiveIntensity: 0.06,
+      emissiveIntensity: 0.04,
       roughness: 0.95,
       metalness: 0,
       side: THREE.DoubleSide,

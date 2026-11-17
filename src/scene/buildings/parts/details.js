@@ -43,24 +43,36 @@ export function buildColumnBase(colDia) {
 /**
  * 望柱：栏杆的柱头，有柱身 + 莲瓣/云纹柱头
  */
+/**
+ * 望柱：台明栏板之间的立柱。
+ *
+ * ⚠ 2026-11-17 **改成方柱身**（原来��圆柱 + 半球头 + 小球）。
+ *   原来那一组在近景里读作**一排国际象棋的兵**：
+ *   细圆柱身 + 一个比柱身还宽的半球头 ⇒ 轮廓就是"棋子"。
+ *   清式官式建筑的望柱是**方柱**（汉白玉/素面石），
+ *   柱头是一块**方斗**再顶一颗**宝珠**，轮廓是方的、层次是方的。
+ *
+ *   柱身用 4 段圆柱做**带收分的方柱**（4 段圆柱 = 方棱柱），
+ *   比 BoxGeometry 多一点"石作"的倒棱感，又不多花多少面。
+ */
 export function buildBaluster(h = 1.0, w = 0.18) {
   const parts = [];
-  // 柱身（略收分）
-  const body = new THREE.CylinderGeometry(w * 0.42, w * 0.5, h * 0.78, 8);
-  body.translate(0, h * 0.39, 0);
+  // 柱身：方棱柱 + 收分（上小下大）
+  const body = new THREE.CylinderGeometry(w * 0.5, w * 0.58, h * 0.74, 4, 1);
+  body.rotateY(Math.PI / 4); // 让棱与轴对齐（4 段圆柱默认棱在 45°）
+  body.translate(0, h * 0.37, 0);
   parts.push(body);
-  // 柱头：仰莲
-  const head = new THREE.SphereGeometry(w * 0.52, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55);
-  head.scale(1, 0.85, 1);
-  head.translate(0, h * 0.78, 0);
-  parts.push(head);
-  // 柱头顶的小莲苞
-  const bud = new THREE.SphereGeometry(w * 0.2, 8, 6);
-  bud.translate(0, h * 0.93, 0);
+  // 柱头：方斗（一块挑出的方座）
+  const dou = new THREE.BoxGeometry(w * 0.92, h * 0.1, w * 0.92);
+  dou.translate(0, h * 0.79, 0);
+  parts.push(dou);
+  // 方斗上的**宝珠**（柱头最上面那一颗）
+  const bud = new THREE.SphereGeometry(w * 0.24, 8, 6);
+  bud.translate(0, h * 0.88, 0);
   parts.push(bud);
-  // 柱脚
-  const foot = new THREE.CylinderGeometry(w * 0.56, w * 0.6, h * 0.08, 8);
-  foot.translate(0, h * 0.04, 0);
+  // 柱脚：方础
+  const foot = new THREE.BoxGeometry(w * 1.02, h * 0.07, w * 1.02);
+  foot.translate(0, h * 0.035, 0);
   parts.push(foot);
 
   const g = mergeGeometries(parts, false);
