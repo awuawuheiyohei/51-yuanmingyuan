@@ -16,6 +16,17 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 const P_CURVE = 0.62; // 举折指数：<1 上陡下缓
 
+/**
+ * 垂脊（歇山）下降指数：**必须小于 P_CURVE**。
+ *
+ * 悬山剖面 y = ridgeY - Δ·t^P_CURVE 是凹的（脊侧陡、檐侧缓），
+ * 落在「脊—折线」弦线之下。垂脊若按弦线走就比山花边高，
+ * 山墙端那块屋面反而向外抬高 ⇒ **山花被自己的山面埋掉**。
+ * 取更小的指数 ⇒ 垂脊先陡后缓，始终落在山花边之下 ⇒ 山花外露。
+ * 参见 `heightAt()` 的 xieshan 分支与 AGENTS.md §4.1.28。
+ */
+const P_HIP = 0.35;
+
 /** 举折剖面：t∈[0,1] 从脊到檐，返回下坠比例 */
 function fold(t) {
   const c = Math.min(1, Math.max(0, t));
@@ -193,7 +204,47 @@ function buildRoofCore(spec, geomsIn) {
         const y = ridgeY - (ridgeY - yBreak) * fold(az / zBreak);
         if (type === 'xieshan') {
           if (ax <= xh) return y;
-          return null; // 山花区域：竖直面，稍后单独生成
+          // ⚠⚠ 2026-11-17 **山花外侧是"山面"**（原来 return null ⇒ 破洞）。
+          //
+          //   歇山的构造（考据见 AGENTS.md §4.1.28）：
+          //     · 正脊**到山墙就结束**（山花尖端正对正脊端头）——
+          //       参照入母屋实测照片：正脊两端的甍両正坐在山花尖上；
+          //     · 垂脊自**正脊端点 (xh, 0)** 斜下到檐角 (Wx, Wz)，
+          //       中途在折线高度处**折断一次** ⇒ 分垂脊（上段）与戗脊（下段）；
+          //     · 山花（竖直三角）挂在 x = xh 上；山花之外那一块就是**山面**，
+          //       夹在「山花边（rake）」与「垂脊」之间。
+          //
+          //   原来这里 return null ⇒ 那一块**根本没有面** ⇒
+          //   画面上山头两侧破开两个大洞，直接看见人字梁（实测）。
+          //   顺带说明：原来"垂脊从 (xh, zBreak) 起"是**庑殿的斜脊做法**，
+          //   歇山不适用 —— 歇山的垂脊从正脊端点就起。
+          //
+          //   ⇒ 高度场（自山花边向外）：
+          //       x = xh      → 悬山剖面 y（= 山花的 rake）
+          //       x = xHip    → 垂脊高度 yHip（垂脊是山面上的**脊**，比两侧高）
+          //       x > xHip    → 角部：由垂脊高度降到檐高（戗脊外侧）
+          const tH = az / Wz;
+          const xHip = xh + tH * (Wx - xh);              // 垂脊的平面位置
+          // ⚠⚠ 2026-11-17 **垂脊高度必须比举折掉得更快**（P_HIP < P_CURVE）。
+          //
+          //   悬山剖面（山花的 rake）y = ridgeY - Δ·t^P_CURVE（P_CURVE=0.62，t=z/zBreak）
+          //   是**凹**的：屋面在脊侧陡、檐侧缓 ⇒ 它落在「脊—折线」的**弦**之下。
+          //   若垂脊按直线（弦）走，垂脊就比山花边**高** ⇒ 山花外侧那块
+          //   屋面是往外**抬高**的 ⇒ **山花被自己的山面整个埋掉**
+          //   （实测 `/tmp/xs_end.png`：山墙端只剩一片陡坡，山花看不见）。
+          //
+          //   真歇山的山花是**外露**的：博风板压在山花的 rake 上，
+          //   而垂脊在更外侧、更低处（垂脊是山墙端那块屋面的**脊**，
+          //   再往外才降到檐口）⇒ 垂脊高度必须 ≤ 山花边高度。
+          //   ⇒ 指数取 P_HIP < P_CURVE：垂脊先陡后缓，正好落在山花边之下。
+          const yHip = ridgeY - (ridgeY - yBreak) * Math.pow(az / zBreak, P_HIP);
+          if (ax >= xHip) {
+            // 角部（戗脊外侧）：从垂脊高度降到檐高
+            const d = (ax - xHip) / Math.max(Wx - xHip, 1e-6);
+            return yHip - (yHip - eaveY) * d;
+          }
+          const u = (ax - xh) / Math.max(xHip - xh, 1e-6);
+          return y + (yHip - y) * u;
         }
         // 卷棚歇山：山花位置改为圆缓卷落（无山花）
         const span = Math.max(1.0, Wx - xh);
@@ -206,9 +257,18 @@ function buildRoofCore(spec, geomsIn) {
       // 角部因此正好落在 eaveY，而不是像旧公式那样掉到 eaveY 的一半。
       const t = (az - zBreak) / (Wz - zBreak);
       const prof = yBreak - (yBreak - eaveY) * fold(t);
-      const xHip = xh + t * (Wx - xh);
+      // ⚠ 2026-11-17 戗脊的**平面位置**改用 az/Wz（从正脊端点 (xh,0) 斜到檐角），
+      //   与上段山面的垂脊线**接得上** ⇒ 山面与下部之间不再有错台/裂缝。
+      //   原来用 t=(az-zBreak)/(Wz-zBreak) ⇒ 戗脊从 (xh, zBreak) 起（庑殿做法），
+      //   与上段对不上 ⇒ 山头两侧破洞。
+      const xHip = xh + (az / Wz) * (Wx - xh);
       if (ax <= xHip) return prof;
-      return yBreak - (yBreak - eaveY) * t;
+      // 角部（戗脊外侧）：从**戗脊线上的高度**降到檐高。
+      // ⚠⚠ 2026-11-17 原来这里是 `yBreak - (yBreak-eaveY)*t`（沿进深线性落），
+      //   那会让 x=Wx 的檐口线在中间深度处停在半山腰（比檐口高好几米）——
+      //   檐口线不是一条水平线。现在改成沿 x 落到檐高 ⇒ 檐口线回到 eaveY ✓
+      const d = (ax - xHip) / Math.max(Wx - xHip, 1e-6);
+      return prof - (prof - eaveY) * d;
     }
 
     // 庑殿 / 悬山 / 硬山 / 卷棚
@@ -286,7 +346,23 @@ function buildRoofCore(spec, geomsIn) {
      *   · `z = ±zBreak` 正好是网格行 ⇒ 下段山面的第一排严丝合缝；
      *   · `x = ±xh` 正好是网格列 ⇒ 山花区域是**整格**的，不会误伤下段。
      */
-    const xs = gridAxis(-Wx, Wx, NU, type === 'xieshan' ? [xh, -xh] : []);
+    /**
+     * ⚠⚠ 2026-11-17 歇山要多插**四条**网格线：`x = ±xh`（山花）与
+     *   `x = ±xHipB`（折断点，即收山那一段的末端）。
+     *
+     *   只插 ±xh 时，山花外侧那一段（收山段）宽只有
+     *   `xHipB - xh = (zBreak/Wz)·(Wx-xh)`，本例只有 **0.35m** ——
+     *   而网格步长约 0.4m ⇒ 那一段**采不到任何网格线**，
+     *   山面被采成锯齿、折断点处出现错台。
+     *   把 xHipB 也插进去 ⇒ 收山段正好是**一整格**，严丝合缝。
+     */
+    const xHipB = xh + (zBreak / Wz) * (Wx - xh);
+    const xs = gridAxis(
+      -Wx,
+      Wx,
+      NU,
+      type === 'xieshan' ? [xh, -xh, xHipB, -xHipB] : []
+    );
     const zs = gridAxis(-Wz, Wz, NV, type === 'xieshan' ? [zBreak, -zBreak] : []);
     // ⚠⚠ 循环边界必须用**数组实际长度**，不能用 NU/NV ——
     //   gridAxis 插入了额外网格线，数组长度 = NU+1+插入数。
@@ -357,12 +433,19 @@ function buildRoofCore(spec, geomsIn) {
          *   从外面直接看见褐色望板与穿出来的檩架（`/tmp/JQ_B.png`）。
          *   按格心判：折线以下的格心 z > zBreak ⇒ 不跳过 ✓
          */
-        let skip = false;
-        if (type === 'xieshan') {
-          const cxm = (x0 + x1) / 2;
-          const czm = (z0 + z1) / 2;
-          if (Math.abs(czm) <= zBreak && Math.abs(cxm) > xh) skip = true;
-        }
+        /**
+         * ⚠⚠ 2026-11-17 **不再跳过"山花区域"**。
+         *
+         *   原来这里把 `|z| ≤ zBreak && |x| > xh` 的格子**整格跳过**，
+         *   因为那一块的高度场返回 null（当时没做山面）。
+         *   ⇒ 屋面在山头两侧破开两个大洞，从外面直接看见人字梁与殿内暗色
+         *     （实测 `/tmp/XJ2_crop.png`；`?mat=tile` 染色证明那片深绿不是瓦）。
+         *
+         *   现在高度场已经给出**山面**（山花边 ↔ 垂脊之间的 45° 斜面），
+         *   这些格子有合法的顶点 ⇒ **必须铺面**。
+         *   山花（竖直三角）另外单独建，与屋面在 x = ±xh 处**共用一条边** ✓。
+         */
+        const skip = false;
         if (skip) continue;
         const a = grid[i][j];
         const b = grid[i][j + 1];
@@ -399,7 +482,35 @@ function buildRoofCore(spec, geomsIn) {
   // 有了望板，屋架才有"底"，梁架也才有依附的地方。
   {
     const board = roofGeo.clone();
-    board.translate(0, -0.075, 0);
+    /**
+     * ⚠⚠ 2026-11-17 望板改为**沿法线偏移**，不再竖直下移。
+     *
+     *   原来 `board.translate(0, -0.075, 0)`（竖直下移 7.5 cm）。
+     *   屋面多数是缓坡，竖直下移 ≈ 沿法线下移，没问题；
+     *   但歇山的**山面近于垂直** ⇒ 竖直下移 7.5 cm 会让板在陡面上
+     *   **横移好几米** ⇒ 跑到瓦面**前面**，把瓦盖住 ⇒
+     *   山头侧面出现一大片竖直深色板 + 后面穿出来的人字梁
+     *   （实测 `/tmp/XJ2_crop.png`；`?mat=board` 染色确认是 board 桶）。
+     *
+     *   ⇒ 逐顶点沿**自身法线**偏移 ⇒ 板永远贴在瓦面正下方 7.5 cm，
+     *     任何坡度都不会跑到瓦前面去。
+     */
+    const nrm = board.getAttribute('normal');
+    const bp = board.getAttribute('position');
+    if (nrm && bp) {
+      for (let i = 0; i < bp.count; i++) {
+        bp.setXYZ(
+          i,
+          bp.getX(i) - nrm.getX(i) * 0.075,
+          bp.getY(i) - nrm.getY(i) * 0.075,
+          bp.getZ(i) - nrm.getZ(i) * 0.075
+        );
+      }
+      bp.needsUpdate = true;
+      board.computeVertexNormals();
+    } else {
+      board.translate(0, -0.075, 0);
+    }
     push('board', board);
   }
   // 小屋顶（亭、轩）不做真瓦：远看无差别，却占掉大半构建时间
@@ -516,11 +627,19 @@ function buildRoofCore(spec, geomsIn) {
        */
       for (const zs of [-1, 1]) {
         const z = zs * zBreak;
+        // ⚠⚠ 2026-11-17 **外缘从 Wx 收到山面的实际边界**。
+        //   原来这块封板一直做到 x = Wx（屋面的最外缘），
+        //   但山面（歇山的上段斜面）只到 x = xHip(zBreak) 就结束了
+        //   ⇒ 封板**伸出屋面轮廓之外** ⇒ 竖着戳在山头侧面，
+        //   从东南方向看就是**一大片竖直的深色板 + 后面的人字梁**
+        //   （实测 `/tmp/XJ2_crop.png`，`?mat=board` 染色确认是 board 桶）。
+        //   ⇒ 外缘改到 xHip：封板正好接在山面与下段屋面的接缝上，不再外露。
+        const xHipB = xh + (zBreak / Wz) * (Wx - xh);
         const s = new THREE.BufferGeometry();
         const sv = [
           sgn * xh, eaveY, z,
-          sgn * Wx, eaveY, z,
-          sgn * Wx, yBreak, z,
+          sgn * xHipB, eaveY, z,
+          sgn * xHipB, yBreak, z,
           sgn * xh, yBreak, z,
         ];
         s.setAttribute('position', new THREE.Float32BufferAttribute(sv, 3));
@@ -600,16 +719,15 @@ function buildRoofCore(spec, geomsIn) {
   if (type === 'wudian') {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        ridges.push({
-          kind: 'hip',
-          pts: hipLine(sx, sz),
-        });
+        const h = hipLine(sx, sz);
+        ridges.push({ kind: 'hip', pts: h.pts, beastPts: h.beastPts });
       }
     }
   } else if (type === 'xieshan' || type === 'juanpengxieshan') {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        ridges.push({ kind: 'hip', pts: hipLine(sx, sz) });
+        const h = hipLine(sx, sz);
+        ridges.push({ kind: 'hip', pts: h.pts, beastPts: h.beastPts });
       }
     }
   } else if (type === 'juanpeng') {
@@ -664,13 +782,54 @@ function buildRoofCore(spec, geomsIn) {
         }
         pts.push(new THREE.Vector3(x, y + 0.06, z));
       }
-      return pts;
+      return { pts, beastPts: null };
     }
-    for (let i = 0; i <= N; i++) {
-      const t = i / N;
+    /**
+     * ⚠ 卷棚歇山没有正脊（走卷棚脊），山墙端也不立山花 ——
+     *   戗脊仍按旧走法从「山花底角 (xh, zBreak)」起步。
+     */
+    if (type === 'juanpengxieshan') {
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const x0 = sx * (xh + (Wx - xh) * t);
+        const z0 = sz * (zBreak + (Wz - zBreak) * t);
+        const y = yBreak - (yBreak - eaveY) * t;
+        const cn = Math.pow(Math.abs(x0) / Wx, 5) * Math.pow(Math.abs(z0) / Wz, 5);
+        let x = x0;
+        let z = z0;
+        let yy = y;
+        if (cn > 0.0005) {
+          const eaveT = smoothstep(0.35, 1.0, Math.abs(z0) / Wz);
+          yy += upturn * cn * eaveT;
+          x = x0 * (1 + (bulge * cn) / Math.max(Wx, 0.001));
+          z = z0 * (1 + (bulge * cn) / Math.max(Wz, 0.001));
+        }
+        pts.push(new THREE.Vector3(x, yy + 0.06, z));
+      }
+      return { pts, beastPts: null };
+    }
+    /**
+     * ⚠⚠ 2026-11-17 歇山的**垂脊 + 戗脊是同一条折线**：
+     *   从**正脊端点 (xh, ridgeY, 0)** 斜下到檐角 (Wx, eaveY, Wz)，
+     *   中途在折线高度处**折断一次** ⇒ 上段叫垂脊、下段叫戗脊
+     *   （「正脊两端到屋檐处中间折断了一次，分为垂脊和戗脊」）。
+     *
+     *   原来这里从「山花底角 (xh, zBreak)」起、且高度自己线性给 ——
+     *   那是**庑殿**的斜脊做法：歇山于是**少了整条垂脊**，
+     *   正脊端到折线之间是空的，山墙端看着像缺了一块。
+     *
+     *   高度直接取 `heightAt` 在**垂脊平面线**上的值 ⇒ 与屋面网格同源，
+     *   脊永远贴在屋面上，不会沉进去或浮起来。
+     */
+    const tB = zBreak / Wz; // 折断点（垂脊 → 戗脊）在这条平面线上的参数
+    const NB = 10; // 垂脊段采样（这段短，要密）
+    const NC = 16; // 戗脊段采样
+    const beastPts = [];
+    const pushPt = (t, isChui) => {
       const x0 = sx * (xh + (Wx - xh) * t);
-      const z0 = sz * (zBreak + (Wz - zBreak) * t);
-      const y = yBreak - (yBreak - eaveY) * t;
+      const z0 = sz * (Wz * t);
+      let y = heightAt(x0, z0);
+      if (y === null) y = eaveY;
       /**
        * ⚠⚠ **翼角抬升 + 外扩，必须和屋面网格用同一套公式**。
        *
@@ -691,9 +850,17 @@ function buildRoofCore(spec, geomsIn) {
         x = x0 * (1 + (bulge * cn) / Math.max(Wx, 0.001));
         z = z0 * (1 + (bulge * cn) / Math.max(Wz, 0.001));
       }
-      pts.push(new THREE.Vector3(x, yy + 0.06, z));
-    }
-    return pts;
+      const v = new THREE.Vector3(x, yy + 0.06, z);
+      pts.push(v);
+      if (isChui) beastPts.push(v);
+    };
+    for (let i = 0; i <= NB; i++) pushPt((i / NB) * tB, true);
+    for (let i = 1; i <= NC; i++) pushPt(tB + (i / NC) * (1 - tB), false);
+    /**
+     * 走兽只排在**垂脊**上（清制：垂兽/行什在垂脊，戗兽在戗脊）。
+     * 整条折线给 `buildBeastRow` 的话，兽会一路排到戗脊下端去。
+     */
+    return { pts, beastPts };
   }
 
   /* -------------------------------------------------------- 脊件几何 */
@@ -710,7 +877,7 @@ function buildRoofCore(spec, geomsIn) {
       push('ridge', buildRidgeBar(r.pts, rw, 0.42, false));
       // 垂脊上的走兽：数量按清式制度（庑殿九兽 / 歇山五兽 / 悬山三兽）
       const n = BEAST_COUNT[type] ?? 5;
-      if (n > 0) push('finial', buildBeastRow(r.pts, 0.3, n));
+      if (n > 0) push('finial', buildBeastRow(r.beastPts ?? r.pts, 0.3, n));
       continue;
     }
     /**
