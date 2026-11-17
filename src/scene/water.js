@@ -65,8 +65,13 @@ function rippleNormalTexture() {
   const at = (x, y) => H[((y + S) % S) * S + ((x + S) % S)];
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
-      const dx = (at(x + 1, y) - at(x - 1, y)) * 2.4;
-      const dy = (at(x, y + 1) - at(x, y - 1)) * 2.4;
+      // ⚠⚠ 2026-11-17：梯度乘数 2.4 ⇒ 法线的 xy 只有 ~0.15（≈8.5° 倾角），
+      //   再被着色器的 normalScale(0.24) 一乘 ⇒ **实际扰动只有 2°** ⇒
+      //   水面在近景也完全看不出波纹（镜面高光是一块光滑的白斑）。
+      //   ⇒ 梯度乘数提到 5.0（≈17°），normalScale 提到 0.55（净 ~9°），
+      //     波纹才在近景成立、远处随距离淡出。
+      const dx = (at(x + 1, y) - at(x - 1, y)) * 5.0;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * 5.0;
       const len = Math.hypot(dx, dy, 1);
       const i = (y * S + x) * 4;
       img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
@@ -93,18 +98,26 @@ export function buildWater(sceneData) {
 
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0x0f3b45,
-    // ⚠ 原来 0.26 + clearcoat 0.35 ⇒ 整片湖糊成一面镜子（半个湖是白晃晃的高光）
-    roughness: 0.40,
+    // ⚠⚠ 2026-11-17：**大片高光爆白**（西北半个湖糊成白纸）。
+    //   根因是 **clearcoat**：清漆层是一个**独立的高光瓣**，
+    //   `clearcoatRoughness = 0.16` 时它的 GGX 峰值比漫反射高两个数量级
+    //   ⇒ 太阳的镜面反射被削平成一片**纯白**（不是"晃眼"，是"过曝成纸"）。
+    //   ⇒ 清漆减到 0.05、粗糙度放到 0.5（峰更矮更宽），
+    //     主粗糙度也提到 0.52（高光摊开，不再是一块硬边白斑）。
+    //   保留 clearcoat 只是为了"水面上那一点釉光"，不是为了当镜子。
+    roughness: 0.52,
     metalness: 0.0,
     transparent: true,
     opacity: 0.965,
     normalMap,
-    // 波纹必须看得见：0.07 时水面就是一块平涂色板。
-    normalScale: new THREE.Vector2(0.24, 0.24),
+    // ⚠ 波纹必须看得见：0.07 时水面就是一块平涂色板；
+    //   而"贴图本身只有 2° + normalScale 0.24 = 净 2°" 等于没有波纹。
+    //   现在的组合（贴图 ~17° × 0.55 ≈ 净 9°）才能在近景读出波纹。
+    normalScale: new THREE.Vector2(0.55, 0.55),
     side: THREE.DoubleSide,
     envMapIntensity: 0.34,
-    clearcoat: 0.12,
-    clearcoatRoughness: 0.16,
+    clearcoat: 0.05,
+    clearcoatRoughness: 0.5,
     // 多片水面交界处共面，用 polygonOffset 避免 z-fighting
     polygonOffset: true,
     polygonOffsetFactor: -1,
@@ -149,7 +162,11 @@ export function buildWater(sceneData) {
           vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
           // 远处把波纹淡出，避免法线图在远处拍频成规则点阵
           float ripFade = 1.0 - smoothstep( 40.0, 190.0, vRipDist );
-          mapN.xy *= normalScale * ripFade;
+          // ⚠ **保留 25% 的底**，不要淡到 0：
+          //   淡到 0 ⇒ 远处水面是一面**完美镜子** ⇒ 只剩一块天空的平面渐变，
+          //   读作"一块蓝灰玻璃"而不是水。
+          //   留一点起伏 ⇒ 远处水面仍有细微的明暗碎光 ✓
+          mapN.xy *= normalScale * mix(0.25, 1.0, ripFade);
           normal = normalize( tbn * mapN );
         #endif`
       );
