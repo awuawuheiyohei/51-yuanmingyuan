@@ -267,6 +267,9 @@ export function buildTerrain(sceneData, opts = {}) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uMapAvg = { value: new THREE.Vector3(MAP_AVG.r, MAP_AVG.g, MAP_AVG.b) };
     shader.uniforms.uDetailMap = { value: detailTex };
+    // ⚠ 细节贴图的 linear 均值（底色 sRGB 中灰 ⇒ linear 仅 0.214）
+    //   用它归一化，调制量才"均值 = 1"，否则地面被整体压暗。
+    shader.uniforms.uDetailAvg = { value: detailTex.userData.avgLinear || 0.214 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying float vTriDist;\nvarying vec3 vGroundPos;')
       .replace(
@@ -276,7 +279,7 @@ export function buildTerrain(sceneData, opts = {}) {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform vec3 uMapAvg;\nuniform sampler2D uDetailMap;\nvarying float vTriDist;\nvarying vec3 vGroundPos;'
+        '#include <common>\nuniform vec3 uMapAvg;\nuniform sampler2D uDetailMap;\nuniform float uDetailAvg;\nvarying float vTriDist;\nvarying vec3 vGroundPos;'
       )
       .replace(
         '#include <map_fragment>',
@@ -290,8 +293,28 @@ export function buildTerrain(sceneData, opts = {}) {
     if (dFade > 0.002) {
       vec3 d1 = texture2D(uDetailMap, vGroundPos.xz * 0.72).rgb;
       vec3 d2 = texture2D(uDetailMap, vGroundPos.xz * 0.27 + 0.37).rgb;
-      vec3 det = (d1 * 0.62 + d2 * 0.38) * 2.0;
+      // ⚠ 除以 uDetailAvg（≈0.214）而不是乘 2.0 ——
+      //   否则近景地面被压暗 24%（比中景暗一圈，肉眼可见的"暗环"）。
+      vec3 det = (d1 * 0.62 + d2 * 0.38) / uDetailAvg;
       diffuseColor.rgb *= mix(vec3(1.0), det, dFade * 0.42);
+    }
+
+    // ---- 中景细节层（约 7 m / 18 m 周期）→ 8~60 m ----
+    //
+    // ⚠⚠ 2026-11-15 补：原来细节层 24 m 就淡出完了，
+    //   而主贴图一张 12 m ⇒ **25~60 m 的草地只剩一块平色**，
+    //   人眼正常视距（20~50 m）看到的正是这一段 ⇒ 读作"一块绿板"。
+    //   ⇒ 再叠一层**大尺度**的斑驳（约 7 m 一团），把中景填上。
+    //   两个周期仍互质 ⇒ 不出规则网格。
+    float mFade = smoothstep(8.0, 17.0, vTriDist) * (1.0 - smoothstep(34.0, 58.0, vTriDist));
+    if (mFade > 0.002) {
+      vec3 m1 = texture2D(uDetailMap, vGroundPos.xz * 0.145 + 0.61).rgb;
+      vec3 m2 = texture2D(uDetailMap, vGroundPos.xz * 0.055 - 0.23).rgb;
+      vec3 m3 = texture2D(uDetailMap, vGroundPos.xz * 0.023 + 1.37).rgb;
+      vec3 mid = (m1 * 0.5 + m2 * 0.33 + m3 * 0.17) / uDetailAvg;
+      // 幅度 0.42：归一化之后调制量才有"均值 = 1"的语义，
+      // 0.42 相当于 ±8% 的明暗起伏 —— 人眼在 20~50 m 能读出草场的深浅。
+      diffuseColor.rgb *= mix(vec3(1.0), mid, mFade * 0.42);
     }
   #endif`
       )

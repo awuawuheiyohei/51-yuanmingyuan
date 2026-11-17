@@ -40,7 +40,33 @@ function mulberry32(seed) {
  *
  * 加了上限之后，山越大石头越多（环排数量跟着涨），环始终闭得上。
  */
-const MAX_STONE_SIZE = 2.2;
+/**
+ * 石块**最长边**上限（米）。
+ *
+ * ⚠⚠ 2026-11-16 改口径：原来是 2.2 m，理由写的是"大石读作散落巨岩"。
+ *   那条结论是在**资产轴向搞反**的前提下得出的 —— 石头被压成扁饼，
+ *   一块就横跨十几米，看起来自然是"散落巨岩"。
+ *   轴向修正后（大石头**立着**、比例正常），上限定得太小反而出问题：
+ *   环排补不满坡面 ⇒ 缝里全是土胎 ⇒ 整座山读作"土坡上撒了几颗石子"。
+ *   ⇒ 现在按「石头宽度 ≈ 该层周长 / 环排块数」给尺寸，
+ *     上限放宽到 4 m（清式大叠山的主体石本就到这个量级）。
+ */
+const MAX_STONE_SIZE = 4.0;
+/**
+ * 石块的**横向 / 纵向**比上限。
+ *
+ * 资产里 `reclining`（卧牛）天生是 3.9 宽 × 1.0 高 —— 直接用就摊成
+ * 8 m 宽的"大饼"，读作散落巨岩而不是叠石 ⇒ 横向压到 ASPECT_CAP 倍高。
+ */
+const ASPECT_CAP = 2.2;
+/**
+ * 土胎半径相对"层半径"的缩放。
+ *
+ * ⚠ 胎面带噪声 ⇒ 同一圈上不同角度的胎面半径不同（±25%）。
+ *   石块若按固定的层半径摆，必然有的浮空、有的埋死 ⇒
+ *   **石块的落位必须查同一张胎面**（见 `coreSurface`）。
+ */
+const CORE_SHRINK = 0.9;
 
 /**
  * 给几何重算 UV：按每个顶点的**主法线轴**做平面投影。
@@ -415,21 +441,53 @@ async function loadRockSet(base) {
     const raw = o.name || '';
     const kind = nameToKind.get(raw) || raw.split('-')[0];
     const g = o.geometry.clone();
-    // GLB 的坐标轴与 three.js 不同，先转到 Y 朝上
-    g.rotateX(Math.PI / 2);
+    // ⚠⚠⚠ **不要 rotateX** —— glTF / Blender / trimesh 导出的资产**本来就是 Y 朝上**。
+    //
+    //   依据（两处，互相印证）：
+    //   ① `scripts/gen-rock.py → normalize()` 写死「高度 = 1，底面贴 y=0，XZ 居中」，
+    //      且导出的 meta 里 `"height": size[1] / h` —— **Y 就是高度轴**；
+    //   ② 实测 GLB 原始 POSITION：spire-1 = 0.253(X) × **1.000(Y)** × 0.252(Z)
+    //      —— Y 就是长轴。
+    //
+    //   原来那句 `g.rotateX(Math.PI / 2)` 把**每块石头都放倒了**：
+    //   长轴 Y → Z ⇒ "归一化到高度 1"取的是**被压扁的那个轴**（0.252 而非 1.0）
+    //   ⇒ 石头被横向放大 4 倍、压成 1 m 高的**薄饼**。后果（全部实测）：
+    //     · 假山读作"一堆散落的大石饼"，不是叠石成山；
+    //     · 瘦峰类（spire / shoot）被压成 **4:1 的扁薄片**斜插在山体上
+    //       ⇒ 近景就是一堆**白色薄刺**（AGENTS 里"白色尖片"那个坑的真凶）；
+    //     · 「石块尺寸封顶 2.2 m」的语义失效（2.2 变成高度，宽度摊到 8 m）。
+    //
     // 归一化到「高度 1」，摆放时按假山尺寸缩放
     g.computeBoundingBox();
     const h = g.boundingBox.max.y - g.boundingBox.min.y || 1;
     g.scale(1 / h, 1 / h, 1 / h);
+    // 记下「最长边」「水平最大边」相对高度的比值 ——
+    // 摆放时按**最长边**给尺寸，而不是按高度：
+    //   reclining 这类宽石头（3.7 宽 × 1.0 高）若按高度给尺寸，
+    //   2.2 m 的"石头"会摊成 8 m 宽的大饼。
+    g.computeBoundingBox();
+    {
+      const bb0 = g.boundingBox;
+      const w0 = Math.max(bb0.max.x - bb0.min.x, bb0.max.z - bb0.min.z);
+      const h0 = bb0.max.y - bb0.min.y;
+      g.userData.w0 = w0;
+      g.userData.maxDim = Math.max(w0, h0);
+    }
     // ⚠ **溶蚀起伏**（几何，不是贴图）—— 见 roughenRockAsset。
     // 放在归一化之后、贴地对齐之前：此时石头已是"高度 1"的单位尺度，
     // 起伏幅度可以按比例给；贴地对齐放在扰动之后，底面才不会飘。
-    roughenRockAsset(g, hashName(raw), base.includes('lod') ? 0.17 : 0.13);
+    // ⚠⚠ 位移量必须极小：位移是**相对包围球半径**的百分比，
+    //   0.17 的幅度 = 把石头沿法线推出 8.5% 的体量 ⇒ 撕成白色碎片。
+    //   ⇒ 压到 3~5%：只做"石面不是完美光滑"的微起伏。
+    roughenRockAsset(g, hashName(raw), base.includes('lod') ? 0.035 : 0.05);
     g.computeBoundingBox();
     // 把底面对齐到 y=0
     g.translate(0, -g.boundingBox.min.y, 0);
     const norm = normalizeRockGeo(g);
     if (!norm) return;
+    // ⚠ `normalizeRockGeo → toNonIndexed()` **不复制 userData** ⇒ 只能挂在这里
+    norm.userData.w0 = g.userData.w0;
+    norm.userData.maxDim = g.userData.maxDim;
     if (!byKind.has(kind)) byKind.set(kind, []);
     byKind.get(kind).push(norm);
   });
@@ -510,232 +568,382 @@ function scaleRockUV(g, tileM = 1.6) {
 }
 
 /**
- * 用 GPU 资产摆一座假山：一堆大小不一的石头咬合堆叠。
+ * 用 GPU 资产摆一座假山：**土胎核心 + 顺坡叠石**。
  *
- * 形态要点（对照 AGENTS.md §4.1「假山要层叠咬合，不能是锥体」）：
- *   - **咬合**：石头要互相嵌进，而不是在一圈圈水平层上排队；
- *     每层的石头沿主脊排布，层与层之间有横向错位和旋转。
- *   - **主次**：一条自下而上的偏斜主脊，不是正圆锥。
- *   - **瘦峰**：清式叠山必有独立立峰的太湖石，瘦而有肉，不是根棍。
- *   - **落地**：底部要压进地里，不能浮成一个白盘子。
+ * ## 结构依据（清式叠山的真实做法）
  *
- * ⚠ **踩过的坑（悬空石）**：
- * 之前每层石头按 `y = height * t^1.2` 摆，但水平半径另算一套，
- * 两套互不约束 —— 上层石头横向跑到了下层石头够不着的地方，
- * 于是一堆石头**悬在半空**，一座山也堆不起来。
- * 现在改成**同一个锥面**同时决定 y 和半径：第 t 层的石头，
- * 横向必须落在该层锥面半径内，且它的底面要坐在下面那层石头上。
+ * 清式叠山不是"一块块石头摞起来"，而是：
+ *   ① 内部填**土胎**（三合土 + 碎石），做出山体的**实心感**；
+ *   ② 表面用**石块沿坡面叠砌**，一层层咬合，顺着山势往上收。
+ *
+ * ⚠⚠ **为什么必须有土胎**（实测踩坑）：
+ *   原来只有石头、且按"水平石层"往上摞 —— 上层石头缩到内圈，
+ *   下面一层的环中间是**空的**，于是：
+ *     · 石头之间**大片悬空**（近景能看见天/草从石头缝里穿过去）；
+ *     · 从高处能**看穿山体**，读作"一堆漂浮的岩岛"；
+ *     · 山体没有体积，整体像"散落的大石饼"，不是"山"。
+ *   加了土胎之后：石头缝里露出的是**深色胎体**（不是天），
+ *   山体是实心的，石头顺着坡面躺 —— 这才读得出"叠山"。
  *
  * @param {Map<string, THREE.BufferGeometry[]>} kindPool 石型 → 网格
  * @param {number} radius 山体半径
  * @param {number} height 山体高度
  * @param {number} seed 随机种子
- * @returns {THREE.BufferGeometry[]}
+ * @returns {{stones: THREE.BufferGeometry[], cores: THREE.BufferGeometry[]}}
  */
 function buildRockeryClusterFromAssets(kindPool, radius, height, seed, recalcUV = true) {
   const rnd = mulberry32(seed);
-  const parts = [];
+  const stones = [];
+  const cores = [];
   const kinds = [...kindPool.keys()];
-  if (!kinds.length) return parts;
+  if (!kinds.length) return { stones, cores };
 
-  /** 瘦峰/笋状/群峰这类竖长石型做主峰，层叠/洞穴/卧牛做山腹 */
+  /** 瘦高类（spire/shoot/cluster）：只做立峰与插石，不进主体层 */
   const PEAK_KINDS = ['spire', 'shoot', 'cluster'];
-  const MASS_KINDS = ['strata', 'cavern', 'reclining'];
+  /** 主体石：比例接近 1:1.2~1:1.4，能拼成"一课"整齐的层 */
+  const COURSE_KINDS = ['strata', 'cavern'];
+  /** 卧牛类：宽而扁，做少数低矮点缀 */
+  const FLAT_KINDS = ['reclining'];
 
-  const pool = (list) => {
+  const poolOf = (list) => {
     for (const k of list) {
       const p = kindPool.get(k);
       if (p?.length) return p;
     }
     return [];
   };
-  const massPool = pool(MASS_KINDS);
-  const peakPool = pool(PEAK_KINDS);
-  const anyPool = pool(kinds);
+  const coursePool = poolOf(COURSE_KINDS).length
+    ? poolOf(COURSE_KINDS)
+    : poolOf(['strata', 'cavern', 'reclining']);
+  const peakPool = poolOf(PEAK_KINDS);
+  const flatPool = poolOf(FLAT_KINDS);
+  const anyPool = poolOf(kinds);
+  if (!coursePool.length && !anyPool.length) return { stones, cores };
 
-  // 叠山有主次：一条自下而上的偏斜主脊，石块围绕它咬合
-  const spineLean = (rnd() - 0.5) * radius * 0.9;
-  const spineDir = rnd() * Math.PI * 2;
-
-  /**
-   * 单块石头的尺寸。
-   *
-   * 数据里假山的 `r`（半径）与 `h`（高度）不成比例 —— 有 r=8.5/h=19.1
-   * 这种又窄又高的。原来石头尺寸只跟 radius 走（r*0.5 ≈ 4.3m），
-   * 结果一块石头就撑爆整座山，看过去是"岩壁"不是"山"。
-   *
-   * 正确做法：石头尺寸由**山体截面**决定 —— 底层石头大、顶层小，
-   * 且始终小于该层的截面半径，这样石头才可能互相咬合。
-   */
   const span = Math.max(1.2, Math.min(radius, height));
 
+  /* ------------------------------------------------ 山体轮廓 */
+  // 底盘半径 → 顶点半径 / 顶点高度
+  const R0 = radius;
+  const rApex = Math.max(0.4, radius * 0.13);
+  const yApex = height * 0.82;
+  // 主脊：山体不是正圆锥，偏着长才有主次
+  const spineLean = (rnd() - 0.5) * radius * 0.4;
+  const spineDir = rnd() * Math.PI * 2;
+
   // 层数按山高定：每层约 span/5 高。
-  //
-  // ⚠ **每山石块数是三角面预算的主控项**。
-  // 之前每山 68 块（环排 + 填心 + 多层）→ 446 座 = 28000 块，
-  // 就算低模 220 面/块也要 6M 面，高模 54 座更是 18.7M —— 全园直接爆掉。
-  //
-  // 真实叠山一座用 **15~25 块大石**就成立（块大、层少、咬合紧）。
-  // 现在：层数 3~5，环排 4~7 块，填心 0~1 → 每山 12~25 块。
   const layers = Math.max(3, Math.min(5, Math.round(height / (span / 5))));
 
-  /**
-   * 当前堆到的**实际高度**（石头顶面）。
-   *
-   * ⚠ 这是"悬空石"的真凶：之前每层的 y 用 `height * t^1.15` 这种
-   * "绝对高度"公式，各层之间**不重叠** —— 上一层石头还没堆到
-   * 下一层的高度，下一层的石头就凭空出现了，看上去全悬在半空。
-   *
-   * 正确做法：下一层的底面 = 上一层石头的**实际顶面**，
-   * 逐层往上"长"，石头之间互相咬住。这才是实心叠山。
-   */
-  /**
-   * 堆叠模型：**实心山体**，不是浮岛群。
-   *
-   * ⚠ 这是假山最难的一处，反复踩坑才做对：
-   *   - 按"绝对高度公式"摆（y = height·t^1.2）→ 各层不重叠，石头悬空；
-   *   - 按"上层坐在下层最高点上"累加 → 水平位置随机，上层石头
-   *     跑到下层石头够不着的地方 → 看着像**一堆漂浮的岩岛**。
-   *
-   * 正确模型（叠山本来就是这个结构）：
-   *   1. 层的**高度步长 = 该层的石高**（不是全局公式）——
-   *      这样下一层的底面一定落在上层石头的实体范围内，必然咬合。
-   *   2. 每层的石头**沿圆环排布**（不是随机撒），
-   *      环半径 = 该层截面半径，石头大小 ≈ 环的 1/周长 → 环是闭合的。
-   *   3. 环内再补 1~2 块**填心石**（半径更小）→ 山体是实心的，不是空壳。
-   */
-  let stackTop = 0;
-
-  for (let l = 0; l < layers; l++) {
-    const t = layers > 1 ? l / (layers - 1) : 0;
-    // 同一锥面决定截面半径：越往上越窄
-    const layerR = radius * (1 - t * 0.58) * (0.9 + rnd() * 0.2);
-
-    // 本层的石头大小：与该层截面挂钩，且不超过截面半径。
-    // 石块数少了，石头就要**大一些**才撑得住这座山
-    // （真实叠山就是"十几块大石"而不是"几十块小石"）。
-    //
-    // ⚠⚠ 但石块尺寸还有一条**人定的上限**：
-    //   叠山的主体石在 1.2~2.2 m。更大的读作"巨岩" ——
-    //   原来 r=14 的山算出 5.1 m 的石头，近景里一块横跨 20 m，
-    //   整座山看着是"一堆散落的大石头"，不是"叠石成山"。
-    //   加了上限之后，山越大石头越多（下面 ringCount 跟着涨），
-    //   环始终闭得上，读出来才是叠山。
-    const stoneSize =
-      Math.min(layerR * 0.55, span * 0.36, MAX_STONE_SIZE) * (0.8 + rnd() * 0.4);
-
-    // 环上排几块：周长 ÷ 石宽，让环**闭合**（石头之间紧挨）。
-    //
-    // ⚠ 原来上限 7 —— 41 m 周长只排 7 块 2.4 m 的石头，
-    //   环根本不闭合，山体成了"散落巨岩"（近景一眼假）。
-    //   现在上限 18：山越大石头越多，环始终闭得上。
-    const circumference = 2 * Math.PI * layerR;
-    const ringCount = Math.max(
-      4,
-      Math.min(18, Math.round(circumference / (stoneSize * 1.3)))
-    );
-
-    const cx = Math.cos(spineDir) * spineLean * t;
-    const cz = Math.sin(spineDir) * spineLean * t;
-    // 每层整体微转，层与层的环错开 → 咬合而不是对齐成"塔"
-    const ringPhase = spineDir + l * 0.9 + rnd() * 0.4;
-
-    let layerTop = stackTop;
-
-    /** 在指定位置放一块石头，返回它的顶面高度 */
-    const place = (px, pz, sizeScale, preferPeak) => {
-      // 底层用山腹石（宽厚），越往上越可能用瘦石
-      const src = preferPeak && peakPool.length
-        ? peakPool[Math.floor(rnd() * peakPool.length)]
-        : massPool.length
-          ? massPool[Math.floor(rnd() * massPool.length)]
-          : anyPool[Math.floor(rnd() * anyPool.length)];
-      if (!src) return stackTop;
-      const g = src.clone();
-      const size = stoneSize * sizeScale;
-      g.scale(size, size * (0.8 + rnd() * 0.5), size);
-      // 每块石头有自己的姿态：绕 Y 转、绕 X/Z 略倾 —— 倾斜才咬合
-      g.rotateY(rnd() * Math.PI * 2);
-      g.rotateX((rnd() - 0.5) * 0.3);
-      g.rotateZ((rnd() - 0.5) * 0.3);
-      // ⚠ 旋转是绕**原点**做的，会把石头的底面转歪 ——
-      // 底面歪了，石头就有一半悬空。转完必须重新把底面对齐到 y=0。
-      g.computeBoundingBox();
-      g.translate(0, -g.boundingBox.min.y, 0);
-      g.computeBoundingBox();
-      // UV 必须在**全部变换之后**算，否则非均匀缩放会把 UV 拉成长条
-      if (recalcUV) scaleRockUV(g);
-      else scaleRockUVFast(g);
-
-      const stoneH = g.boundingBox.max.y;
-      // **底面嵌进下面一层 35%** —— 石头之间互相咬住，绝不悬空
-      const y = stackTop - stoneH * 0.35;
-      g.translate(px, y, pz);
-      parts.push(g);
-      return Math.max(stackTop, y + stoneH);
-    };
-
-    // ① 环：沿圆周排一圈，石头之间紧挨
-    for (let b = 0; b < ringCount; b++) {
-      const a = ringPhase + (b / ringCount) * Math.PI * 2;
-      const d = layerR * (0.86 + rnd() * 0.16);
-      const top = place(
-        cx + Math.cos(a) * d,
-        cz + Math.sin(a) * d,
-        0.85 + rnd() * 0.4,
-        rnd() < 0.12 + t * 0.35
-      );
-      layerTop = Math.max(layerTop, top);
-    }
-
-    // ② 填心：环内再放若干块石头，山体才是实心的。
-    //
-    // ⚠ 环排密了以后（14~18 块）环心的洞有 5~7 m 宽，
-    //   只放 1 块填心石 ⇒ 从高处能看穿山体，看到"空壳"。
-    //   填心数量跟着该层截面走：底层洞大多放，上层洞小少放。
-    const fillCount = Math.min(4, Math.max(0, Math.round(layerR / 2.4) - 1));
-    for (let f = 0; f < fillCount; f++) {
-      const a = rnd() * Math.PI * 2;
-      const d = layerR * rnd() * 0.38;
-      const top = place(
-        cx + Math.cos(a) * d,
-        cz + Math.sin(a) * d,
-        0.55 + rnd() * 0.3,
-        false
-      );
-      layerTop = Math.max(layerTop, top);
-    }
-
-    // 本层堆到了哪儿 → 下一层从这儿继续往上长。
-    // 步长 = 本层实际堆高 − 一部分，保证上下层**重叠咬合**。
-    stackTop = layerTop * 0.92;
+  // 轮廓采样点（每一"课"石头的中心所在）
+  const prof = [];
+  for (let i = 0; i < layers; i++) {
+    const t = layers > 1 ? i / (layers - 1) : 0;
+    prof.push({
+      r: R0 + (rApex - R0) * Math.pow(t, 0.88),
+      y: yApex * Math.pow(t, 1.1),
+    });
   }
 
-  // 独立立峰：一根瘦而有肉的太湖石，压在主脊顶端。
-  // 之前缺了这一根，整座山就是一堆等身高的碎石头，看不出是"山"。
-  if (peakPool.length && rnd() < 0.75) {
-    const g = peakPool[Math.floor(rnd() * peakPool.length)].clone();
-    const ph = Math.min(height * (0.3 + rnd() * 0.18), span * 0.8);
-    const pw = Math.min(span * 0.2, radius * 0.22);
-    g.scale(pw, ph, pw);
+  /** 轮廓高度：给定半径处的坡面高度 */
+  const surfaceY = (r) => {
+    if (r >= prof[0].r) return prof[0].y;
+    for (let i = 0; i < prof.length - 1; i++) {
+      const a = prof[i];
+      const b = prof[i + 1];
+      if (r <= a.r && r >= b.r) {
+        const k = (a.r - r) / Math.max(a.r - b.r, 1e-6);
+        return a.y + (b.y - a.y) * k;
+      }
+    }
+    return prof[prof.length - 1].y;
+  };
+
+  /** 局部坡角（弧度，向外下降为正）—— 石头要顺着坡躺 */
+  const slopeAt = (r) => {
+    const d = 1.4;
+    const y1 = surfaceY(r + d);
+    const y0 = surfaceY(Math.max(r - d, 0.02));
+    return Math.atan2(y0 - y1, 2 * d);
+  };
+
+  /* ------------------------------------------------ 土胎 */
+  //
+  // 胎体的采样环由**这里**生成（不放在 buildRockeryCore 里），
+  // 因为表面叠石要查**同一张胎面**来落位 —— 两边各算各的就会错位。
+  const coreRings = [];
+  const courseRing = []; // 每一"课"对应 coreRings 的第几圈
+  for (let i = 0; i < prof.length; i++) {
+    courseRing.push(coreRings.length);
+    coreRings.push({ r: prof[i].r, y: prof[i].y });
+    if (i + 1 < prof.length) {
+      for (let k = 1; k <= 3; k++) {
+        const f = k / 4;
+        coreRings.push({
+          r: prof[i].r + (prof[i + 1].r - prof[i].r) * f,
+          y: prof[i].y + (prof[i + 1].y - prof[i].y) * f,
+        });
+      }
+    }
+  }
+  {
+    const last = prof[prof.length - 1];
+    coreRings.unshift({ r: prof[0].r, y: -2.2 }); // 埋进土里
+    for (let k = 1; k <= 4; k++) {
+      const f = k / 5;
+      coreRings.push({ r: last.r * (1 - f * 0.92), y: last.y + (yApex - last.y) * f });
+    }
+  }
+  cores.push(buildRockeryCore(coreRings, recalcUV));
+
+  /* ------------------------------------------------ 生成一块石头 */
+  /**
+   * @param {THREE.BufferGeometry} src 资产（已归一化到"高度 1"）
+   * @param {number} targetH 目标高度
+   * @param {number} tilt 顺坡倾角
+   */
+  const makeStone = (src, targetH, tilt) => {
+    const g = src.clone();
+    const maxDim = src.userData.maxDim || 1;
+    const w0 = src.userData.w0 || 1;
+    // 横向不许超过 ASPECT_CAP 倍高 —— 否则宽石头摊成大饼
+    const hs = Math.min(1, ASPECT_CAP / Math.max(w0, 1e-3));
+    const s = targetH / maxDim;
+    // 随机压扁 15%：石头有胖瘦差别
+    const squash = 0.85 + rnd() * 0.15;
+    const flat = 1 / Math.sqrt(squash);
+    g.scale(s * flat * hs, s * squash, s * flat * hs);
     g.rotateY(rnd() * Math.PI * 2);
-    g.rotateZ((rnd() - 0.5) * 0.2);
-    // 同上：旋转后重新对齐底面，否则立峰会歪着插进山体
+    if (tilt) g.rotateX(tilt);
+    // 旋转后底面会歪 ⇒ 重新贴到 y=0
     g.computeBoundingBox();
     g.translate(0, -g.boundingBox.min.y, 0);
-    // UV 在全部变换之后算（立峰是非均匀缩放，最容易把 UV 拉成长条）
+    return g;
+  };
+
+  /**
+   * 把石头摆到**胎面**上。
+   *
+   * ⚠⚠ 落位查的是 `coreSurface()` —— 与胎体网格**同一张曲面**。
+   *   胎面半径带 ±25% 的噪声，若石块按固定的"层半径"摆，
+   *   就会出现"有的浮在半空、有的埋进胎里"（悬空石的第二重成因）。
+   *
+   * @param {number} ringIdx 胎体的第几圈
+   * @param {number} a 角度
+   */
+  const placeOn = (src, cx, cz, ringIdx, a, targetH, tilt, sink, out) => {
+    if (!src) return null;
+    const ring = coreRings[ringIdx];
+    const cs = coreSurface(ring.r, ring.y, a);
+    const g = makeStone(src, targetH, tilt);
+    const h = g.boundingBox.max.y - g.boundingBox.min.y;
+    // 沿胎面法向外挪一点，让石头探出胎体、打破锥面轮廓
+    const rr = cs.r * (out ?? 1);
+    g.translate(cx + Math.cos(a) * rr, cs.y - h * sink, cz + Math.sin(a) * rr);
+    // UV 必须在**全部变换之后**算，否则非均匀缩放会把 UV 拉成长条
     if (recalcUV) scaleRockUV(g);
     else scaleRockUVFast(g);
-    g.translate(
-      Math.cos(spineDir) * spineLean + (rnd() - 0.5) * radius * 0.2,
-      // 立峰坐在**实际堆顶**上，不是某个凭空的高度
-      stackTop - ph * 0.25,
-      Math.sin(spineDir) * spineLean + (rnd() - 0.5) * radius * 0.2
+    stones.push(g);
+    return g;
+  };
+
+  /* ------------------------------------------------ 主体：顺坡叠石 */
+  for (let l = 0; l < layers; l++) {
+    const p = prof[l];
+    const t = layers > 1 ? l / (layers - 1) : 0;
+    // 本层石块尺寸：**跟着该层截面走**，不是跟山高走。
+    //
+    // ⚠⚠ 尺寸的上限/下限是"叠山像不像"的总开关：
+    //   石头太小 ⇒ 环排补不满坡面，缝里全是胎体 ⇒ 读作"锥形土坡上撒了几颗石子"；
+    //   石头太大 ⇒ 读作"散落巨岩"，不是叠石成山。
+    //   正确的比例是**石头宽度 ≈ 该层坡面周长 / 环排块数**，
+    //   于是每层刚好铺满一圈 —— 这才是"一层层叠上去"。
+    const stoneSize = Math.max(
+      1.0,
+      Math.min(p.r * 0.26, MAX_STONE_SIZE)
+    ) * (0.88 + rnd() * 0.24);
+    // 环上排几块：周长 ÷ 石宽，让环尽量闭合
+    //
+    // ⚠ 上限 26 是**三角面预算的主控项**（AGENTS §4）：
+    //   环不闭合没关系 —— 缝里露出的是**深色土胎**，读作山石的裂隙，
+    //   不是"空洞"。所以宁可留缝，也不要把石头放大成巨岩。
+    const circumference = 2 * Math.PI * p.r;
+    const ringCount = Math.max(
+      4,
+      Math.min(30, Math.round(circumference / (stoneSize * 0.98)))
     );
-    parts.push(g);
+    // 本层中心沿主脊偏移
+    const cx = Math.cos(spineDir) * spineLean * t;
+    const cz = Math.sin(spineDir) * spineLean * t;
+    const tilt = slopeAt(p.r);
+
+    for (let b = 0; b < ringCount; b++) {
+      // ⚠ 角度与尺寸都要抖 —— 整齐等距的一圈读作"一串糖葫芦"，不像叠山。
+      const a =
+        (b / ringCount) * Math.PI * 2 +
+        (rnd() - 0.5) * ((2 * Math.PI) / ringCount) * 0.85;
+      const src = coursePool[Math.floor(rnd() * coursePool.length)];
+      placeOn(
+        src,
+        cx,
+        cz,
+        courseRing[l],
+        a,
+        stoneSize * (0.72 + rnd() * 0.56),
+        tilt,
+        0.34,
+        0.9 + rnd() * 0.22
+      );
+    }
+
+    // 卧牛点缀：低矮宽石，压在层与层的交界
+    if (flatPool.length && rnd() < 0.55) {
+      const a = rnd() * Math.PI * 2;
+      const src = flatPool[Math.floor(rnd() * flatPool.length)];
+      placeOn(src, cx, cz, courseRing[l], a, stoneSize * 0.5, tilt * 0.5, 0.4, 0.86 + rnd() * 0.1);
+    }
   }
 
-  return parts;
+  /* ------------------------------------------------ 插石：竖着的瘦石 */
+  // 主体层都是"躺"的坡石；插入几根**竖着**的瘦石（立笋），
+  // 山体才有高低起伏的轮廓变化，不然整座山读作一个平缓的锥。
+  const accentCount = 1 + Math.floor(rnd() * 3);
+  for (let i = 0; i < accentCount; i++) {
+    if (!peakPool.length) break;
+    const a = rnd() * Math.PI * 2;
+    const li = Math.floor(rnd() * prof.length);
+    const p = prof[li];
+    const src = peakPool[Math.floor(rnd() * peakPool.length)];
+    placeOn(src, 0, 0, courseRing[li], a, p.r * 0.5 + 1.2, 0, 0.35, 0.8 + rnd() * 0.12);
+  }
+
+  /* ------------------------------------------------ 立峰 */
+  // 一根瘦而有肉的太湖石，压在山顶 —— 没有这一根，整座山就是一堆碎石头。
+  if (peakPool.length && rnd() < 0.8) {
+    const src = peakPool[Math.floor(rnd() * peakPool.length)];
+    const g = src.clone();
+    // ⚠ 立峰按**资产自身的比例**统一放大（不再按 (pw, ph, pw) 拉扁）：
+    //   spire/shoot 本来就是瘦长形（宽/高 ≈ 0.28~0.40），
+    //   强行把 X/Z 压到 pw、Y 拉到 ph ⇒ 宽度只剩 ph 的 1/7 ⇒ **一根针**，
+    //   读作"插在山上的白色尖片"，不是"瘦而有肉的太湖石立峰"。
+    const ph = Math.min(height * (0.26 + rnd() * 0.16), span * 0.7);
+    const s = ph / (src.userData.maxDim || 1);
+    g.scale(s, s, s);
+    // 宽度兜上限：瘦峰不能比山体还宽
+    const wPeak = (src.userData.w0 || 0.4) * ph;
+    const wCap = span * 0.3;
+    if (wPeak > wCap) {
+      const k = wCap / wPeak;
+      g.scale(k, k, k);
+    }
+    g.rotateY(rnd() * Math.PI * 2);
+    g.rotateZ((rnd() - 0.5) * 0.18);
+    g.computeBoundingBox();
+    g.translate(0, -g.boundingBox.min.y, 0);
+    const hh = g.boundingBox.max.y;
+    const top = prof[prof.length - 1];
+    g.translate(
+      Math.cos(spineDir) * spineLean + (rnd() - 0.5) * radius * 0.16,
+      top.y - hh * 0.3,
+      Math.sin(spineDir) * spineLean + (rnd() - 0.5) * radius * 0.16
+    );
+    if (recalcUV) scaleRockUV(g);
+    else scaleRockUVFast(g);
+    stones.push(g);
+  }
+
+  return { stones, cores };
+}
+
+/**
+ * 土胎表面：**给定圈与角度**，返回胎体表面的 (半径, 高度)。
+ *
+ * ⚠⚠ 这个函数被**两处**共用 ——
+ *   ① 胎体网格本身；
+ *   ② 表面叠石的**落位**（石块要骑在胎面上，不能各摆各的）。
+ *   两处若各算各的，胎面与石块就会**错位**：
+ *   胎体半径带噪声，石块若按固定的"层半径"放，
+ *   就会有的浮在半空、有的埋进胎里 —— 这正是"悬空石"的第二重成因。
+ */
+function coreSurface(ringR, ringY, a) {
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  // 三段噪声：大团块 + 中等起伏 + 小疙瘩
+  // ⇒ 胎体是**一块不规则的岩体**，不是一个光滑的锥面
+  //
+  // ⚠⚠ **频率必须低于角向采样率**（RAD=64 ⇒ 每个噪声特征至少 8 个采样）：
+  //   之前第四段用了频率 21，而角向只有 44 个采样 ⇒ 每特征仅 2 个采样
+  //   ⇒ **欠采样混叠** ⇒ 胎面上长出一片**扁平的薄板鳍**，
+  //   近景看就是"山体上插着几块碎玻璃"。这是几何层的混叠，不是贴图问题。
+  // ⚠ 噪声频率要跟**半径**走（freq = r / 特征尺寸），
+  //   否则大山的凹凸会大得离谱、小山又完全没有起伏 ——
+  //   同一套频率在 15 m 与 3 m 的山上读出来完全是两回事。
+  const f1 = ringR / 6.5; // 大团块：约 6.5 m
+  const f2 = ringR / 2.6; // 中等起伏：约 2.6 m
+  const f3 = ringR / 1.1; // 小疙瘩：约 1.1 m
+  const n1 = vnoise3(ca * f1, ringY * 0.16, sa * f1);
+  const n2 = vnoise3(ca * f2, ringY * 0.3, sa * f2);
+  const n3 = vnoise3(ca * f3, ringY * 0.55, sa * f3);
+  const f = 0.26 * (n1 - 0.5) + 0.16 * (n2 - 0.5) + 0.1 * (n3 - 0.5);
+  // ⚠⚠ 起伏必须是**绝对量**，不能是半径的百分比。
+  //   相对量（±29%）在 15 m 半径处 = ±4.4 m 的径向跳动，
+  //   而角向采样间隔才 1.4 m ⇒ 表面被撕成一片**大三角折面**，
+  //   近景看就是"山体上插着几块碎玻璃"。
+  //   ⇒ 改成绝对位移，并按半径封顶（小山不至于被抖散）。
+  const amp = Math.min(2.6, ringR * 0.3);
+  return {
+    r: Math.max(0.05, ringR * CORE_SHRINK + f * amp),
+    y: ringY + (n3 - 0.5) * 0.8 + (n2 - 0.5) * 0.5,
+  };
+}
+
+/**
+ * 土胎核心（清式叠山的"三合土胎"）。
+ *
+ * ⚠ **它不是装饰，是结构**：没有它，山体中间是空的 ——
+ *   石头缝里会露出天/草，整座山读作"一堆漂浮的岩岛"。
+ *
+ * 做法：一个沿轮廓的回转面，每点半径带噪声 ⇒ 不是规整锥面，
+ * 而是一块有起伏的**土石胎**；底部埋进地面 2 m，顶部收到顶点。
+ *
+ * @param {{r:number,y:number}[]} prof 轮廓采样点
+ * @param {number} yApex 顶点高度
+ * @param {number} seed
+ * @returns {THREE.BufferGeometry}
+ */
+function buildRockeryCore(rings, hiMod) {
+  // ⚠ 角向采样数：必须 ≥ 最高噪声频率 × 8，否则欠采样混叠（见 coreSurface）
+  //   高模山（人走得近的那些）采样密一档；远处只留剪影。
+  const RAD = hiMod ? 128 : 72;
+  const rows = [];
+  for (let i = 0; i < rings.length; i++) {
+    const ring = rings[i];
+    const row = [];
+    for (let j = 0; j <= RAD; j++) {
+      const a = (j / RAD) * Math.PI * 2;
+      const s = coreSurface(ring.r, ring.y, a);
+      row.push([Math.cos(a) * s.r, s.y, Math.sin(a) * s.r]);
+    }
+    rows.push(row);
+  }
+
+  const pos = [];
+  for (let i = 0; i < rings.length - 1; i++) {
+    for (let j = 0; j < RAD; j++) {
+      const a = rows[i][j];
+      const b = rows[i][j + 1];
+      const c = rows[i + 1][j + 1];
+      const d = rows[i + 1][j];
+      pos.push(...a, ...d, ...c);
+      pos.push(...a, ...c, ...b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  // 合并层要求属性齐（position/normal/uv）—— 土胎走三平面，UV 只是占位
+  const n = pos.length / 3;
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  return g;
 }
 
 /**
@@ -790,6 +998,25 @@ export function buildRockery(sceneData, heightAt, cameraPos = null) {
    */
   applyTriplanar(mat, { scale: 1 / 1.6 });
 
+  /**
+   * 土胎材质：比石头**暗一档**的土石色。
+   *
+   * ⚠ 为什么要单独一档明度：
+   *   石头之间必然有缝（三角面预算不允许把环排密到无缝），
+   *   缝里露出的东西决定了整座山的读感：
+   *     · 露出**天/草** ⇒ 看着像"一堆漂浮的岩岛"（原来就是这个坑）；
+   *     · 露出**深色胎体** ⇒ 看着是"山石的裂隙与阴处" ⇒ 有体积。
+   */
+  const coreMat = new THREE.MeshStandardMaterial({
+    map: rockTex,
+    color: 0x9e988c,
+    roughness: 0.99,
+    metalness: 0,
+    flatShading: false,
+    envMapIntensity: 0.45,
+  });
+  applyTriplanar(coreMat, { scale: 1 / 3.5 });
+
   const items = sceneData.rockery || [];
   /**
    * LOD 分配：**按假山自身的体量**（r×h），不按到相机的距离。
@@ -806,11 +1033,12 @@ export function buildRockery(sceneData, heightAt, cameraPos = null) {
    * 实测：高模 ~1000 块(2.2M) + 低模 ~16000 块(3.5M) ≈ 5.7M 三角面。
    */
   const sorted = [...items].sort((a, b) => b.r * b.h - a.r * a.h);
-  const hiCount = Math.max(1, Math.round(items.length * 0.06));
+  const hiCount = Math.max(1, Math.round(items.length * 0.04));
   const hiSet = new Set(sorted.slice(0, hiCount).map((r) => r.seed));
 
-  // 合并成一个 Mesh：几百座假山各一个 draw call 太浪费
+  // 合并成两个 Mesh：石头壳 + 土胎
   const all = [];
+  const allCores = [];
   let hi = 0;
   let lo = 0;
   for (const r of items) {
@@ -822,60 +1050,74 @@ export function buildRockery(sceneData, heightAt, cameraPos = null) {
 
     const geo = buildRockeryClusterFromAssets(pool, r.r, r.h, r.seed, !useLod);
     if (!geo) continue;
-    const list = Array.isArray(geo) ? geo : [geo];
     // 整座山先按山中心对齐地面高程
     const baseY = (heightAt?.(r.x, r.z) ?? 0) - 0.9;
-    for (const g of list) {
-      const m = new THREE.Matrix4()
-        .makeRotationY(((r.seed % 1000) / 1000) * Math.PI * 2)
-        .setPosition(r.x, baseY, r.z);
-      g.applyMatrix4(m);
-      // ⚠ **逐块贴地**：山体横跨十几米，而地形是斜坡 ——
-      // 用山中心的地面高程给所有石头定高，外围石头会离地好几米，
-      // 整座山看上去是**悬在半空**的（实测 72% 的石头点离地 >0.5m）。
-      //
-      // 解法：每块石头按**自己脚下**的高程各下沉一点。
-      // 下沉量 = 该处地面高 − 山中心地面高。这个量与它在山体里
-      // 堆得多高无关，所以**不会破坏层与层的咬合关系**，
-      // 只是让整座山顺着坡度"歪"过去 —— 与真实依山而建的叠山一致。
-      if (heightAt) {
-        g.computeBoundingBox();
-        const cx = (g.boundingBox.min.x + g.boundingBox.max.x) / 2;
-        const cz = (g.boundingBox.min.z + g.boundingBox.max.z) / 2;
-        const groundHere = heightAt(cx, cz);
-        const drop = groundHere - baseY - 0.6; // 0.6 = 埋进土里的深度
-        if (Number.isFinite(drop) && drop < 0) {
-          g.translate(0, drop, 0);
+    const m = new THREE.Matrix4()
+      .makeRotationY(((r.seed % 1000) / 1000) * Math.PI * 2)
+      .setPosition(r.x, baseY, r.z);
+    for (const list of [geo.stones, geo.cores]) {
+      for (const g of list) {
+        g.applyMatrix4(m);
+        // ⚠ **逐块贴地**：山体横跨十几米，而地形是斜坡 ——
+        // 用山中心的地面高程给所有石头定高，外围石头会离地好几米，
+        // 整座山看上去是**悬在半空**的（实测 72% 的石头点离地 >0.5m）。
+        //
+        // 解法：每块石头按**自己脚下**的高程各下沉一点。
+        // 下沉量 = 该处地面高 − 山中心地面高。这个量与它在山体里
+        // 堆得多高无关，所以**不会破坏层与层的咬合关系**，
+        // 只是让整座山顺着坡度"歪"过去 —— 与真实依山而建的叠山一致。
+        if (heightAt) {
+          g.computeBoundingBox();
+          const cx = (g.boundingBox.min.x + g.boundingBox.max.x) / 2;
+          const cz = (g.boundingBox.min.z + g.boundingBox.max.z) / 2;
+          const groundHere = heightAt(cx, cz);
+          const drop = groundHere - baseY - 0.6; // 0.6 = 埋进土里的深度
+          if (Number.isFinite(drop) && drop < 0) {
+            g.translate(0, drop, 0);
+          }
         }
+        (list === geo.cores ? allCores : all).push(g);
       }
-      all.push(g);
     }
   }
-  if (all.length) {
+  /**
+   * 合并成两个 Mesh：石头壳 + 土胎。
+   *
+   * ⚠ **土胎单独一个材质桶**：它必须比石头**暗** ——
+   *   石头缝里露出的深色胎体才读作"山石的裂隙与阴处"，
+   *   要是跟石头一样亮，整座山就是"一堆白块"，没有体积感。
+   */
+  for (const [list, material, tag] of [
+    [all, mat, '石'],
+    [allCores, coreMat, '土胎'],
+  ]) {
+    if (!list.length) continue;
     // 合并前再统一归一化一次：GPU 资产与程序化几何的属性集合必须一致，
     // 否则 mergeGeometries 直接抛 "Invalid array length"。
-    const prepared = all.map(normalizeRockGeo).filter(Boolean);
+    const prepared = list.map(normalizeRockGeo).filter(Boolean);
     const merged = prepared.length ? mergeGeometries(prepared, false) : null;
     if (merged) {
-      const mesh = new THREE.Mesh(merged, mat);
+      const mesh = new THREE.Mesh(merged, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       group.add(mesh);
     } else {
-      console.warn('  ! 假山几何合并失败，逐块添加');
+      console.warn(`  ! 假山${tag}几何合并失败，逐块添加`);
       for (const g of prepared) {
-        const mesh = new THREE.Mesh(g, mat);
+        const mesh = new THREE.Mesh(g, material);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         group.add(mesh);
       }
     }
-    for (const g of all) g.dispose();
-    for (const g of prepared) if (!all.includes(g)) g.dispose();
+    for (const g of list) g.dispose();
+    for (const g of prepared) if (!list.includes(g)) g.dispose();
   }
+  const triCount = (list) =>
+    list.reduce((s, g) => s + (g.attributes.position?.count || 0) / 3, 0);
   console.log(
     `  ✓ 假山 ${items.length} 座（高模 ${hi} / 低模 ${lo}）· ` +
-      `三角面 ${(all.reduce((s, g) => s + (g.attributes.position?.count || 0) / 3, 0) / 1e6).toFixed(1)}M`
+      `石 ${(triCount(all) / 1e6).toFixed(1)}M · 土胎 ${(triCount(allCores) / 1e6).toFixed(1)}M`
   );
   return group;
 }

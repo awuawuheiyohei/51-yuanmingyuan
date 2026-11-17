@@ -32,8 +32,8 @@ import * as THREE from 'three';
 
 const CELL = 1.2; // 网格边长（m）
 const RADIUS = 38; // 铺多大半径（m）
-const PER_CELL = 8; // 每格几丛 ⇒ 约 5.5 丛/m²（草坪要**密**）
-const MAX_INST = 26000; // 实例上限
+const PER_CELL = 12; // 每格几丛 ⇒ 约 8.3 丛/m²（草坪要**密**）
+const MAX_INST = 40000; // 实例上限
 
 /** 平滑阶跃（与 terrain.js / water.js 同一套写法） */
 function smoothstep(a, b, x) {

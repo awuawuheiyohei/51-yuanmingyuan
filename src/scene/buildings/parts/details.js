@@ -98,27 +98,92 @@ export function buildBalustradePanel(len, h = 1.0) {
 }
 
 /**
- * 束腰的壸门：须弥座束腰上的一格格凹龛
+ * 束腰的壸门：须弥座束腰上的一格格凹龛。
+ *
+ * ## 形制
+ *
+ * 清式束腰上的壸门是**喇叭口**（也叫"龛襻"）——
+ * 墙面上一方龛，龛口**外宽内窄**、向外挑出一圈斜面，
+ * 像一只朝天的小喇叭。斜面不是装饰，是**采光的构造**：
+ * 它让龛口在受光时有一条亮边、在背光时有一条暗边。
+ *
+ * ## ⚠⚠ 踩过的坑（"凹龛发黑"）
+ *
+ *   原来做的是：四根**深 5 cm、凸出墙面 2 cm** 的直框条，
+ *   围出一个 5 cm 深的"井"。井壁全在背光里 ⇒ 渲染成**纯黑的方孔** ——
+ *   近景看就是一排小黑方洞。AGENTS 里"须弥座束腰有壸门凹龛"这条
+ *   其实一直没做对：那个不是凹龛，是个**黑洞**。
+ *
+ *   根因：**凹龛不能靠"挖"来做**（布尔挖不动，也不该挖），
+ *   只能靠**斜面**来做 —— 斜面自己受光、自己投影，
+ *   龛的"深"由明暗读出来，不由几何读出来。
+ *
+ * ## 本实现
+ *
+ *   每龛 = 一块**砖雕面**（贴在墙面上，当龛底）
+ *        + 四片**喇叭口斜面**（外沿挑出墙外、斜着收到龛底）
+ *   于是四片的受光天然分级：
+ *     · 下片斜面朝**上外** ⇒ 吃到天光 ⇒ **一条亮边** ✓
+ *     · 上片斜面朝**下外** ⇒ 背光 ⇒ 一条暗边 ✓
+ *     · 左右两片朝侧面 ⇒ 一亮一暗，随太阳转 ✓
+ *     · 龛底在影里但有天光 ⇒ 灰，不是纯黑 ✓
  */
 export function buildShouMenPanels(w, h, d) {
   const parts = [];
-  const count = Math.max(2, Math.round(w / 0.9));
+  /**
+   * 龛的**比例与排布**。
+   *
+   * ⚠ 原来按"每 0.9 m 一个龛、龛宽 = 间距×0.62"排 —— 在 1.2 m 高的台基上
+   *   束腰只有 0.36 m 高，于是龛变成 **0.56 × 0.21 m 的横条**，
+   *   近景读作"一排开缝"，不是壸门。
+   *
+   * ✅ 正确：壸门的**宽由束腰的高度定**（略扁，约 1 : 1.5），
+   *   再按这个宽度均分整面 —— 龛与龛之间只留一道窄竖框。
+   *   这才是清式束腰的样子（故宫须弥座的束腰就是一方一方的小龛）。
+   */
+  const ph = h * 0.7; // 龛高
+  const pwFull = ph * 1.5; // 龛宽（略扁）
+  const pitch = pwFull * 1.22; // 每龛占位（含竖框）
+  const count = Math.max(2, Math.round(w / pitch));
   const cw = w / count;
   for (let i = 0; i < count; i++) {
     const x = -w / 2 + cw * (i + 0.5);
-    // 凹龛：四边凸起的框
-    const t = 0.055;
-    const pw = cw * 0.62;
-    const ph = h * 0.66;
+    const pw = Math.min(pwFull, cw * 0.82); // 龛口（外沿）宽
+    const s = pw * 0.11; // 喇叭口的水平收进：外宽内窄
+    const c = 0.055; // 喇叭口挑出墙面的高度
+    const t = 0.045; // 斜面石厚
+    const hw = pw / 2;
+    const hh = ph / 2;
+    const iw = hw - s;
+    const ih = hh - s;
+    const L = Math.hypot(s, c); // 斜面长度
+    const ang = Math.atan2(s, c); // 斜面倾角（相对墙面）
+
+    // 砖雕面（龛底）：贴在墙面上，只探出一点点，避免 z-fighting
+    const plate = new THREE.BoxGeometry(iw * 2, ih * 2, 0.03);
+    plate.translate(x, 0, 0.012);
+    parts.push(plate);
+
+    // 上、下两道斜面（沿 X 延伸）
+    //
+    // ⚠ 倾角符号：局部 +Z 经 rotateX(-ang) 映射到 (0, +s, +c)
+    //   ⇒ 斜面从**龛底往外沿**是"上挑"的。
+    //   上龛口因此朝**下外**（背光），下龛口朝**上外**（受光）✓
     for (const sy of [-1, 1]) {
-      const b = new THREE.BoxGeometry(pw, t, 0.05);
-      b.translate(x, sy * (ph / 2 - t / 2), d / 2 + 0.02);
-      parts.push(b);
+      const g = new THREE.BoxGeometry(iw * 2 + s * 2, t, L);
+      g.rotateX(-ang);
+      g.translate(x, sy * (hh - s / 2), 0.012 + c / 2);
+      parts.push(g);
     }
+
+    // 左、右两道斜面（沿 Y 延伸）
+    // ⚠ 左右必须**反号**：左片的外沿朝 -X、右片朝 +X，
+    //   否则两片会朝同一个方向倾斜 ⇒ 一片埋进墙里。
     for (const sx of [-1, 1]) {
-      const b = new THREE.BoxGeometry(t, ph, 0.05);
-      b.translate(x + sx * (pw / 2 - t / 2), 0, d / 2 + 0.02);
-      parts.push(b);
+      const g = new THREE.BoxGeometry(t, ih * 2 + s * 2, L);
+      g.rotateY(sx * ang);
+      g.translate(x + sx * (hw - s / 2), 0, 0.012 + c / 2);
+      parts.push(g);
     }
   }
   const g = mergeGeometries(parts, false);

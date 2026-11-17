@@ -248,6 +248,29 @@ export function makeGroundDetailTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 8;
+  /**
+   * ⚠⚠ **记下这张图在 linear 空间的平均亮度**。
+   *
+   *   底色是中灰 `#808080`，但那是 **sRGB 0.5 = linear 0.214** ——
+   *   不是 0.5！所以着色器里"乘 2.0 当作归一化"是**错的**：
+   *   实际只到 0.43 ⇒ 地面被压暗 24~56%，近景比中景暗一圈。
+   *   ⇒ 用真实均值归一化（`tex.userData.avgLinear`），
+   *     调制量才有"均值 = 1"的语义，只剩明暗变化。
+   */
+  {
+    const px = g.getImageData(0, 0, S, S).data;
+    const lin = (v) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      sum += (lin(px[i]) + lin(px[i + 1]) + lin(px[i + 2])) / 3;
+      n++;
+    }
+    tex.userData.avgLinear = n ? sum / n : 0.214;
+  }
   return tex;
 }
 
