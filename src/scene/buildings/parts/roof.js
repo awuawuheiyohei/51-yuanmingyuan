@@ -636,6 +636,36 @@ function buildRoofCore(spec, geomsIn) {
   function hipLine(sx, sz) {
     const pts = [];
     const N = 10;
+    /**
+     * ⚠⚠ **庑殿的戗脊必须从正脊端头起**。
+     *
+     * 原来不管什么屋顶，戗脊都从「山花底角 (xh, zBreak)」起步 ——
+     * 那是**歇山**的做法（正脊到山花顶、山花下是垂脊）。
+     * 庑殿没有山花：正脊直接到 (xh, 0)，戗脊自那儿沿 45° 斜线到檐角。
+     * 照旧走法 ⇒ 戗脊与正脊之间**断开一大截**，角部露出一道豁口
+     * （西洋楼庑殿顶看得最清楚）。
+     */
+    if (type === 'wudian') {
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const u = Wz * t; // 沿 45° 斜线的进深
+        const x0 = sx * (xh + u);
+        const z0 = sz * u;
+        let y = heightAt(x0, z0);
+        if (y === null) y = eaveY;
+        const cn = Math.pow(Math.abs(x0) / Wx, 5) * Math.pow(Math.abs(z0) / Wz, 5);
+        let x = x0;
+        let z = z0;
+        if (cn > 0.0005) {
+          const eaveT = smoothstep(0.35, 1.0, Math.abs(z0) / Wz);
+          y += upturn * cn * eaveT;
+          x = x0 * (1 + (bulge * cn) / Math.max(Wx, 0.001));
+          z = z0 * (1 + (bulge * cn) / Math.max(Wz, 0.001));
+        }
+        pts.push(new THREE.Vector3(x, y + 0.06, z));
+      }
+      return pts;
+    }
     for (let i = 0; i <= N; i++) {
       const t = i / N;
       const x0 = sx * (xh + (Wx - xh) * t);
@@ -667,33 +697,35 @@ function buildRoofCore(spec, geomsIn) {
   }
 
   /* -------------------------------------------------------- 脊件几何 */
+  // 脊的尺度：小建筑收小（大殿正脊宽 0.84m，亭轩收到 0.5m 上下）
+  const rScale = Math.max(0.6, Math.min(1, Math.min(width, depth) / 16));
   for (const r of ridges) {
     if (r.kind === 'finial') {
       push('finial', buildFinial(r.apex, width));
-    } else {
-      const rw = r.kind === 'hip' ? 0.42 : 0.62;
-      // ⚠ 只给**正脊**加那圈筒瓦。
-      //   戗脊（hip）的路径带翼角起翘、拐角很急 ⇒ 管状体在拐角处会
-      //   甩出一截"锯齿碎片"，浮在屋檐外侧（洋楼屋面上那些青色碎片）。
-      //   正脊是直的，加管没问题。
-      push('ridge', buildRidgeBar(r.pts, rw, r.kind === 'hip' ? 0.42 : 0.62, r.kind !== 'hip'));
-      // 脊上垒的小筒瓦
-      //
-      // ⚠ **只给正脊铺**。戗脊的路径带翼角起翘、拐角很急，
-      //   逐个横放的半圆瓦在拐角处会甩成一圈**锯齿碎片**，
-      //   浮在屋檐外侧（西洋楼屋面上那些青色碎片就是它）。
-      if (r.kind !== 'hip') {
-        for (const g of buildXiTong(r.pts, rw)) push('ridge', g);
-      }
-      // 正脊两端的鸱吻 + 脊上小兽
-      if (r.kind === 'main') {
-        push('finial', buildChiwen(r.pts, 0.62));
-      }
+      continue;
+    }
+    if (r.kind === 'hip') {
+      // 垂脊 / 戗脊：沿戗脊线的一道脊（宽度小于正脊）
+      const rw = 0.42;
+      push('ridge', buildRidgeBar(r.pts, rw, 0.42, false));
       // 垂脊上的走兽：数量按清式制度（庑殿九兽 / 歇山五兽 / 悬山三兽）
-      if (r.kind === 'hip') {
-        const n = BEAST_COUNT[type] ?? 5;
-        if (n > 0) push('finial', buildBeastRow(r.pts, 0.3, n));
-      }
+      const n = BEAST_COUNT[type] ?? 5;
+      if (n > 0) push('finial', buildBeastRow(r.pts, 0.3, n));
+      continue;
+    }
+    /**
+     * 正脊（main）/ 卷棚脊（roll）：**有构造的正脊** ——
+     *   脊座（水平线脚）+ 脊身（左右两排半圆筒瓦）+ 脊瓦（顶上一道凸条）。
+     */
+    for (const g of buildZhengJi(r.pts, { scale: rScale, heightAt })) {
+      push('ridge', g);
+    }
+    // 正脊两端的鸱吻（跨在脊瓦上，不埋在脊身里）
+    if (r.kind === 'main') {
+      push(
+        'finial',
+        buildChiwen(r.pts, 0.8, RIDGE.seatHalfW * 2 * rScale + RIDGE.seatMold * 2 * rScale, 0.22)
+      );
     }
   }
 
@@ -927,13 +959,25 @@ function buildWadangEdge(p0, p1, eaveY, count) {
   return parts;
 }
 
-/** 鸱吻：正脊两端的兽头饰件 */
-function buildChiwen(pts, h) {
+/**
+ * 鸱吻（正吻）：正脊两端的兽头饰件。
+ *
+ * ⚠ 原来吻兽整体贴在脊线上（底 -0.12h、顶 0.5h），
+ *   而旧脊身是一根浮在脊线上方的管子 ⇒ 吻兽几乎全埋在管子里，
+ *   只在脊端露出一小截。现在脊身是**实心的正脊**，
+ *   吻兽必须**跨在脊瓦上**（baseY 抬高、宽度取脊座宽），
+ *   否则会被脊身整个吃掉。
+ *
+ * @param {THREE.Vector3[]} pts 正脊两端
+ * @param {number} h 吻兽尺度
+ * @param {number} seatW 脊座宽（吻兽要跨在脊上，不能比脊还窄）
+ * @param {number} baseY 吻兽底相对脊线的高度
+ */
+function buildChiwen(pts, h, seatW = 0.62, baseY = 0) {
   const parts = [];
   for (const end of [pts[0], pts[pts.length - 1]]) {
-    const g = new THREE.Group();
     // 主体
-    const body = new THREE.BoxGeometry(h * 0.34, h * 0.62, h * 0.5);
+    const body = new THREE.BoxGeometry(h * 0.34, h * 0.62, seatW * 0.6);
     body.translate(0, h * 0.31, 0);
     parts.push(body);
     // 上卷的尾
@@ -942,11 +986,11 @@ function buildChiwen(pts, h) {
     curl.translate(end === pts[0] ? -h * 0.14 : h * 0.14, h * 0.72, 0);
     parts.push(curl);
     // 吻兽的嘴
-    const snout = new THREE.BoxGeometry(h * 0.2, h * 0.16, h * 0.34);
+    const snout = new THREE.BoxGeometry(h * 0.2, h * 0.16, seatW * 0.42);
     snout.translate(end === pts[0] ? h * 0.1 : -h * 0.1, h * 0.12, 0);
     parts.push(snout);
     for (const p of parts.slice(-3)) {
-      p.translate(end.x, end.y, end.z);
+      p.translate(end.x, end.y + baseY, end.z);
     }
   }
   const merged = mergeGeometries(parts, false);
@@ -1254,31 +1298,295 @@ function buildRafters(Wx, Wz, eaveY, count, sign = 1) {
   return { wood, eave };
 }
 
-/** 脊：正脊/垂脊用小筒瓦逐个垒起 */
-function buildXiTong(points, width) {
-  const parts = [];
-  const curve = new THREE.CatmullRomCurve3(points);
-  const len = curve.getLength();
-  const n = Math.max(4, Math.floor(len / 0.16));
-  const r = 0.085;
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const p = curve.getPoint(t);
-    const tan = curve.getTangent(t);
-    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
-    const up = new THREE.Vector3(0, 1, 0);
-    // 一片脊筒：半圆瓦，横着躺
-    const g = new THREE.CylinderGeometry(r, r, width * 0.92, 6, 1, false, 0, Math.PI);
-    g.rotateZ(Math.PI / 2);
-    const q = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 0, 1),
-      tan
-    );
-    g.applyQuaternion(q);
-    g.translate(p.x, p.y, p.z);
-    parts.push(g);
+/* ================================================================
+ * 正脊：脊座 + 脊身（左右两排筒瓦）+ 脊瓦
+ *
+ * ⚠⚠ 为什么要重建（2026-11-17 实测）：
+ *   原来的正脊是三样东西拼的，远看是一条**零起伏的平带**：
+ *   ① `buildRidgeBar` 的 ExtrudeGeometry —— three.js r170 的路径挤出把断面
+ *      local-y 映射成**朝下**（binormal = -up）⇒ 整条脊身沉进屋面、看不见；
+ *      而"端头背面盖"用的是**未变换的原始 2D 坐标**
+ *      ⇒ 脊端凭空多出一块**平贴的色板**（"正脊是一块平黄板"的真凶）。
+ *   ② 一根浮在脊线上方 0.5m 的光滑 TubeGeometry（读作一根塑料管）。
+ *   ③ 一排半径 8.5cm 的小半圆筒（`buildXiTong`，读作一排小点）。
+ *
+ * 现在按清式做法重建三段：
+ *   脊座  正脊下方一道**水平**的线脚（同时把脊身沉进屋面，不漏缝）
+ *   脊身  左右两排**半圆筒瓦**沿脊线垒起（断面半圆，直径 0.35m）——真几何
+ *   脊瓦  压在两排筒瓦上的一道凸条
+ * ================================================================ */
+
+/**
+ * 清式正脊的三段尺寸（米）。
+ *
+ * 依据：清工部《工程做法》正脊做法 —— 脊身以筒瓦垒砌，脊下有砖砌脊座
+ * （线脚），脊上压脊瓦；垂脊做法同制而略小。
+ */
+const RIDGE = {
+  seatHalfW: 0.34,   // 脊座（墙身）半宽
+  seatTop: 0.16,     // 脊座顶（相对屋脊线）
+  seatMold: 0.05,    // 脊座顶枭（凸出的线脚）
+  bodyR: 0.175,      // 脊身筒瓦半径（直径 0.35m）
+  tileLen: 0.30,     // 单片脊筒长
+  tilePitch: 0.34,   // 脊筒间距（留缝 ⇒ 有分段）
+  ring: 4,           // 筒瓦断面分段
+  capHalfW: 0.26,    // 脊瓦半宽
+  capRise: 0.31,     // 脊瓦高出脊座顶
+};
+
+const RIDGE_UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * 脊线的标架：(across=side, up=upv, forward=tan) 右手系。
+ * @param {THREE.Vector3} tan 脊线切向
+ */
+function ridgeFrame(tan) {
+  const side = new THREE.Vector3().crossVectors(RIDGE_UP, tan);
+  if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+  side.normalize();
+  const upv = new THREE.Vector3().crossVectors(tan, side).normalize();
+  return { side, upv };
+}
+
+/**
+ * 把 2D 断面沿 3D 路径扫掠成实体，顶点直接累加进同一组数组。
+ *
+ * ⚠⚠ **不用 ExtrudeGeometry 的 extrudePath**：
+ *   three.js r170 的路径挤出有两个坑（AGENTS §4.1.7 同类）：
+ *   ① 断面 local-y 映射成**朝下** ⇒ 脊身整条沉进屋面；
+ *   ② 端头"背面盖"用的是**未变换的原始 2D 坐标**
+ *      ⇒ 脊端凭空多出一块平贴的色板。
+ *   这里自己算标架，断面 y 恒为"向上"，绕向保证**外法线朝外**。
+ *
+ * @param {{pos:number[],uv:number[],idx:number[]}} acc 累加器
+ * @param {{p:THREE.Vector3,tan:THREE.Vector3,side:THREE.Vector3,upv:THREE.Vector3}[]} stations 路径站
+ * @param {Array<[number,number]>} profile 断面点（across, up），**逆时针**
+ */
+function sweepInto(acc, stations, profile) {
+  const n = profile.length;
+  const base = acc.pos.length / 3;
+  let arc = 0;
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    if (i > 0) arc += st.p.distanceTo(stations[i - 1].p);
+    for (let j = 0; j < n; j++) {
+      const ax = profile[j][0];
+      const up = profile[j][1];
+      acc.pos.push(
+        st.p.x + st.side.x * ax + st.upv.x * up,
+        st.p.y + st.side.y * ax + st.upv.y * up,
+        st.p.z + st.side.z * ax + st.upv.z * up
+      );
+      acc.uv.push(arc, j / (n - 1));
+    }
   }
-  return parts;
+  const stride = n;
+  for (let i = 0; i < stations.length - 1; i++) {
+    for (let j = 0; j < n; j++) {
+      const j2 = (j + 1) % n;
+      const a = base + i * stride + j;
+      const b = base + (i + 1) * stride + j;
+      const c = base + (i + 1) * stride + j2;
+      const d = base + i * stride + j2;
+      /**
+       * 绕向：断面逆时针 ⇒ 侧面法线朝外。
+       *   验算：path 沿 +X、side=-Z、up=+Y 时，底边三角形 (a,c,b)
+       *   的法线 = (c-a)×(b-a) = (0,-8,0) ⇒ 朝下 = 底边的外法线 ✓。
+       */
+      acc.idx.push(a, c, b, a, d, c);
+    }
+  }
+  ridgeCapInto(acc, stations[0], profile, true);
+  ridgeCapInto(acc, stations[stations.length - 1], profile, false);
+}
+
+/**
+ * 扫掠体的端盖（断面形心扇形）。
+ * @param {boolean} isStart 起点盖朝 -tangent，绕向与终点盖相反
+ */
+function ridgeCapInto(acc, st, profile, isStart) {
+  const n = profile.length;
+  let cx = 0;
+  let cy = 0;
+  for (const p of profile) {
+    cx += p[0];
+    cy += p[1];
+  }
+  cx /= n;
+  cy /= n;
+  const base = acc.pos.length / 3;
+  acc.pos.push(
+    st.p.x + st.side.x * cx + st.upv.x * cy,
+    st.p.y + st.side.y * cx + st.upv.y * cy,
+    st.p.z + st.side.z * cx + st.upv.z * cy
+  );
+  acc.uv.push(0, 0.5);
+  for (let j = 0; j < n; j++) {
+    const ax = profile[j][0];
+    const up = profile[j][1];
+    acc.pos.push(
+      st.p.x + st.side.x * ax + st.upv.x * up,
+      st.p.y + st.side.y * ax + st.upv.y * up,
+      st.p.z + st.side.z * ax + st.upv.z * up
+    );
+    acc.uv.push(0, j / n);
+  }
+  for (let j = 0; j < n; j++) {
+    const j2 = (j + 1) % n;
+    // 断面逆时针 ⇒ (形心, j, j+1) 的法线朝 +tangent（终点盖）；
+    // 起点盖要朝 -tangent ⇒ 绕向反过来。
+    if (isStart) acc.idx.push(base, base + 1 + j2, base + 1 + j);
+    else acc.idx.push(base, base + 1 + j, base + 1 + j2);
+  }
+}
+
+/**
+ * 半圆筒瓦的断面：圆心在 (a0, yBase)、半径 R 的**上半圈** + 底边弦。
+ * 逆时针 ✓（绕 a0 → 顶 → -a0，再沿底边回来）。
+ */
+function halfDiscProfile(a0, R, ring, yBase) {
+  const p = [];
+  for (let k = 0; k <= ring; k++) {
+    const a = (k / ring) * Math.PI;
+    p.push([a0 + R * Math.cos(a), yBase + R * Math.sin(a)]);
+  }
+  return p;
+}
+
+/**
+ * 脊两侧屋面的高差（米）。
+ *
+ * 正脊坐在屋面的**脊线**上，而举折曲面在脊线附近极陡
+ * （fold(t)=t^0.62 ⇒ t→0 时斜率→∞），
+ * 所以脊座必须**沉进屋面**若干，否则脊与屋面之间会露出一条黑缝。
+ * 这里沿"垂直于脊线"的方向取样，求屋面相对脊线的最大下落量。
+ *
+ * @param {THREE.Vector3[]} pts 脊线
+ * @param {(x:number,z:number)=>number|null} heightAt 屋面高度场
+ * @param {number} halfW 取样距离（脊座半宽）
+ */
+function ridgeRoofDrop(pts, heightAt, halfW) {
+  const mid = Math.floor(pts.length / 2);
+  const p = pts[mid];
+  const a = pts[Math.max(0, mid - 1)];
+  const b = pts[Math.min(pts.length - 1, mid + 1)];
+  const tx = b.x - a.x;
+  const tz = b.z - a.z;
+  const L = Math.hypot(tx, tz);
+  if (L < 1e-6) return 0;
+  const px = -tz / L;
+  const pz = tx / L;
+  let drop = 0;
+  for (const s of [1, -1]) {
+    const y = heightAt(p.x + px * halfW * s, p.z + pz * halfW * s);
+    if (y === null || y === undefined || Number.isNaN(y)) continue;
+    drop = Math.max(drop, p.y - y);
+  }
+  return Math.max(0, drop);
+}
+
+/**
+ * 生成一条**有构造的正脊**（脊座 + 脊身 + 脊瓦）。
+ *
+ * @param {THREE.Vector3[]} points 正脊线（首尾为脊的两端）
+ * @param {object} opts
+ * @param {number} opts.scale 尺度（小建筑收小）
+ * @param {(x:number,z:number)=>number|null} opts.heightAt 屋面高度场
+ * @returns {THREE.BufferGeometry[]}
+ */
+function buildZhengJi(points, opts = {}) {
+  const s = opts.scale ?? 1;
+  const heightAt = opts.heightAt;
+  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.05);
+  const len = curve.getLength();
+  if (len < 0.6) return [];
+
+  const HW = RIDGE.seatHalfW * s;
+  const TOP = RIDGE.seatTop * s;
+  const MOLD = RIDGE.seatMold * s;
+  const R = RIDGE.bodyR * s;
+
+  // ---- 路径站（标架）----
+  const nSt = Math.max(2, Math.min(64, Math.ceil(len / 1.2)));
+  const stations = [];
+  for (let i = 0; i <= nSt; i++) {
+    const t = i / nSt;
+    const p = curve.getPointAt(t);
+    const tan = curve.getTangentAt(t).normalize();
+    const { side, upv } = ridgeFrame(tan);
+    stations.push({ p, tan, side, upv });
+  }
+
+  /**
+   * 脊座底：沉到屋面以下（比屋面再低 12cm），
+   * 保证脊身与屋面之间**没有缝**。
+   * 取所有站里**最深**的那个 ⇒ 卷棚脊两端下沉时也不会漏。
+   */
+  let bottom = -0.5;
+  if (heightAt) {
+    const drop = ridgeRoofDrop(points, heightAt, HW);
+    bottom = -drop - 0.12;
+    for (const st of stations) {
+      const surf = heightAt(st.p.x, st.p.z);
+      if (surf === null || surf === undefined || Number.isNaN(surf)) continue;
+      bottom = Math.min(bottom, surf - st.p.y - 0.12);
+    }
+  }
+
+  const acc = { pos: [], uv: [], idx: [] };
+
+  /* ---- 脊座：水平的一道线脚（顶面平直，侧壁沉进屋面）---- */
+  const seatProfile = [
+    [-HW, bottom],
+    [HW, bottom],
+    [HW, TOP - MOLD],
+    [HW + MOLD, TOP],
+    [-(HW + MOLD), TOP],
+    [-HW, TOP - MOLD],
+  ];
+  sweepInto(acc, stations, seatProfile);
+
+  /* ---- 脊身：左右两排半圆筒瓦沿脊线垒起 ---- */
+  const pitch = RIDGE.tilePitch * s;
+  const tLen = RIDGE.tileLen * s;
+  const nTile = Math.max(1, Math.floor(len / pitch));
+  for (const dir of [1, -1]) {
+    const prof = halfDiscProfile(dir * R, R, RIDGE.ring, TOP);
+    for (let i = 0; i < nTile; i++) {
+      const u0 = (i * pitch) / len;
+      const u1 = Math.min(1, (i * pitch + tLen) / len);
+      if (u1 <= u0 + 1e-4) break;
+      const st = [];
+      for (let k = 0; k <= 1; k++) {
+        const u = u0 + (u1 - u0) * k;
+        const p = curve.getPointAt(u);
+        const tan = curve.getTangentAt(u).normalize();
+        const { side, upv } = ridgeFrame(tan);
+        st.push({ p, tan, side, upv });
+      }
+      sweepInto(acc, st, prof);
+    }
+  }
+
+  /* ---- 脊瓦：压在两排筒瓦上的一道凸条 ---- */
+  const CHW = RIDGE.capHalfW * s;
+  const capTop = TOP + RIDGE.capRise * s;
+  const capProfile = [
+    [-CHW, TOP - 0.02 * s],
+    [CHW, TOP - 0.02 * s],
+    [CHW, TOP + 0.12 * s],
+    [0.11 * s, capTop],
+    [-0.11 * s, capTop],
+    [-CHW, TOP + 0.12 * s],
+  ];
+  sweepInto(acc, stations, capProfile);
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(acc.pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(acc.uv, 2));
+  g.setIndex(acc.idx);
+  g.computeVertexNormals();
+  return [g];
 }
 
 function buildRidgeBar(points, width, height, addTube = true) {

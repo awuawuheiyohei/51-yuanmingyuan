@@ -1,9 +1,89 @@
 /**
  * 水面：福海、如意洲诸池、西洋楼镜池等
+ *
+ * ## 2026-11-17 这一轮加了什么
+ *
+ * 用户原话"水太假"。原来这块水面只有**一张法线贴图 + 环境反射**，
+ * 人眼高度看过去就是"一块蓝灰渐变的玻璃板"——没有岸、没有深浅、没有倒影。
+ * 这一轮补三层，全部走**逐片元**的路子：
+ *
+ * 1. **岸线泡沫**：用地形高程算出每一点的水深，水深 → 0 的那一圈
+ *    就是**真实水线**，在那儿叠一条带噪声起伏的白沫带（0.3~0.8 m 宽）。
+ * 2. **深浅渐变**：同一个水深场驱动 —— 靠岸浅（偏绿偏亮、能看穿池底），
+ *    深处偏蓝黑。
+ * 3. **岸影倒影（近似）**：近岸压暗，并叠上**被拉长的暗色竖纹**
+ *    （沿"离岸方向"拉长），读作"岸上有东西倒下来"。
+ *    ⚠ **这不是真反射**，是真平面反射的替身，见文末「为什么不做真反射」。
+ *
+ * ## ⚠ 关键前提：`ShapeGeometry` 只有轮廓顶点
+ *
+ * `THREE.ShapeGeometry` 用 earcut 三角化轮廓，**三角形内部一个顶点都不生成**
+ * ⇒ 全部顶点都落在岸线上 ⇒ 任何"到岸线的距离"逐顶点属性在水面上恒等于 0，
+ * 根本没法用来做渐变。
+ *
+ * ⇒ 所以走**逐片元**：把地形高程烘成一张纹理，片元里按世界坐标采样，
+ * 得到逐像素的水深。零新增三角面、零新增 draw call。
+ *
+ * ## ⚠ 高程必须与地形用同一套插值
+ *
+ * 水面的水深 = 水位 − 地形高程。地形网格（`terrain.js`）的顶点高程用的是
+ * `sampleHeight()` 的**双线性**插值；这里采样同一张高程纹理、
+ * 同一套 UV 换算 ⇒ 求出的水线与**渲染出来的**水线重合，
+ * 泡沫带才会严丝合缝地贴在岸上。
+ *
+ * ## ⚠ 岸线不在 OSM 轮廓上
+ *
+ * OSM 的水面轮廓（`w.ring`）其实**埋在土里**——实测沿环取样，
+ * 地形高程普遍比水位高 2~5 m。真正能看见的水线是地形穿过水位的那条等高线。
+ * ⇒ 泡沫带必须跟着**地形等高线**走，跟着 `w.ring` 画会整条画进土里。
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { makeHeightSampler } from './terrain.js';
+
+/* ------------------------------------------------------------------ *
+ * 噪声（法线贴图与岸沫噪声共用）
+ * ------------------------------------------------------------------ */
+
+/** 整数哈希 → [0,1) */
+function hash2(x, y, p) {
+  let h = x * 374761393 + y * 668265263 + p * 2147483647;
+  h = (h ^ (h >>> 13)) * 1274126177;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+const smoothstep01 = (t) => t * t * (3 - 2 * t);
+
+/** 周期为 P 的二维 value noise（必须在 u/v 上无缝，否则贴图边界有接缝） */
+function vnoise(x, y, P, p) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const xf = smoothstep01(x - xi);
+  const yf = smoothstep01(y - yi);
+  const w = (a, b) => hash2(((a % P) + P) % P, ((b % P) + P) % P, p);
+  const a = w(xi, yi);
+  const b = w(xi + 1, yi);
+  const cc = w(xi, yi + 1);
+  const d = w(xi + 1, yi + 1);
+  return (a + (b - a) * xf) * (1 - yf) + (cc + (d - cc) * yf) * yf;
+}
+
+/** fbm：三层，频率 4/8/16，幅度递减。返回值域 [0,1] */
+function fbm(x, y) {
+  let v = 0;
+  let amp = 1;
+  let norm = 0;
+  for (let o = 0; o < 3; o++) {
+    const P = 4 << o;
+    v += vnoise((x * P) / 256, (y * P) / 256, P, o + 1) * amp;
+    norm += amp;
+    amp *= 0.55;
+  }
+  return v / norm;
+}
+
+/* ------------------------------------------------------------------ *
+ * 程序化水波法线贴图
+ * ------------------------------------------------------------------ */
 
 /**
  * 程序化水波法线贴图。
@@ -22,40 +102,6 @@ function rippleNormalTexture() {
   c.width = c.height = S;
   const g = c.getContext('2d');
   const img = g.createImageData(S, S);
-
-  // --- 周期性 value noise（必须在 u/v 上无缝，否则贴图边界会有接缝） ---
-  const hash = (x, y, p) => {
-    let h = x * 374761393 + y * 668265263 + p * 2147483647;
-    h = (h ^ (h >>> 13)) * 1274126177;
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-  };
-  const smooth = (t) => t * t * (3 - 2 * t);
-  /** 周期为 P 的二维 value noise */
-  const vnoise = (x, y, P, p) => {
-    const xi = Math.floor(x);
-    const yi = Math.floor(y);
-    const xf = smooth(x - xi);
-    const yf = smooth(y - yi);
-    const w = (a, b) => hash(((a % P) + P) % P, ((b % P) + P) % P, p);
-    const a = w(xi, yi);
-    const b = w(xi + 1, yi);
-    const cc = w(xi, yi + 1);
-    const d = w(xi + 1, yi + 1);
-    return (a + (b - a) * xf) * (1 - yf) + (cc + (d - cc) * xf) * yf;
-  };
-  /** fbm：三层，频率 4/8/16，幅度递减 */
-  const fbm = (x, y) => {
-    let v = 0;
-    let amp = 1;
-    let norm = 0;
-    for (let o = 0; o < 3; o++) {
-      const P = 4 << o;
-      v += vnoise((x * P) / S, (y * P) / S, P, o + 1) * amp;
-      norm += amp;
-      amp *= 0.55;
-    }
-    return v / norm;
-  };
 
   // 先算高度场，再中心差分求梯度
   const H = new Float32Array(S * S);
@@ -87,6 +133,84 @@ function rippleNormalTexture() {
   return tex;
 }
 
+/* ------------------------------------------------------------------ *
+ * 岸沫 / 倒影竖纹噪声
+ * ------------------------------------------------------------------ */
+
+/**
+ * 岸沫与倒影竖纹用的 fbm 噪声（单通道 R）。
+ *
+ * ⚠ 与 §4.1.20 同理：**这张贴图也要存 linear 均值**
+ *   （`userData.avgLinear`）。凡是把它当"调制系数"用的地方，
+ *   都要除以均值，"均值 = 1"才有语义，否则整体偏暗/偏亮。
+ *   （fbm 的值域是 [0,1]，均值约 0.5。）
+ */
+function shoreNoiseTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  let sum = 0;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // 采样频率取 1/256 ⇒ 一个像素一个噪声格，周期正好铺满贴图
+      const n = fbm(x, y);
+      sum += n;
+      const i = (y * S + x) * 4;
+      const v = Math.round(n * 255);
+      img.data[i] = v;
+      img.data[i + 1] = v;
+      img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  // canvas 是 sRGB ⇒ 采样后是 linear；均值要在 linear 空间统计
+  // （fbm 本身线性 ⇒ 直接用算术均值即可）
+  tex.userData.avgLinear = sum / (S * S);
+  return tex;
+}
+
+/* ------------------------------------------------------------------ *
+ * 地形高程纹理
+ * ------------------------------------------------------------------ */
+
+/**
+ * 地形高程 → 半浮点纹理（R16F），供水面在**片元里**求水深。
+ *
+ * ⚠ **UV 换算必须复刻 `terrain.js` 的 `sampleHeight()`**：
+ *   `fx = (x - minX) / sizeX * (cols - 1)`，再取 `floor(fx)` 与 `floor(fx)+1`
+ *   做双线性。贴图采样位置要落在**纹素中心** `(c + 0.5) / cols`，
+ *   插值权重才与 `sampleHeight()` 完全一致 ⇒ 泡沫线与渲染出来的水线重合。
+ *
+ * ⚠ 用半浮点（R16F）而不是 R32F：WebGL2 里**浮点纹理的线性过滤**
+ *   要靠 `OES_texture_float_linear` 扩展（不保证有），
+ *   而**半浮点的线性过滤是 WebGL2 核心功能** ✓。
+ *   高程 ~45 m 处半浮点分辨率约 0.03 m，够用。
+ */
+function buildHeightTexture(sceneData) {
+  const t = sceneData.terrain;
+  const { cols, rows, heights } = t;
+  const data = new Uint16Array(cols * rows);
+  for (let i = 0; i < heights.length; i++) {
+    data[i] = THREE.DataUtils.toHalfFloat(heights[i]);
+  }
+  const tex = new THREE.DataTexture(data, cols, rows, THREE.RedFormat, THREE.HalfFloatType);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/* ------------------------------------------------------------------ *
+ * 主构建
+ * ------------------------------------------------------------------ */
+
 export function buildWater(sceneData) {
   const group = new THREE.Group();
   group.name = 'water';
@@ -95,6 +219,10 @@ export function buildWater(sceneData) {
   // 水面几何的 UV 是米制坐标，一张波纹贴图覆盖约 3.5m
   // （之前 9m 一张，主频波长 4.5m，远看像瓦楞板）
   normalMap.repeat.set(1 / 3.5, 1 / 3.5);
+
+  const noiseTex = shoreNoiseTexture();
+  const heightTex = buildHeightTexture(sceneData);
+  const terrain = sceneData.terrain;
 
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0x0f3b45,
@@ -142,11 +270,53 @@ export function buildWater(sceneData) {
    * 近景（< 40 m）波纹一点不少；更远处淡成环境的镜面反射（避免法线图在远处拍频）。
    */
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uHeight = { value: heightTex };
+    // (minX, minZ, sizeX, sizeZ)
+    shader.uniforms.uHeightRect = {
+      value: new THREE.Vector4(terrain.minX, terrain.minZ, terrain.sizeX, terrain.sizeZ),
+    };
+    shader.uniforms.uHeightGrid = { value: new THREE.Vector2(terrain.cols, terrain.rows) };
+    shader.uniforms.uNoise = { value: noiseTex };
+    // ⚠ 噪声贴图的 linear 均值（§4.1.20）：当调制系数用时必须除以它
+    shader.uniforms.uNoiseAvg = { value: noiseTex.userData.avgLinear || 0.5 };
+
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying float vRipDist;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvRipDist = -mvPosition.z;');
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute float aLevel;
+        varying float vRipDist;
+        varying vec3 vWPos;
+        varying float vLevel;`
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vRipDist = -mvPosition.z;
+        vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vLevel = aLevel;`
+      );
+
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vRipDist;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform sampler2D uHeight;
+        uniform vec4 uHeightRect;
+        uniform vec2 uHeightGrid;
+        uniform sampler2D uNoise;
+        uniform float uNoiseAvg;
+        varying float vRipDist;
+        varying vec3 vWPos;
+        varying float vLevel;
+
+        // 地形高程（与 terrain.js 的 sampleHeight 同一套双线性插值）
+        float terrainH(vec2 p) {
+          vec2 f = (p - uHeightRect.xy) / uHeightRect.zw * (uHeightGrid - 1.0);
+          vec2 uv = (f + 0.5) / uHeightGrid;
+          return texture2D(uHeight, uv).r;
+        }`
+      )
       .replace(
         '#include <normal_fragment_maps>',
         `#ifdef USE_NORMALMAP_OBJECTSPACE
@@ -169,9 +339,81 @@ export function buildWater(sceneData) {
           mapN.xy *= normalScale * mix(0.25, 1.0, ripFade);
           normal = normalize( tbn * mapN );
         #endif`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+
+        // ============================================================
+        //  岸线场：水深 = 水位 − 地形高程
+        // ============================================================
+        float hC = terrainH(vWPos.xz);
+        float hX = terrainH(vWPos.xz + vec2(12.0, 0.0));
+        float hZ = terrainH(vWPos.xz + vec2(0.0, 12.0));
+        // 地形梯度（指向岸上），步长与 terrain.js 着色用的 12 m 一致
+        vec2 wGrad = vec2(hX - hC, hZ - hC) / 12.0;
+        float wSlope = length(wGrad);
+        // >0 = 水在地形之上（看得见的水）；<0 = 这一片是埋在土里的
+        float wDepth = vLevel - hC;
+        // 到水线的**水平距离**近似：水深 ÷ 地面坡度。
+        // 坡度 ≈ 0.05 m/m 时，0.03 m 的水深就是 0.6 m 的离岸距离 ✓
+        float shoreDist = wDepth / max(wSlope, 0.012);
+
+        // ---- ① 岸线泡沫 ----
+        // 近景清晰、随距离淡出；带噪声起伏，不是��条均匀白线
+        float foamFade = 1.0 - smoothstep(45.0, 150.0, vRipDist);
+        float fn1 = texture2D(uNoise, vWPos.xz * 0.55).r;
+        float fn2 = texture2D(uNoise, vWPos.xz * 2.1 + 0.41).r;
+        float foamBand = smoothstep(0.72, 0.04, shoreDist);
+        float foamBreak = smoothstep(0.28, 0.70, fn1 * 0.62 + fn2 * 0.38);
+        float foam = foamBand * mix(0.28, 1.0, foamBreak) * foamFade;
+
+        // ---- ② 深浅渐变 ----
+        // 靠岸浅：偏绿偏亮、能看穿一点看见池底；中间深：偏蓝黑
+        float shallowT = smoothstep(0.0, 1.7, wDepth);
+        vec3 shallowCol = vec3(0.052, 0.118, 0.092);
+        vec3 deepCol = vec3(0.005, 0.030, 0.050);
+        diffuseColor.rgb = mix(shallowCol, deepCol, shallowT);
+        // 浅处降不透明度 ⇒ 透出池底；深处保持 0.965 不透
+        diffuseColor.a = mix(0.86, 0.965, shallowT);
+
+        // 泡沫：亮白、不透明（盖住下面的水与池底）
+        vec3 foamCol = vec3(0.70, 0.72, 0.70);
+        diffuseColor.rgb = mix(diffuseColor.rgb, foamCol, foam);
+        diffuseColor.a = mix(diffuseColor.a, 1.0, foam);`
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `// ============================================================
+        //  ③ 岸影倒影（**近似**，不是真反射）
+        // ============================================================
+        // 近岸压暗 + 叠一条沿"离岸方向"拉长的暗色竖纹 ⇒ 读作"岸上有东西倒下来"
+        {
+          float bankFade = 1.0 - smoothstep(70.0, 200.0, vRipDist);
+          float bankT = smoothstep(7.0, 0.0, shoreDist) * bankFade;
+          if (bankT > 0.002) {
+            // 离岸方向 = 地形下坡方向
+            vec2 perp = wSlope > 0.0015 ? -wGrad / wSlope : vec2(0.0, 1.0);
+            vec2 along = vec2(-perp.y, perp.x);
+            float sC = dot(vWPos.xz, perp);
+            float aC = dot(vWPos.xz, along);
+            // 竖纹：沿岸方向变化快、离岸方向变化慢 ⇒ 一条条拉长的暗痕
+            float streak = texture2D(uNoise, vec2(aC * 0.24, sC * 0.028)).r;
+            // 掠射角反射才强（菲涅耳），正视时主要是看水底
+            float fres = pow(1.0 - saturate(dot(normalize(vViewPosition), normal)), 5.0);
+            vec3 bankCol = vec3(0.020, 0.031, 0.022);
+            float bankMix = bankT * mix(0.30, 1.0, smoothstep(0.25, 0.85, streak));
+            outgoingLight = mix(
+              outgoingLight,
+              bankCol * (0.55 + 1.6 * streak),
+              bankMix * (0.30 + 0.70 * fres)
+            );
+          }
+        }
+        #include <opaque_fragment>`
       );
   };
-  mat.customProgramCacheKey = () => 'water-ripple-noise-v5';
+  mat.customProgramCacheKey = () => 'water-ripple-noise-v6-shore';
 
   // 所有水面合并成一个 Mesh：各自的水位烘进顶点位置
   const parts = [];
@@ -185,6 +427,15 @@ export function buildWater(sceneData) {
     const geo = new THREE.ShapeGeometry(shape);
     geo.rotateX(Math.PI / 2);
     geo.translate(0, level, 0);
+
+    // ⚠ 逐顶点水位：合并后一片水面对应多片水体，
+    //   片元里靠它算"水深 = 水位 − 地形高程"。
+    //   （同一片水体内所有顶点取值相同 ⇒ 插值后仍是常数 ✓）
+    const n = geo.attributes.position.count;
+    const lv = new Float32Array(n);
+    lv.fill(level);
+    geo.setAttribute('aLevel', new THREE.BufferAttribute(lv, 1));
+
     parts.push(geo);
 
     // 池岸：沿轮廓的一圈浅色带，模拟驳岸
