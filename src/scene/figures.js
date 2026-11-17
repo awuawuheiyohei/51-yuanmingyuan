@@ -22,17 +22,37 @@
  * ## 二、建模方式（明说，便于日后考据补正）
  *
  * 人物按**分层剪影**建，不是"一根棱台"：
- *   - 长袍：八边截面放样，及地 A 字摆（摆最宽、腰最窄）
- *   - 马褂/背心：另一层**异色**壳体，肩线有坡、下摆略外张，**看得见衣边**
+ *   - 长袍：**十六边**截面放样（八边在 2~8m 就是折面，读作纸板），
+ *     截面接近圆（腰 0.104H×0.086H），及地 A 字摆（摆最宽、腰最窄）；
+ *     外轮廓有五道**竖向衣褶**（角向半径调制 ⇒ 几何折痕，不是贴图）
+ *   - 马褂：另一层**异色**壳体，肩线有坡、下摆略外张，**看得见衣边**
+ *     （比袍身只宽一点 —— 原来比袍身还宽，把袖子整个吞掉了）
  *   - 大襟：胸口一段斜襟边线（清式长袍的大襟只到腋下，不是一条长杠）
- *   - 白领（内衬翻出）+ 袖口挽边 + 靴尖露出袍摆
- *   - 头：卵形 + 小鼻锥提示朝向；颈是实的圆柱，头不悬空
+ *   - 白领（内衬翻出，立到喉下）+ **露出来的脖子** + 袖口挽边 + 靴尖露出袍摆
+ *   - 头：卵形 + 小鼻锥提示朝向；颈是实的，头不悬空
  *   - 帽三种：瓜皮帽（圆顶 + 帽墙 + 顶疙瘩）/ 翎顶帽（檐 + 圆顶 + 红缨 +
  *     翎管 + 翎羽 + 顶珠）/ 旗头（宽扁板 + 两根旗杆 + 绒花）
  *   - 手臂：上臂 + 小臂两段**六边圆管**（不是方块板），带肘弯、肘部凸起、
  *     袖口、手；姿态四态：下垂 / 前伸 / 双手抬（轿夫握杠）/ 单手抬（执事持伞旗）
  *   - 姿态抖动：前后倾、左右倾、转头、两臂前后错落，由**独立随机流**按人序号
  *     生成 —— 确定性，不用 Math.random()，也不动摆位那条随机流。
+ *   - 头/领/颈/臂**跟着袍身一起倾**（原来只有袍身漂移，头是钉死的）
+ *
+ * ## 二之二、近景整改（2026-11-17，4m 处实测）
+ *
+ * 4m 处实测：人物读作**纸板剪影** —— 一个矩形身子 + 一个圆头，
+ * 看不见手臂、看不见腿、看不见衣褶的转折（远看 30m 没问题）。
+ * 原因与改法：
+ *   ① 八边袍身 + 扁椭圆截面 ⇒ 近景全是折面，轮廓是直筒
+ *      → 改十六边 + 接近圆的截面，腰/肩/摆三级宽窄分出来
+ *   ② 马褂比袍身还宽（0.153H vs 0.131H）⇒ **手臂整个被吞进去**
+ *      → 马褂收到 0.118~0.130H，袖管收细，挂点外移 ⇒ 袖子从袍身分出来
+ *   ③ 白领是一只 28cm 直径的大圆筒，把脖子盖住 ⇒ 头直接坐在肩上
+ *      → 白领收成锥形（喉环 0.030H），喉到下颌露出 4~5cm 皮肤
+ *   ④ 袍摆只离地 0.012H，靴子整个做在袍摆**里面** ⇒ 看不见脚
+ *      → 袍摆抬到 0.048H，靴筒 + 翘头鞋尖探出袍摆前沿约 3cm
+ *   ⑤ 袍身无折痕 ⇒ 近景看不到明暗转折
+ *      → 角向半径调制出五道竖向衣褶（几何）
  *
  * 马按**四足兽**建：躯干截面放样（鬐甲高于臀）、长颈上昂、楔形头带口鼻、
  *   眼、耳、额鬃、颈脊鬃片 + 垂鬃、尾分股下垂、四腿分大/小/管/蹄四段且
@@ -51,7 +71,10 @@
  *
  * ## 三、性能
  *   全部几何按材质合并成 **4 个 Mesh**（布/肤/木/金属），顶点色区分个体服色，
- *   draw call 恒为 4；三角面 ~145k（252 人 + 9 马 + 12 轿 + 6 车 + 16 船）。
+ *   draw call 恒为 4；三角面 ~288k（252 人 + 9 马 + 12 轿 + 6 车 + 16 船）。
+ *   ⚠ 人物是全园最多的近景元素，三角面要省着用：
+ *     近景整改后 189k → 288k（+99k），换来的是十六边袍身、衣褶、
+ *     可见的手臂、脖子与靴子。
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -307,8 +330,13 @@ function taperTube(a, b, rx0, rz0, rx1, rz1, n = 6) {
  * sections[i] = { c:[x,y,z], u:[..], v:[..] }
  *   c = 环中心；u/v = 截面两条半轴向量（u 一般沿宽、v 一般沿深）。
  * 绕序由 u/v 与走向自动纠正，保证法线朝外。
+ *
+ * ⚠ `prof`（可选）：**逐环的角向半径调制**，`prof[i][j]` 是第 i 环第 j 个
+ *   顶点的半径倍率（缺省 1）。这是做**竖向衣褶**的手段：角向半径起落 ⇒
+ *   折痕沿高度方向连续 ⇒ 近景看得见折缝的明暗转折。
+ *   纯几何，不依赖贴图（贴图零外部依赖）。
  */
-function loftRings(sections, n = 8, capFirst = false, capLast = false) {
+function loftRings(sections, n = 8, capFirst = false, capLast = false, prof = null) {
   const pos = [];
   const uv = [];
   const idx = [];
@@ -322,9 +350,10 @@ function loftRings(sections, n = 8, capFirst = false, capLast = false) {
   sections.forEach((_, i) => {
     for (let j = 0; j < n; j++) {
       const a = (j / n) * Math.PI * 2;
+      const k = prof ? prof[i][j] : 1;
       v3.copy(C[i])
-        .addScaledVector(U[i], Math.cos(a))
-        .addScaledVector(V[i], Math.sin(a));
+        .addScaledVector(U[i], Math.cos(a) * k)
+        .addScaledVector(V[i], Math.sin(a) * k);
       pos.push(v3.x, v3.y, v3.z);
       uv.push(j / n, i / Math.max(1, sections.length - 1));
     }
@@ -402,6 +431,68 @@ function darken(hex, k) {
   return c.getHex();
 }
 
+/**
+ * 竖向衣褶的角向半径调制表。
+ *
+ * 为什么是**几何**而不是贴图：贴图只能"模拟"折痕，放到近景（2~8m）
+ * 仍然是"平的那张皮"。折痕必须是实体的起伏才有明暗转折。
+ *
+ * 做法：截面轮廓在若干个角点**凹进去**，相邻角点保持满半径 ⇒
+ * 竖直方向上就形成连续的折缝（不是水平的一圈圈）。
+ * 折痕落在**采样点**上才折得出尖（n=16 ⇒ 每 22.5° 一个采样点）。
+ *
+ * 折痕数取 5 个（0°/67.5°/135°/202.5°/270°）：不论人朝哪个方向，
+ * 正面总有一对折缝夹着一片衣襟 ⇒ 近景一眼能看见竖向转折。
+ *
+ * @param n    截面边数
+ * @param depth 凹进去的比例（0.13 ≈ 摆部折深 2.5cm）
+ */
+function foldProfile(n, depth) {
+  const p = new Array(n).fill(1);
+  const GROOVES = [0, 3, 6, 9, 12];
+  for (const j of GROOVES) {
+    if (j < n) p[j] = 1 - depth;
+  }
+  return p;
+}
+
+/**
+ * 靴：袍摆下露出的靴筒 + 翘头鞋。
+ *
+ * ⚠ 原来靴子整个做在袍摆**里面**（袍摆只离地 0.012H）⇒ 近景根本看不见脚，
+ *   人读作"一块到底的板"。现在袍摆抬到 0.048H（脚踝上方），
+ *   靴筒与鞋尖真的露出来 —— 剪影才有"脚"。
+ */
+function addBoots(bin, M, H) {
+  for (const sx of [-1, 1]) {
+    const x = sx * 0.043 * H;
+    // 靴筒：上粗下细的一段圆管（进到袍摆里）
+    const shaft = loftRings(
+      [
+        { c: [x, 0.012 * H, 0.006 * H], u: [0.049 * H, 0, 0], v: [0, 0, 0.053 * H] },
+        { c: [x, 0.050 * H, 0.005 * H], u: [0.047 * H, 0, 0], v: [0, 0, 0.051 * H] },
+        { c: [x, 0.088 * H, 0.004 * H], u: [0.045 * H, 0, 0], v: [0, 0, 0.049 * H] },
+      ],
+      8, true, false
+    );
+    put(bin, 'cloth', shaft, 0x2a2622, M);
+
+    // 鞋：后跟 → 翘头鞋尖（截面在 XY 平面，沿 +Z 放样）
+    // ⚠ 鞋尖要**探出袍摆前沿**，否则近景仍然看不见脚
+    //   （袍摆前缘在 z=0.100H，鞋尖到 0.117H ⇒ 露出约 3cm）
+    const shoe = loftRings(
+      [
+        { c: [x, 0.018 * H, -0.060 * H], u: [0.030 * H, 0, 0], v: [0, 0.018 * H, 0] },
+        { c: [x, 0.020 * H, -0.014 * H], u: [0.035 * H, 0, 0], v: [0, 0.020 * H, 0] },
+        { c: [x, 0.019 * H, 0.048 * H], u: [0.032 * H, 0, 0], v: [0, 0.017 * H, 0] },
+        { c: [x, 0.015 * H, 0.096 * H], u: [0.015 * H, 0, 0], v: [0, 0.010 * H, 0] },
+      ],
+      8, true, true
+    );
+    put(bin, 'cloth', shoe, 0x231f1b, M);
+  }
+}
+
 /** 由若干横截面放样出船体（平底、两端收尖） */
 function loftHull(sections) {
   const pos = [];
@@ -452,9 +543,21 @@ function loftHull(sections) {
  * 一个人。局部坐标：脚在 y=0，面朝 +Z，身高严格等于 o.height。
  *
  * 剪影是硬要求：30~80m 外要看出"人"，而不是看出一根棱台。所以身上分层：
- *   长袍（及地、A 字摆）→ 马褂（短罩衣，下摆外张，异色）
- *   → 白领 → 肩线与颈 → 头（卵形，带鼻）→ 帽
- *   → 两段式手臂（上臂/小臂，带肘弯、袖口、手）→ 靴尖
+ *   长袍（十六边截面 + 四道竖向衣褶 + A 字摆 + 摆下露靴）
+ *   → 马褂（短罩衣，下摆外张，异色）→ 白领（内衬翻出，立到喉下）
+ *   → 颈（实心，喉到下颌之间露皮肤）→ 头（卵形，带鼻）→ 帽
+ *   → 两段式手臂（上臂/小臂，带肘弯、袖口、手）
+ *
+ * ⚠ 2026-11-17 近景整改（4m 处实测）：
+ *   原来八边截面的袍身 + 马褂比袍身还宽 ⇒ 手臂整个被吞进去，
+ *   剪影读作"一块板 + 一个圆头"。现在：
+ *   ① 袍身八边 → **十六边**（八边在 2~8m 就是折面，读作纸板）；
+ *   ② 袍身截面由"扁椭圆"改成**接近圆**（腰 0.104H×0.080H），
+ *      肩 0.116H ⇒ 肩比腰宽、腰比摆窄，剪影才有人形；
+ *   ③ 手臂挂点外移、袖管收细 ⇒ 袖子**从袍身里分出来**，有自己的转折与袖口；
+ *   ④ 领口收成"喉环"、白领立起来 ⇒ 头与身之间**有脖子**；
+ *   ⑤ 袍摆抬到 0.048H + 靴筒与翘头鞋 ⇒ **看得见脚**；
+ *   ⑥ 袍身角向半径调制出四道**竖向衣褶**（几何，不是贴图）。
  *
  * 姿态由 o.pose 驱动（确定性抖动，不用 Math.random()）：
  *   lean/side 前后左右倾，headYaw 转头，armMode 抬臂/前伸。
@@ -468,78 +571,154 @@ function addPerson(bin, M, o) {
   const trim = o.trim ?? PAL.moonWhite; // 白领/袖口/大襟
   const pose = o.pose ?? {};
 
-  const headR = 0.058 * H;
+  const headR = 0.0545 * H;
+  // 五官尺寸随头径缩放（头变小，五官要跟着缩，否则近景"大眼小脸"）
+  const fh = headR / (0.058 * H);
   // 头顶高度按帽型给：瓜皮帽把 DIM 的身高吃满（帽算在身高里）；
   // 翎顶帽的顶缨、旗头的头面高度另计（与 DIM 注释"帽缨高另计"一致）。
   const HEAD_TOP = { gua: 0.9458, qitou: 0.952, dingdai: 0.952 };
   const headTop = (HEAD_TOP[o.hat ?? 'gua'] ?? 0.952) * H;
   const headCY = headTop - headR;
   const chinY = headCY - headR * 1.04;
-  const collarY = 0.828 * H; // 领口
-  const shoulderY = 0.788 * H; // 肩点
+  const shoulderY = 0.788 * H; // 肩点（手臂挂点）
   const shoulderX = SHOULDER_X_RATIO * H; // 肩关节半宽
-  const hemY = 0.012 * H; // 袍摆离地
+  const hemY = 0.048 * H; // 袍摆离地（**下面要露出靴子**）
+  const yokeY = 0.774 * H; // 袍肩（马褂压在它上面）
+  const throatY = 0.806 * H; // 喉（白领内圈）
 
   // 姿态：上身随高度渐次偏移，读作"微倾"而不是"插在木桩上"
   const lean = pose.lean ?? 0;
   const sideLean = pose.side ?? 0;
   const drift = (y) => {
-    const t = Math.max(0, (y - hemY) / Math.max(1e-4, collarY - hemY));
+    const t = Math.max(0, Math.min(1, (y - hemY) / Math.max(1e-4, yokeY - hemY)));
     return { x: sideLean * 0.09 * H * t, z: lean * 0.30 * H * t };
   };
   const sec = (y, rx, rz) => {
     const d = drift(y);
     return { c: [d.x, y, d.z], u: [rx, 0, 0], v: [0, 0, rz] };
   };
+  // 肩部以上的整体偏移：头/帽/领/颈共用同一份，才不会"身子歪、脖子直"
+  const topD = drift(yokeY);
 
-  // ---- 长袍：八边截面放样，及地 A 字摆 ----
+  /* ---- 长袍 ----
+   * 十六边截面（八边太粗 ⇒ 近景读作"纸板"）；
+   * 截面接近圆（腰 0.104H×0.086H），肩比腰宽、腰比摆窄 ⇒ 剪影有人形；
+   * 五个角点凹进去 ⇒ **竖向衣褶**（几何折痕，不是贴图）。
+   */
+  const ROBE_N = 16;
+  const robeDef = [
+    { y: hemY, rx: 0.132, rz: 0.100, d: 0.130 }, // 摆（最宽 → A 字摆）
+    { y: 0.26 * H, rx: 0.124, rz: 0.097, d: 0.115 },
+    { y: 0.50 * H, rx: 0.104, rz: 0.086, d: 0.085 }, // 腰（最窄）
+    { y: 0.70 * H, rx: 0.115, rz: 0.090, d: 0.065 }, // 胸
+    { y: yokeY, rx: 0.116, rz: 0.085, d: 0.045 }, // 肩线
+  ];
   const body = loftRings(
-    [
-      sec(hemY, 0.162 * H, 0.104 * H), // 摆（最宽 → A 字摆）
-      sec(0.28 * H, 0.148 * H, 0.095 * H),
-      sec(0.52 * H, 0.120 * H, 0.079 * H), // 腰（最窄）
-      sec(0.71 * H, 0.129 * H, 0.083 * H), // 胸
-      sec(shoulderY, 0.131 * H, 0.084 * H), // 肩线
-      sec(collarY, 0.060 * H, 0.052 * H), // 领口（收进）
-    ],
-    8
+    robeDef.map((r) => sec(r.y, r.rx * H, r.rz * H)),
+    ROBE_N,
+    true, // 摆封底（袍子是闭合的布袋，不是空筒）
+    true, // 肩封顶（托住脖子）
+    robeDef.map((r) => foldProfile(ROBE_N, r.d))
   );
   put(bin, 'cloth', body, robe, M);
 
-  // ---- 马褂：短罩衣，下摆外张，与长袍异色 ----
+  /* ---- 马褂：短罩衣，下摆外张，与长袍异色 ----
+   * 比袍身**只宽一点**（原来宽 0.153H，把袖子整个吞了），
+   * 下摆 0.130H 明显出袍身的腰 0.104H ⇒ 看得见衣边。
+   */
+  const vestDef = [
+    { y: 0.778 * H, rx: 0.118, rz: 0.086 }, // 领口一圈（在袍肩之上）
+    { y: 0.700 * H, rx: 0.121, rz: 0.089 }, // 肩线（马褂搭在肩上）
+    { y: 0.570 * H, rx: 0.125, rz: 0.092 },
+    { y: 0.498 * H, rx: 0.130, rz: 0.095 }, // 下摆（略外张，看得见边）
+  ];
   const vestG = loftRings(
-    [
-      sec(0.844 * H, 0.082 * H, 0.069 * H), // 领口一小圈
-      sec(0.788 * H, 0.140 * H, 0.092 * H), // 肩线（马褂搭在肩上）
-      sec(0.640 * H, 0.146 * H, 0.096 * H),
-      sec(0.505 * H, 0.153 * H, 0.101 * H), // 下摆（略外张，看得见边）
-    ],
-    8
+    vestDef.map((r) => sec(r.y, r.rx * H, r.rz * H)),
+    12,
+    true, // 领口封顶（否则从上方看进去是个洞）
+    false
   );
   put(bin, 'cloth', vestG, vest, M);
 
-  // ---- 大襟（右衽斜襟）：一条窄边线，30m 外就能读出"衣服" ----
+  /* ---- 大襟（右衽斜襟）：一条窄边线，30m 外就能读出"衣服" ----
+   * 改挂在**马褂**上（长袍胸口被马褂盖住，原来的襟线全被吞了）；
+   * 位置按马褂的截面折线反算，别让它飘在身前。
+   */
+  const vestSurfZ = (y, x) => {
+    let rx = vestDef[0].rx;
+    let rz = vestDef[0].rz;
+    for (let i = 0; i < vestDef.length - 1; i++) {
+      const y0 = vestDef[i].y;
+      const y1 = vestDef[i + 1].y;
+      if (y <= y1 || i === vestDef.length - 2) {
+        const t = Math.max(0, Math.min(1, (y - y0) / (y1 - y0)));
+        rx = (vestDef[i].rx + (vestDef[i + 1].rx - vestDef[i].rx) * t) * H;
+        rz = (vestDef[i].rz + (vestDef[i + 1].rz - vestDef[i].rz) * t) * H;
+        break;
+      }
+    }
+    const k = Math.max(0, 1 - (x / rx) * (x / rx));
+    return rz * Math.sqrt(k);
+  };
   const placket = taperBox(
-    new THREE.Vector3(-0.050 * H, 0.792 * H, 0.088 * H),
-    new THREE.Vector3(0.030 * H, 0.658 * H, 0.098 * H),
-    0.010 * H, 0.010 * H, 0.008 * H, 0.010 * H
+    new THREE.Vector3(
+      -0.030 * H + topD.x,
+      0.745 * H,
+      vestSurfZ(0.745 * H, 0.030 * H) - 0.003 * H + topD.z
+    ),
+    new THREE.Vector3(
+      0.022 * H + topD.x,
+      0.575 * H,
+      vestSurfZ(0.575 * H, 0.022 * H) - 0.003 * H + topD.z
+    ),
+    0.013 * H, 0.014 * H, 0.011 * H, 0.014 * H
   );
   put(bin, 'cloth', placket, trim, M);
 
-  // ---- 颈 ----
-  const neck = new THREE.CylinderGeometry(0.035 * H, 0.040 * H, 0.062 * H, 5);
-  neck.translate(0, collarY + 0.022 * H, 0.004 * H);
-  put(bin, 'skin', neck, skin, M);
-
-  // ---- 白领（内衬翻出的一圈） ----
-  const collar = new THREE.CylinderGeometry(
-    0.072 * H, 0.082 * H, 0.032 * H, 6, 1, true
+  /* ---- 白领（内衬翻出）：从马褂领口立到喉下 ----
+   * 原来是一只**大圆筒**（半径 0.082H ≈ 28cm 直径），把脖子整个盖住，
+   * 头就像直接坐在肩上。现在收成锥形，只在喉前露出一圈白。
+   */
+  const collar = loftRings(
+    [
+      { c: [topD.x, 0.772 * H, topD.z + 0.001 * H], u: [0.066 * H, 0, 0], v: [0, 0, 0.058 * H] },
+      { c: [topD.x, 0.792 * H, topD.z + 0.001 * H], u: [0.046 * H, 0, 0], v: [0, 0, 0.043 * H] },
+      { c: [topD.x, throatY, topD.z + 0.001 * H], u: [0.030 * H, 0, 0], v: [0, 0, 0.032 * H] },
+    ],
+    8
   );
-  collar.translate(0, collarY + 0.012 * H, 0);
   put(bin, 'cloth', collar, trim, M);
 
+  /* ---- 颈：实心的，头不悬空 ----
+   * 喉（0.806H）到下颌（约 0.834H）之间露出**皮肤** ⇒ 有脖子。
+   */
+  const neck = loftRings(
+    [
+      { c: [topD.x, 0.760 * H, topD.z + 0.004 * H], u: [0.042 * H, 0, 0], v: [0, 0, 0.046 * H] },
+      { c: [topD.x, 0.800 * H, topD.z + 0.004 * H], u: [0.032 * H, 0, 0], v: [0, 0, 0.034 * H] },
+      { c: [topD.x, 0.852 * H, topD.z + 0.003 * H], u: [0.027 * H, 0, 0], v: [0, 0, 0.029 * H] },
+    ],
+    8, true, true
+  );
+  put(bin, 'skin', neck, skin, M);
+
+  /* ---- 肩头（三角肌）：把袖根与袍肩连成一体 ----
+   * 少了它，袖子像"插进肩膀里的一根棍"。
+   */
+  for (const sx of [-1, 1]) {
+    const del = new THREE.SphereGeometry(0.033 * s, 5, 3);
+    del.scale(1, 0.92, 1);
+    del.translate(sx * shoulderX + topD.x, shoulderY - 0.004 * H, topD.z + 0.004 * H);
+    put(bin, 'cloth', del, robe, M);
+  }
+
   // ---- 头：卵形（别做成气球），带一点鼻提示朝向 ----
-  const headM = new THREE.Matrix4().makeRotationY(pose.headYaw ?? 0);
+  // 头与帽也要跟着身子的倾斜走（原来只有袍身漂移，头是钉死的）
+  // ⇒ 合成一个矩阵：先绕身体轴转，再整体平移
+  const headM = new THREE.Matrix4().multiplyMatrices(
+    new THREE.Matrix4().makeTranslation(topD.x, 0, topD.z),
+    new THREE.Matrix4().makeRotationY(pose.headYaw ?? 0)
+  );
   /**
    * ⚠ 段数不能太粗：原来 `SphereGeometry(headR, 4, 3)` = **24 个三角面**，
    *   近景看就是一个**扁盒子**（"纸片人"）。
@@ -552,9 +731,9 @@ function addPerson(bin, M, o) {
   put(bin, 'skin', head, skin, M);
 
   // 鼻：四棱锥（三角锥太尖，近景像根刺）
-  const nose = new THREE.ConeGeometry(0.011 * H, 0.022 * H, 4);
+  const nose = new THREE.ConeGeometry(0.011 * H * fh, 0.022 * H * fh, 4);
   nose.rotateX(Math.PI / 2);
-  nose.translate(0, headCY - 0.008 * H, headR * 0.86);
+  nose.translate(0, headCY - 0.008 * H, headR * 0.84);
   nose.applyMatrix4(headM);
   put(bin, 'skin', nose, o.skinDark ?? darken(skin, 0.88), M);
 
@@ -563,22 +742,23 @@ function addPerson(bin, M, o) {
   // ⚠ **没有五官的脸像 mannequin** —— 远看无所谓，
   //   近景（人物常被镜头带到 1~2m）一眼就穿帮。
   //   眼与眉都用**深色小块**（走 'skin' 桶 + 顶点色），不额外加材质桶。
+  //   深度按头径反算，让小块**骑在脸面上**（浮在外面会像贴上去的眼珠子）。
   const eyeY = headCY + 0.016 * H;
-  const eyeZ = headR * 0.84;
+  const eyeZ = headR * 0.74;
   for (const sx of [-1, 1]) {
-    const eye = new THREE.BoxGeometry(0.019 * H, 0.0085 * H, 0.006 * H);
-    eye.translate(sx * 0.030 * H, eyeY, eyeZ);
+    const eye = new THREE.BoxGeometry(0.019 * H * fh, 0.0085 * H * fh, 0.006 * H * fh);
+    eye.translate(sx * 0.030 * H * fh, eyeY, eyeZ);
     eye.applyMatrix4(headM);
     put(bin, 'skin', eye, 0x241c16, M);
-    const brow = new THREE.BoxGeometry(0.022 * H, 0.005 * H, 0.005 * H);
-    brow.translate(sx * 0.030 * H, eyeY + 0.016 * H, eyeZ);
+    const brow = new THREE.BoxGeometry(0.022 * H * fh, 0.005 * H * fh, 0.005 * H * fh);
+    brow.translate(sx * 0.030 * H * fh, eyeY + 0.016 * H * fh, eyeZ);
     brow.applyMatrix4(headM);
     put(bin, 'skin', brow, 0x241c16, M);
   }
 
   // 耳：两片扁球（低模即可，多半藏在帽下）
   for (const sx of [-1, 1]) {
-    const ear = new THREE.SphereGeometry(0.014 * H, 5, 4);
+    const ear = new THREE.SphereGeometry(0.014 * H * fh, 4, 3);
     ear.scale(0.42, 1.0, 0.72);
     ear.translate(sx * headR * 0.9, headCY - 0.004 * H, 0);
     ear.applyMatrix4(headM);
@@ -594,23 +774,22 @@ function addPerson(bin, M, o) {
   hair.applyMatrix4(headM);
   put(bin, 'cloth', hair, 0x241c16, M);
 
-  // ---- 靴：袍摆下露出的鞋尖 ----
-  for (const sx of [-1, 1]) {
-    const shoe = new THREE.BoxGeometry(0.055 * H, 0.030 * H, 0.115 * H);
-    shoe.translate(sx * 0.038 * H, 0.015 * H, 0.070 * H);
-    put(bin, 'cloth', shoe, 0x2a2622, M);
-  }
+  // ---- 靴：袍摆下露出的靴筒与鞋尖 ----
+  addBoots(bin, M, H);
 
   // ---- 帽 ----
   addHat(bin, M, o, { H, s, headR, headCY, headTop, headM, chinY });
 
   // ---- 臂 ----
-  addArms(bin, M, o, {
-    H, s, shoulderY, shoulderX, collarY, hemY,
+  const armInfo = addArms(bin, M, o, {
+    H, s, shoulderY, shoulderX, collarY: throatY, hemY, topD,
     robe, skin, trim, vest, pose,
   });
 
-  return { H, s, shoulderY, shoulderX, collarY, headCY, headR, chinY };
+  return {
+    H, s, shoulderY, shoulderX, collarY: throatY, headCY, headR, chinY,
+    hands: armInfo.hands,
+  };
 }
 
 /**
@@ -730,14 +909,26 @@ function addHat(bin, M, o, g) {
  *   'carry' 一臂前伸（提物/搭手）
  *   'up'    双手抬到指定点（轿夫握杠）
  *   'one'   单手（+X 侧）抬到指定点（执事持伞/旗、货郎扶担）
+ *
+ * ⚠ 2026-11-17 近景整改：
+ *   原来上臂半径 0.046s（≈16cm 直径，比大腿还粗），挂点又在袍身**里面**
+ *   ⇒ 袖子整个被袍身吞掉，近景看不见手臂。
+ *   现在：袖管收细（0.030s 起）、挂点外移到袍肩表面、肘部外张
+ *   ⇒ 袖子从袍身**分出来**，有自己的转折、肘节与袖口。
+ *
+ * @returns {{hands: THREE.Vector3[]}} 两只手的世界局部坐标（供扁担/仪仗对位）
  */
 function addArms(bin, M, o, g) {
   const { H, s, shoulderY, shoulderX, robe, skin, trim, pose } = g;
   const mode = o.arms ?? 'down';
   const swing = pose.armSwing ?? 0;
+  const hands = [];
+  // 手臂要跟着身子一起倾（原来只有袍身漂移，袖子钉在原地）
+  const tx = g.topD?.x ?? 0;
+  const tz = g.topD?.z ?? 0;
 
   for (const sx of [-1, 1]) {
-    const shoulder = new THREE.Vector3(sx * shoulderX, shoulderY, 0.005 * H);
+    const shoulder = new THREE.Vector3(sx * shoulderX + tx, shoulderY, tz + 0.004 * H);
     const targeted =
       mode === 'up' || (mode === 'one' && sx > 0);
 
@@ -747,62 +938,67 @@ function addArms(bin, M, o, g) {
       const hx = sx * (o.handX ?? 0.30 * s);
       const hy = o.handY ?? 1.42;
       const hz = o.handZ ?? 0;
+      // 手是**道具锚点**（扁担/仪仗杆就立在这儿），用绝对坐标，不跟着漂
       hand = new THREE.Vector3(hx, hy, hz);
       // 肘向侧下张开，形成"抬臂"的折角
       elbow = new THREE.Vector3(
-        sx * (shoulderX + 0.048 * s),
+        sx * (shoulderX + 0.052 * s) + tx,
         shoulderY - 0.200 * H,
-        hz * 0.35 + 0.040 * H
+        tz + hz * 0.35 + 0.040 * H
       );
     } else if (mode === 'carry' && sx > 0) {
       elbow = new THREE.Vector3(
-        sx * (shoulderX + 0.038 * s), shoulderY - 0.150 * H, 0.055 * H
+        sx * (shoulderX + 0.040 * s) + tx, shoulderY - 0.150 * H, tz + 0.055 * H
       );
       hand = new THREE.Vector3(
-        sx * (shoulderX - 0.004 * s), shoulderY - 0.290 * H, 0.135 * H
+        sx * (shoulderX - 0.004 * s) + tx, shoulderY - 0.290 * H, tz + 0.135 * H
       );
     } else {
       const sw = sx > 0 ? swing : -swing * 0.6;
+      // 肘略外张、腕收回一点 ⇒ 手臂有肘弯，不是贴在身侧的一根棍
       elbow = new THREE.Vector3(
-        sx * (shoulderX + 0.034 * s), shoulderY - 0.143 * H, 0.012 * H + sw * 0.35
+        sx * (shoulderX + 0.026 * s) + tx, shoulderY - 0.150 * H, tz + 0.010 * H + sw * 0.35
       );
       hand = new THREE.Vector3(
-        sx * (shoulderX + 0.021 * s), shoulderY - 0.290 * H, 0.028 * H + sw
+        sx * (shoulderX + 0.008 * s) + tx, shoulderY - 0.300 * H, tz + 0.026 * H + sw
       );
     }
 
     // 上臂 + 小臂（圆管，截面渐收）
     put(
       bin, 'cloth',
-      taperTube(shoulder, elbow, 0.046 * s, 0.050 * s, 0.040 * s, 0.044 * s, 6),
+      taperTube(shoulder, elbow, 0.031 * s, 0.033 * s, 0.026 * s, 0.028 * s, 6),
       robe, M
     );
     put(
       bin, 'cloth',
-      taperTube(elbow, hand, 0.040 * s, 0.044 * s, 0.031 * s, 0.035 * s, 6),
+      taperTube(elbow, hand, 0.026 * s, 0.028 * s, 0.021 * s, 0.023 * s, 6),
       robe, M
     );
     // 肘（一个小凸起，接住上下臂的折角）
-    const eb = new THREE.SphereGeometry(0.045 * s, 4, 2);
+    const eb = new THREE.SphereGeometry(0.027 * s, 5, 3);
     eb.scale(1, 0.92, 1);
     eb.translate(elbow.x, elbow.y, elbow.z);
     put(bin, 'cloth', eb, robe, M);
 
     // 袖口（挽边露出内衬）
     const cdir = new THREE.Vector3().subVectors(hand, elbow).normalize();
-    const cuffA = hand.clone().addScaledVector(cdir, -0.036 * s);
+    const cuffA = hand.clone().addScaledVector(cdir, -0.042 * s);
     put(
       bin, 'cloth',
-      taperBox(cuffA, hand, 0.082 * s, 0.090 * s, 0.074 * s, 0.082 * s),
+      taperBox(cuffA, hand, 0.054 * s, 0.058 * s, 0.047 * s, 0.051 * s),
       trim, M
     );
 
     // 手
-    const hg = new THREE.SphereGeometry(0.040 * s, 4, 3);
-    hg.scale(1, 1.35, 0.80);
-    hg.translate(hand.x, hand.y - 0.018 * s, hand.z);
+    const hg = new THREE.SphereGeometry(0.026 * s, 5, 3);
+    hg.scale(0.95, 1.30, 0.80);
+    hg.translate(hand.x, hand.y - 0.020 * s, hand.z);
     put(bin, 'skin', hg, skin, M);
+
+    hands[sx > 0 ? 1 : 0] = hand.clone();
   }
+  return { hands };
 }
 
 /* ================================================================== *
@@ -1416,8 +1612,10 @@ function addBoat(bin, M, len) {
  */
 function addPorterKit(bin, M, g) {
   const s = g.s;
-  const poleX = g.shoulderX; // 压在肩上
-  const poleY = g.shoulderY + 0.075 * g.H; // 肩头顶面
+  // 扁担压在**抬起的那只手**上（原来按肩宽硬算，与手差 3~4cm，近景一看就露馅）
+  const hand = g.hands?.[1];
+  const poleX = hand ? hand.x : g.shoulderX;
+  const poleY = hand ? hand.y : g.shoulderY + 0.075 * g.H;
   const poleA = new THREE.Vector3(poleX, poleY, -0.95 * s);
   const poleB = new THREE.Vector3(poleX, poleY, 0.95 * s);
   put(bin, 'wood', rod(poleA, poleB, 0.022 * s, 5), PAL.bamboo, M);
@@ -1457,9 +1655,11 @@ function addPorterKit(bin, M, g) {
  *   'fan'     扇
  */
 function addRegalia(bin, M, kind, s, g) {
-  const handX = g.shoulderX + 0.070 * g.H; // 执事伸臂持物的位置
-  const handY = kind === 'fan' ? 1.30 : 1.56;
-  const handZ = 0.06;
+  // 杆要握在**手里**（用真实手位，不再按肩宽硬算）
+  const hand = g.hands?.[1];
+  const handX = hand ? hand.x : g.shoulderX + 0.070 * g.H;
+  const handY = hand ? hand.y : (kind === 'fan' ? 1.30 : 1.56);
+  const handZ = hand ? hand.z : 0.06;
   if (kind === 'parasol') {
     const top = 2.62;
     put(
