@@ -224,6 +224,9 @@ export function buildWater(sceneData) {
   const heightTex = buildHeightTexture(sceneData);
   const terrain = sceneData.terrain;
 
+  // ⚠⚠ 临时排查探针（交付前删除）：?wdbg=1 关法线扰动 / 2 关颜色与透明度改动 / 3 只关泡沫与岸影
+  const DBG = Number(new URLSearchParams(location.search).get('wdbg') || 0);
+
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0x0f3b45,
     // ⚠⚠ 2026-11-17：**大片高光爆白**（西北半个湖糊成白纸）。
@@ -241,7 +244,7 @@ export function buildWater(sceneData) {
     // ⚠ 波纹必须看得见：0.07 时水面就是一块平涂色板；
     //   而"贴图本身只有 2° + normalScale 0.24 = 净 2°" 等于没有波纹。
     //   现在的组合（贴图 ~17° × 0.55 ≈ 净 9°）才能在近景读出波纹。
-    normalScale: new THREE.Vector2(0.55, 0.55),
+    normalScale: new THREE.Vector2(DBG === 1 ? 0 : 0.55, DBG === 1 ? 0 : 0.55),
     side: THREE.DoubleSide,
     envMapIntensity: 0.34,
     clearcoat: 0.05,
@@ -279,6 +282,7 @@ export function buildWater(sceneData) {
     shader.uniforms.uNoise = { value: noiseTex };
     // ⚠ 噪声贴图的 linear 均值（§4.1.20）：当调制系数用时必须除以它
     shader.uniforms.uNoiseAvg = { value: noiseTex.userData.avgLinear || 0.5 };
+    shader.uniforms.uDbg = { value: DBG };
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -306,6 +310,7 @@ export function buildWater(sceneData) {
         uniform vec2 uHeightGrid;
         uniform sampler2D uNoise;
         uniform float uNoiseAvg;
+        uniform float uDbg;
         varying float vRipDist;
         varying vec3 vWPos;
         varying float vLevel;
@@ -360,7 +365,7 @@ export function buildWater(sceneData) {
         float shoreDist = wDepth / max(wSlope, 0.012);
 
         // ---- ① 岸线泡沫 ----
-        // 近景清晰、随距离淡出；带噪声起伏，不是��条均匀白线
+        // 近景清晰、随距离淡出；带噪声起伏，不是一条均匀白线
         float foamFade = 1.0 - smoothstep(45.0, 150.0, vRipDist);
         float fn1 = texture2D(uNoise, vWPos.xz * 0.55).r;
         float fn2 = texture2D(uNoise, vWPos.xz * 2.1 + 0.41).r;
@@ -373,14 +378,15 @@ export function buildWater(sceneData) {
         float shallowT = smoothstep(0.0, 1.7, wDepth);
         vec3 shallowCol = vec3(0.052, 0.118, 0.092);
         vec3 deepCol = vec3(0.005, 0.030, 0.050);
-        diffuseColor.rgb = mix(shallowCol, deepCol, shallowT);
-        // 浅处降不透明度 ⇒ 透出池底；深处保持 0.965 不透
-        diffuseColor.a = mix(0.86, 0.965, shallowT);
-
-        // 泡沫：亮白、不透明（盖住下面的水与池底）
-        vec3 foamCol = vec3(0.70, 0.72, 0.70);
-        diffuseColor.rgb = mix(diffuseColor.rgb, foamCol, foam);
-        diffuseColor.a = mix(diffuseColor.a, 1.0, foam);`
+        if (uDbg != 2.0) {
+          diffuseColor.rgb = mix(shallowCol, deepCol, shallowT);
+          // 浅处降不透明度 ⇒ 透出池底；深处保持 0.965 不透
+          diffuseColor.a = mix(0.86, 0.965, shallowT);
+          // 泡沫：亮白、不透明（盖住下面的水与池底）
+          vec3 foamCol = vec3(0.70, 0.72, 0.70);
+          diffuseColor.rgb = mix(diffuseColor.rgb, foamCol, foam);
+          diffuseColor.a = mix(diffuseColor.a, 1.0, foam);
+        }`
       )
       .replace(
         '#include <opaque_fragment>',
@@ -391,7 +397,7 @@ export function buildWater(sceneData) {
         {
           float bankFade = 1.0 - smoothstep(70.0, 200.0, vRipDist);
           float bankT = smoothstep(7.0, 0.0, shoreDist) * bankFade;
-          if (bankT > 0.002) {
+          if (bankT > 0.002 && uDbg != 3.0) {
             // 离岸方向 = 地形下坡方向
             vec2 perp = wSlope > 0.0015 ? -wGrad / wSlope : vec2(0.0, 1.0);
             vec2 along = vec2(-perp.y, perp.x);

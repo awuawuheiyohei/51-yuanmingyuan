@@ -194,13 +194,14 @@ export function buildDragonRelief(bandW, bandL) {
     const pNext = bodyPts[Math.min(NB - 1, i + 1)];
     const pPrev = bodyPts[Math.max(0, i - 1)];
     const dir = new THREE.Vector3().subVectors(pNext, pPrev).normalize();
-    const f = finGeometry(bandW * 0.09, RELIEF_H * 0.85, bandW * 0.016);
-    // 鳍立在"上"方向（局部 +Y），并朝后掠
-    const q = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(dir.z * 0.45, 1, -dir.x * 0.45).normalize()
-    );
-    f.applyQuaternion(q);
+    // ⚠⚠ 2026-11-17 **不能再用 `setFromUnitVectors` 摆鳍**。
+    //   `setFromUnitVectors` 只保证"把 +Y 转到目标方向"，**绕自身轴的角度是任意的**
+    //   ⇒ 鳍片可能正好**躺平**在御路面上（自己看不见，只剩一条黑划痕般的影子）。
+    //   ⇒ 改成：鳍在**局部坐标**里就朝后掠（几何自带），再用 **Y 轴旋转**对齐龙身走向。
+    //   绕 Y 转是唯一确定的（龙身在御路面上只沿 XZ 走）。
+    const f = finGeometry(bandW * 0.11, RELIEF_H * 0.85, bandW * 0.05);
+    f.rotateX(-0.4); // 鳍尖朝后掠（局部 -Z）
+    f.rotateY(Math.atan2(dir.x, dir.z)); // 绕 Y 对齐龙身走向
     f.translate(p.x, p.y + bandW * 0.028, p.z);
     parts.push(f);
   }
@@ -232,8 +233,12 @@ export function buildDragonRelief(bandW, bandL) {
     );
     parts.push(snout);
     // 双角
+    //
+    // ⚠ 2026-11-17 角半径 hw*0.11 → hw*0.30：原来只有 **1.1 cm 半径**的锥，
+    //   在 3 m 外是亚像素细条 ⇒ 侧棱全是背光面 ⇒ 读作**一根黑划痕**。
+    //   ⇒ 加粗到能读出体量（角才读得出"角"）。
     for (const sx of [-1, 1]) {
-      const horn = new THREE.ConeGeometry(hw * 0.11, hl * 0.55, 5);
+      const horn = new THREE.ConeGeometry(hw * 0.3, hl * 0.62, 6);
       horn.rotateZ(sx * 0.55);
       horn.rotateY(ang);
       horn.translate(
@@ -255,16 +260,25 @@ export function buildDragonRelief(bandW, bandL) {
   }
 
   // ---- 龙爪：两爪，每爪三趾 ----
+  //
+  // ⚠⚠ 2026-11-17 原来趾的落点是 `p.y + bandW*0.012`（轴上 1.2 cm），
+  //   而龙身在该处的**半径是 5~9 cm** ⇒ 整根趾**埋在龙身里**，
+  //   从来没有露出来过（近景只看得到两团云，找不到爪）。
+  //   ⇒ 趾要落在**身子的表面上**：按同一公式算出该处半径 br，趾底压进去 2 cm。
   for (const idx of [4, 9]) {
     const p = bodyPts[idx];
     const sx = idx === 4 ? -1 : 1;
+    const t = idx / (NB - 1);
+    // 与身管同一公式 ⇒ 脚正好踩在身子上
+    const br = bandW * (0.052 + 0.036 * Math.sin(Math.min(1, t * 1.25) * Math.PI * 0.82));
     for (let k = 0; k < 3; k++) {
-      const toe = new THREE.BoxGeometry(bandW * 0.022, bandW * 0.020, bandW * 0.15);
+      // 趾加粗到能读出体量（原来 2.2×2 cm 是亚像素细条 ⇒ 只剩黑划痕）
+      const toe = new THREE.BoxGeometry(bandW * 0.055, bandW * 0.055, bandW * 0.2);
       toe.rotateY((k - 1) * 0.45 + (sx > 0 ? -0.35 : 0.35));
       toe.translate(
-        p.x + sx * bandW * 0.09 + (k - 1) * bandW * 0.035,
-        p.y + bandW * 0.012,
-        p.z + (k - 1) * bandW * 0.02
+        p.x + sx * bandW * 0.1 + (k - 1) * bandW * 0.045,
+        p.y + br - bandW * 0.012,
+        p.z + (k - 1) * bandW * 0.025
       );
       parts.push(toe);
     }
