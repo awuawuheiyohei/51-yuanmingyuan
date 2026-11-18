@@ -27,6 +27,20 @@ const P_CURVE = 0.62; // 举折指数：<1 上陡下缓
  */
 const P_HIP = 0.35;
 
+/**
+ * **歇山山墙端附属构件尺寸**（博风板 / 悬鱼）。
+ *
+ * 导出给 `scripts/check-roof-gable-trim.mjs` 用 —— 检查脚本与生成代码
+ * 必须共用**同一份常数**，否则"检查通过"只是两套数字碰巧对上。
+ *
+ * · `WB`  博风板**宽**（在山墙平面内，垂直于博缝）
+ * · `TB`  博风板**厚**（垂直山墙平面 ⇒ 凸出山墙面）
+ * · `EPS` 博风板内皮与山墙面的错开量（避免 z-fighting）
+ * · `STRADDLE` 博风板**跨骑博缝**的宽度（外缘越过缝多少）
+ *        —— 只做到"内缘止于缝"是止口不是盖缝 ⇒ 外面仍看得见一条亮缝。
+ */
+export const GABLE_TRIM = { WB: 0.3, TB: 0.1, EPS: 0.006, STRADDLE: 0.04 };
+
 /** 举折剖面：t∈[0,1] 从脊到檐，返回下坠比例 */
 function fold(t) {
   const c = Math.min(1, Math.max(0, t));
@@ -614,6 +628,84 @@ function buildRoofCore(spec, geomsIn) {
        * 从侧面/高处看过去像贴了张色板（`/tmp/JQ_G.png` 里的那块青色片）。
        */
       push('wall', w);
+
+      /**
+       * ⚠⚠ 2026-11-18 补做**博风板 + 悬鱼**（歇山山墙端）
+       *
+       *   考据（维基百科「歇山顶」）：「外侧有保护檩木的**博风板**、
+       *   辅助及装饰性的**悬鱼**惹草」；博风板沿山墙的**博缝**
+       *   （山花两条斜边）钉在山墙面外侧，**盖住屋面与山花的接缝**；
+       *   悬鱼挂在山花尖（正脊端头下方）。
+       *
+       *   本项目原来两样都没有 ⇒ 山墙端那条接缝直接暴露；
+       *   而垂脊首端比山花尖低 **0.307 m**（脊瓦截面压在屋面上）
+       *   ⇒ 交接处是空的（实测 `scripts/probe-hip-shanghua.mjs`）。
+       *
+       *   博风板（每侧山墙两条，沿山花的两条斜边）：
+       *     · 板**宽 0.30 m**，取在山墙平面内、垂直于斜边；
+       *     · 板**厚 0.10 m**，取在山墙平面**外侧**（站在屋面之上 ⇒ 缝被遮住）；
+       *     · ⚠ 板要**跨骑博缝**：内缘比缝再往里 0.30、外缘比缝往外 0.04
+       *       （`STRADDLE`）。只做到"内缘正好在缝上"仍是**止口**不是**盖缝**，
+       *       从外面看那条接缝仍是一条亮线。
+       *     · 下端比山花底角再多出 0.20 m，与戗脊起始处搭接。
+       *   悬鱼：山花尖下方的鱼形木雕（彩画木作 ⇒ 进 'shanhua' 桶），
+       *       背面**贴住博风板外皮**、正面比板皮再凸出 0.05 m。
+       */
+      {
+        const zr = zBreak;
+        const dy = ridgeY - yBreak;
+        const L = Math.hypot(dy, zr);
+        const { WB, TB, EPS, STRADDLE } = GABLE_TRIM;
+        const A = new THREE.Vector3(sgn * xh, ridgeY, 0);
+        for (const zs of [-1, 1]) {
+          // 斜边方向 A→B（山墙平面内，x 恒为 sgn*xh）
+          const d = new THREE.Vector3(0, -dy / L, (zs * zr) / L);
+          // 指向山花内部的法向（山墙平面内、垂直于斜边）
+          const q = new THREE.Vector3(0, (-zs * zr) / L, -dy / L);
+          const B = A.clone().addScaledVector(d, L);
+          const Be = B.clone().addScaledVector(d, 0.2); // 与戗脊搭接
+          const len = A.distanceTo(Be);
+          const mid = A.clone().add(Be).multiplyScalar(0.5);
+          const w = new THREE.Vector3(sgn, 0, 0); // 山墙外侧
+          // 中心要沿 q 往外挪 STRADDLE ⇒ 板跨骑博缝（外缘越过缝）
+          const center = mid
+            .clone()
+            .addScaledVector(q, WB / 2 - STRADDLE)
+            .addScaledVector(w, EPS + TB / 2);
+          const g = new THREE.BoxGeometry(WB, len, TB);
+          // 右手系：Z 轴 = X×Y（= q×d，恒为 −x̂；只是轴向，位置另算）
+          const zAx = new THREE.Vector3().crossVectors(q, d);
+          const m = new THREE.Matrix4().makeBasis(q, d, zAx);
+          m.setPosition(center);
+          g.applyMatrix4(m);
+          g.computeVertexNormals();
+          push('ridge', g);
+        }
+        // 悬鱼：山花尖正下方的鱼形木雕
+        {
+          const pts = [
+            [0, -0.04],
+            [0.13, -0.19],
+            [0.085, -0.38],
+            [0, -0.46],
+            [-0.085, -0.38],
+            [-0.13, -0.19],
+          ];
+          const sh = new THREE.Shape();
+          sh.moveTo(-pts[0][0], pts[0][1]);
+          for (const [px, py] of pts.slice(1)) sh.lineTo(-px, py);
+          sh.closePath();
+          const g = new THREE.ExtrudeGeometry(sh, { depth: 0.05, bevelEnabled: false });
+          // 形状建在 (z, y) 平面；绕 Y 轴 ±90° 让**挤出方向**落到 ±x，
+          // 且 sgn=+1 时挤出朝 +x、sgn=−1 时朝 −x（鱼永远凸向山墙外侧）。
+          if (sgn > 0) g.rotateY(Math.PI / 2);
+          else g.rotateY(-Math.PI / 2);
+          // 背面贴在博风板外皮上（板外皮在 xh + EPS + TB）
+          g.translate(sgn * (xh + EPS + TB), ridgeY - 0.1, 0);
+          g.computeVertexNormals();
+          push('shanhua', g);
+        }
+      }
 
       /**
        * 山面棱柱的**南北两侧**（z = ±zBreak）：从前后方向看进去同样是空的。

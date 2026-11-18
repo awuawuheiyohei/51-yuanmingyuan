@@ -106,7 +106,31 @@ camera.position.set(600, 420, 700);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.maxPolarAngle = Math.PI * 0.495;
+/**
+ * ⚠⚠ 2026-11-18 **这个值原来把「人眼高度 1.70m」静默作废了**。
+ *
+ * `maxPolarAngle` 是 OrbitControls 的**极角上限**（极角从 +Y 轴量起）：
+ * 相机相对 `controls.target` 的极角一旦超过它，OrbitControls 就会
+ * **把相机沿目标方向推回允许的极角** —— 也就是**把相机抬到目标的高度**。
+ *
+ * 原来写的是 `Math.PI * 0.495`（89.1°）⇒ 相机永远**不得低于目标**。
+ * 而建筑摄影的常规取景恰恰是「相机 1.70m、目标在 6.4m 的檐下」：
+ * 目标高于相机 ⇒ 极角 90°+ ⇒ 每帧 `controls.update()` 都把相机
+ * **顶到目标高度**（`?view=close` 就是 5.5m，不是 1.70m）。
+ *
+ * 实测证据（`?view=look&dbgview=1`）：
+ *   设 cam=(-460.4, 50.0, 310.3)、tgt=(-489.1, 65.7, 290.3)
+ *   → 3 帧后 cam=(-457.6, **66.3**, 312.3)   ← 抬到目标高度（65.7）
+ * ⇒ 所有「人眼高度验收」的截图，实际机位都比声明的高一大截，
+ *   画面因此偏俯视，屋面占满、檐下斗栱/柱网层次看不见。
+ *
+ * 现在放到 0.72π（129.6°）⇒ 相机可以低于目标 39.6°，
+ * 够覆盖「眼高 1.70m 看 20m 高殿」的仰角（≈23°）；
+ * 又不放得太开，避免自由浏览时相机钻到地底。
+ * ⚠ 配套上限：`levelAndShift()` 在 |仰角|>0.96rad(55°) 时会放弃移轴，
+ *   0.72π 对应的最大下俯 39.6° < 55° ⇒ 仍在移轴区间内。
+ */
+controls.maxPolarAngle = Math.PI * 0.72;
 controls.minDistance = 4;
 controls.maxDistance = 6000;
 controls.target.set(300, 40, 200);
@@ -141,7 +165,28 @@ function applyShift(theta) {
     camera.clearViewOffset();
     return false;
   }
-  const offsetY = -H * Math.tan(theta) / half;
+  /**
+   * ⚠⚠ 2026-11-18 **这里原来少了一半，导致 theta≠0 时画面直接飞掉。**
+   *
+   * 推导（three.js `setViewOffset`）：视锥在近平面上的竖向切空间范围是
+   *   [−half, +half]（`half = tan(fov/2)`，fov 是**竖向**视场）。
+   *   `setViewOffset(W,H,0,offsetY,W,H)` 把这段范围**整体平移**，平移量
+   *   （切空间）= `−offsetY · 2·half / H`。
+   *   要让目标（仰角 theta，切空间坐标 `tan(theta)`）落在**新视锥中心**，
+   *   必须满足
+   *     −offsetY · 2·half / H = tan(theta)
+   *   ⇒  **offsetY = −H·tan(theta) / (2·half)**
+   *
+   * 原式 `−H·tan(theta)/half`（**缺 1/2**）会让平移量翻倍：
+   *   theta=24°、fov=45° 时算出 offsetY=−1.075H ⇒ 视锥竖向范围变成
+   *   [0.476, 1.304]（切空间）⇒ 目标（0.445）落在视锥**下沿之外**
+   *   ⇒ 画面只剩一片天/糊边。
+   *
+   * ⚠ 为什么以前没暴露：相机一直被 `maxPolarAngle` 顶到**目标高度**
+   *   ⇒ theta≈0 ⇒ offsetY≈0 ⇒ 这段代码从来没被真正触发过。
+   *   修掉极角上限后，它立刻暴露。**两个 bug 必须一起修。**
+   */
+  const offsetY = (-H * Math.tan(theta)) / (2 * half);
   camera.setViewOffset(W, H, 0, offsetY, W, H);
   return true;
 }
