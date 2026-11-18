@@ -19,6 +19,7 @@ import { buildFigures } from './scene/figures.js';
 import { buildCorridors } from './scene/corridor.js';
 import { buildLayout } from './scene/layout.js';
 import { buildTour } from './scene/camera-tour.js';
+import { SCENE_PROGRAM } from './scene/scenes-program.js';
 import { setTextureOverrides, getTextureOverrides } from './scene/buildings/textures.js';
 import { initHud } from './ui/hud.js';
 
@@ -745,6 +746,113 @@ async function loadScene() {
    */
   const fps = layout.footprints || [];
 
+  /**
+   * **园界内外判定**（园墙是实体屏障）
+   *
+   * ⚠⚠ 2026-11-18 **这是相机修正后才暴露出来的真问题**：
+   *   园墙高 **4.5 m**（推定，见 `park-wall.js` 文件头）⇒ 是**实体屏障**。
+   *   以前相机被 `maxPolarAngle` 顶到 6.4 m ⇒ 恰好**高过墙头**
+   *   ⇒ 站在园外也能看见园内殿宇（`?view=scene&name=正大光明` 的旧截图就是这样）。
+   *   改回真正的 **1.70 m 眼高**后 ⇒ 墙把视线**全挡住**，只剩一堵墙。
+   *   而自动选机位只把**建筑占地**（`fps`）当障碍，**根本没算园墙**
+   *   ⇒ 相机会被放到园外去拍一堵墙。
+   *
+   *   修法：**自动选机位时，机位必须在园界内**。
+   *   （人站在园外也确实看不见园内殿宇 —— 这不是 bug，是现实。）
+   */
+  const parkRing = sceneData.park || [];
+  const inGarden = (x, z) => {
+    if (parkRing.length < 3) return true;
+    let inside = false;
+    for (let i = 0, j = parkRing.length - 1; i < parkRing.length; j = i++) {
+      const [xi, zi] = parkRing[i];
+      const [xj, zj] = parkRing[j];
+      if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+
+  /**
+   * **游廊（廊子）也得算障碍** —— 相机站进廊子里，
+   * 画面下半截就是廊子的红柱 + 瓦檐 + 彩画梁，完全看不到主体。
+   *
+   * ⚠ 实测（2026-11-18）：`?view=scene&name=正大光明` 选出来的机位
+   *   距 1 号游廊只有 **1.84 m** ⇒ 画面全是廊子。
+   *   游廊在 `sceneData.corridors` 里是**折线**（不是占地矩形）
+   *   ⇒ 要按**点到线段的距离**判，不能用矩形。
+   */
+  const corridorLines = (sceneData.corridors || []).filter((l) => l && l.length > 1);
+  const distToCorridor = (x, z) => {
+    let best = Infinity;
+    for (const line of corridorLines) {
+      for (let i = 0; i + 1 < line.length; i++) {
+        const ax = line[i][0];
+        const az = line[i][1];
+        const bx = line[i + 1][0];
+        const bz = line[i + 1][1];
+        const dx = bx - ax;
+        const dz = bz - az;
+        const L2 = dx * dx + dz * dz;
+        let t = L2 > 0 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const d = Math.hypot(x - (ax + dx * t), z - (az + dz * t));
+        if (d < best) best = d;
+      }
+    }
+    return best;
+  };
+  /** 站进廊子里（廊宽 + 一点余量）就换机位 */
+  const nearCorridor = (x, z) => distToCorridor(x, z) < 4.0;
+
+  /**
+   * **树也要算障碍** —— 机位站进树冠里 ⇒ 画面是松枝和树干（实测
+   * `?view=close&name=九州清晏` 进了院子就撞进一棵松树）。
+   *
+   * 判据：与树干水平距离 < 5 m（树冠半径量级）且树高 > 2 m（排除草/矮丛）。
+   */
+  const treeList = (sceneData.trees || []).filter((t) => t.h > 2);
+  const nearTree = (x, z) => {
+    for (const t of treeList) {
+      const dx = t.x - x;
+      const dz = t.z - z;
+      if (dx * dx + dz * dz < 25) return true;
+    }
+    return false;
+  };
+
+  /**
+   * **院落围墙（院墙）也是实体屏障** —— 高 2.9 m、带小青瓦压顶（`layout.js`）。
+   * 机位站在院墙外 ⇒ 1.70 m 眼高只能看见一堵墙。
+   *
+   * ⚠ 实测（2026-11-18）：`?view=close&name=九州清晏` 选出的机位在院墙**东墙外**，
+   *   画面整个下半截是院墙，殿宇只剩个屋顶。
+   *   ⇒ 院墙的尺度必须**与 `layout.js` 用同一份公式**（否则内外判定对不上）：
+   *     half = program.yard ?? max(26, |mian*3.6|/2+12, max(|aux.x|)+12)
+   *     院子 = 以景锚点为中心、half × half*0.78 的矩形。
+   *
+   * @param {object} s 景的锚点（含 x / z）
+   * @returns {{minX:number,maxX:number,minZ:number,maxZ:number}|null}
+   */
+  const courtyardOf = (s) => {
+    const prog = SCENE_PROGRAM[s.name];
+    if (!prog || !prog.main) return null;
+    const half = prog.yard
+      ? prog.yard
+      : Math.max(
+          26,
+          Math.max(
+            (Math.abs(prog.main.mian * 3.6) / 2) + 12,
+            ...(prog.aux || []).map((a) => Math.abs(a.x) + 12)
+          )
+        );
+    return {
+      minX: s.x - half,
+      maxX: s.x + half,
+      minZ: s.z - half * 0.78,
+      maxZ: s.z + half * 0.78,
+    };
+  };
+
   /** 线段 (x0,z0)→(x1,z1) 与矩形的相交区间；返回 {t0,t1} 或 null */
   const segRectHit = (x0, z0, x1, z1, minX, minZ, maxX, maxZ) => {
     const dx = x1 - x0;
@@ -890,25 +998,67 @@ async function loadScene() {
       const eyeH = Number(q.get('ey') || 1.7);
       const aimH = heightAt(s.x, s.z) + Number(q.get('aim') || (close ? 5.5 : 6.4));
       const camEye = (cx, cz) => (heightAt(cx, cz) || heightAt(s.x, s.z)) + eyeH;
-      search: for (const yaw of yawList) {
-        for (let d = d0; d <= d0 + 96; d += 6) {
+      /** 目标景的院墙范围（`layout.js` 同一份公式） */
+      const yard = courtyardOf(s);
+      /**
+       * 距离候选：**由远及近**（保留"往里挪"，否则可能一个都放不下）。
+       * ⚠ 园界是**凹多边形**（三园合并外轮廓），从某些景往外退很快就**出园**了
+       *   （实测正大光明殿往南偏东退 82m 就已经出园）⇒ 原来"只往后拉远"的候选
+       *   在加了"机位必须在园内"这条约束后会**一个都放不下**。
+       * ⇒ 必须保留"往里挪"的候选（14m 起），否则整景拍不出来。
+       */
+      const dists = [];
+      for (let d = d0; d <= d0 + 96; d += 6) dists.push(d);
+      for (let d = d0 - 6; d >= 14; d -= 6) dists.push(d);
+      /**
+       * 选机位的优先级：**先保方位（yaw0 = 三分角构图），同一方位取**最大**可用距离**。
+       *
+       * ⚠⚠ 原来"按 dists 顺序碰巧取第一个可用"是错的：
+       *   dists 是"先远后近"的，而园界是凹多边形 ⇒ 远的距离全出园、
+       *   近的（14m）反而在园内且不被挡 ⇒ 就会**一头扎进柱廊里**。
+       *   ⇒ 必须**在每个方位上挑最大的可用距离**，再按方位优先级取舍。
+       */
+      const pickForYaw = (yaw, needYard = true) => {
+        for (const d of dists) {
           const cx = s.x + Math.sin(yaw) * d;
           const cz = s.z + Math.cos(yaw) * d;
+          // ⚠ 园墙 4.5m 是实体屏障 ⇒ 机位必须在园内，否则只拍得到一堵墙
+          if (!inGarden(cx, cz)) continue;
+          // ⚠ 院墙 2.9m 同理 ⇒ 机位要在**院子里面**（否则下半截全是墙）
+          if (
+            needYard &&
+            yard &&
+            !(cx >= yard.minX && cx <= yard.maxX && cz >= yard.minZ && cz <= yard.maxZ)
+          )
+            continue;
+          // ⚠ 游廊同理：站进廊子里 ⇒ 画面全是廊柱瓦檐
+          if (nearCorridor(cx, cz)) continue;
+          // ⚠ 树同理：站进树冠里 ⇒ 画面是树枝树干
+          if (nearTree(cx, cz)) continue;
           if (inBuilding(cx, cz, camEye(cx, cz))) continue;
           if (viewBlocked(cx, cz, s.x, s.z, camEye(cx, cz), aimH)) continue;
-          camX = cx;
-          camZ = cz;
-          placed = true;
-          break search;
+          return { cx, cz, d };
         }
+        return null;
+      };
+      for (const yaw of yawList) {
+        const p = pickForYaw(yaw, true);
+        if (!p) continue;
+        camX = p.cx;
+        camZ = p.cz;
+        placed = true;
+        break;
       }
       if (!placed) {
         // 退到最外围，改为拍「视线上第一座建筑」
         let outer = null;
         for (const yaw of yawList) {
-          for (let d = d0; d <= d0 + 96; d += 6) {
+          for (const d of dists) {
             const cx = s.x + Math.sin(yaw) * d;
             const cz = s.z + Math.cos(yaw) * d;
+            if (!inGarden(cx, cz)) continue;
+            if (nearCorridor(cx, cz)) continue;
+            if (nearTree(cx, cz)) continue;
             if (inBuilding(cx, cz, camEye(cx, cz))) continue;
             if (!outer || d > outer.d) outer = { cx, cz, d };
           }
@@ -922,8 +1072,19 @@ async function loadScene() {
             tgtZ = (blocker.minZ + blocker.maxZ) / 2;
           }
         } else {
-          camX = s.x + Math.sin(yaw0) * d0;
-          camZ = s.z + Math.cos(yaw0) * d0;
+          // ⚠ 连一个园内机位都找不到 ⇒ 至少**别站到园外去拍一堵墙**：
+          //   退到景旁边的园内位置（沿"远离目标"的方向找不到就沿原地的近处找）。
+          const fallback = dists
+            .map((d) => ({ d, cx: s.x + Math.sin(yaw0) * d, cz: s.z + Math.cos(yaw0) * d }))
+            .filter((c) => inGarden(c.cx, c.cz))
+            .sort((a, b) => a.d - b.d)[0];
+          if (fallback) {
+            camX = fallback.cx;
+            camZ = fallback.cz;
+          } else {
+            camX = s.x + Math.sin(yaw0) * d0;
+            camZ = s.z + Math.cos(yaw0) * d0;
+          }
         }
       }
       // 机位高程要用**机位自己的地面高**，不是目标点的。
