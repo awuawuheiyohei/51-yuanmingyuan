@@ -754,8 +754,29 @@ export function buildStructure(spec) {
 
     for (const [x, z, rot] of placements) {
       const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
+      /**
+       * ⚠⚠⚠ 2026-11-18 **出挑方向之前整体错了 90°**（全园 287 座建筑都错）。
+       *
+       *   `buildDougongParts(scale, 'x')` 造出来的斗栱，**拱/昂沿局部 +X 出挑**。
+       *   而这一排要转到 `dir = (sin rot, 0, cos rot)`：
+       *     南排 rot=0 → dir=+Z（朝南檐外）
+       *     北排 rot=π → dir=−Z
+       *     西山 rot=−π/2 → dir=−X
+       *     东山 rot=+π/2 → dir=+X
+       *
+       *   `makeRotationY(θ)` 把 +X 映到 `(cos θ, 0, −sin θ)`。
+       *   令 `(cos θ, 0, −sin θ) = (sin rot, 0, cos rot)` ⇒ **θ = rot − π/2**。
+       *   原来写的是 `makeRotationY(rot)` ⇒
+       *     rot=0 时拱仍沿 +X（**沿立面排**，不是朝檐外挑）
+       *     rot=π/2 时拱沿 −Z（与 dir=+X **正好相反**）
+       *   ⇒ 斗栱的"位置偏移"对了、"朝向"错了 90°。
+       *
+       *   **怎么发现的**：3D设计（cq-viewer）白模 + 正面视图 ——
+       *   斗栱没有"昂嘴朝外挑的侧影"，而是排成一道**阶梯**（正是沿 X 排开的样子）。
+       *   渲染里则表现为"檐下是一条黑带，看不出立体"（AGENTS §4.1.7 的老症状）。
+       */
       const m = new THREE.Matrix4()
-        .makeRotationY(rot)
+        .makeRotationY(rot - Math.PI / 2)
         .setPosition(x + dir.x * out, floorY + colH + fangH, z + dir.z * out);
       // 主体（坐斗/拱/升/方料）—— 青绿彩画
       const g = unit.body.clone();
@@ -831,8 +852,10 @@ export function buildStructure(spec) {
       const lowerUnit = buildDougongParts(dgScale * 0.86, 'x');
       for (const [x, z, rot] of placements) {
         const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
+        // ⚠ 旋转必须是 `rot − π/2`，理由见上面主檐那排的注释
+        //   （斗栱本体沿局部 +X 出挑，要转到 dir 方向）。
         const m = new THREE.Matrix4()
-          .makeRotationY(rot)
+          .makeRotationY(rot - Math.PI / 2)
           .setPosition(
             x + dir.x * out,
             // ⚠⚠ 这排斗栱是**上檐**的，必须坐在**上檐**的高度上
