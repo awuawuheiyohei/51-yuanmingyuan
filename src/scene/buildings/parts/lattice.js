@@ -22,6 +22,19 @@ function bar(w, h, d, x, y, z, rot = 0) {
 }
 
 /**
+ * 步步锦的**分格参数** —— 生成与自检共用同一份（避免两套数字各说各话）。
+ * @returns {{cols:number, rows:number, cw:number, rh:number, barW:number}}
+ */
+export function bubuJinGrid(w, h) {
+  const barW = 0.035; // 棂条宽
+  // ⚠ 分格要密：原来 0.42m × 0.46m 一格，槅扇远看是"空架子"，
+  //   不像步步锦。真实步步锦的分格约 0.22~0.30m。
+  const cols = Math.max(4, Math.round(w / 0.28));
+  const rows = Math.max(6, Math.round(h / 0.30));
+  return { cols, rows, cw: w / cols, rh: h / rows, barW };
+}
+
+/**
  * 步步锦格心
  * @param {number} w  格心宽
  * @param {number} h  格心高
@@ -29,33 +42,38 @@ function bar(w, h, d, x, y, z, rot = 0) {
  */
 export function buildBubuJin(w, h, t = 0.05) {
   const parts = [];
-  const barW = 0.035; // 棂条宽
-  // ⚠ 分格要密：原来 0.42m × 0.46m 一格，槅扇远看是"空架子"，
-  //   不像步步锦。真实步步锦的分格约 0.22~0.30m。
-  const cols = Math.max(4, Math.round(w / 0.28));
-  const rows = Math.max(6, Math.round(h / 0.30));
-  const cw = w / cols;
-  const rh = h / rows;
+  const { cols, rows, cw, rh, barW } = bubuJinGrid(w, h);
 
-  // 竖棂：每格一条
+  // 竖棂：每格一条（落在分格线上）
   for (let c = 0; c <= cols; c++) {
     const x = -w / 2 + c * cw;
     parts.push(bar(barW, h, t, x, 0, 0));
   }
 
-  // 横棂：每格内用长短不一的段拼出"步步"
-  for (let r = 0; r < rows; r++) {
+  /**
+   * 横棂：画在**行分界线上**（格心的上下沿由绦环板/裙板收边）。
+   *
+   * ⚠⚠ 2026-11-19 修正（3D设计 白模体检发现）：
+   *   原来奇数列写成 `x0 − len ⇒ x0` ⇒ 横棂**跑到前一格里去了**，
+   *   于是 ① 与前一格的横棂**同 z 重叠**（z-fighting）
+   *      ② 每一格有**半边是空的** ⇒ 格心读作"几根浮着的短棂条"，不是步步锦。
+   *   现在**每条横棂必须整条落在自己那一格内**：
+   *     偶数列：贴着左边竖棂起，长 0.75 格
+   *     奇数列：从格中起，到右边竖棂前止，长 0.5 格
+   *   ⇒ 两格拼出一个"步步"的阶梯，且**互不重叠**。
+   */
+  for (let r = 1; r < rows; r++) {
     const y = -h / 2 + r * rh;
     for (let c = 0; c < cols; c++) {
       const x0 = -w / 2 + c * cw;
-      // 这一格的横棂长度随列错落，形成阶梯
-      const len = cw * (c % 2 === 0 ? 0.72 : 0.4);
-      const dir = c % 2 === 0 ? 1 : -1;
-      parts.push(bar(len, barW, t, x0 + (dir * len) / 2, y, 0));
-      // 末端接一小段竖棂（"锦"的花头）
-      if (r % 2 === 0) {
-        const sx = x0 + dir * len;
-        parts.push(bar(barW, rh * 0.42, t, sx, y + rh * 0.21, 0));
+      const even = c % 2 === 0;
+      const xStart = even ? x0 + barW / 2 : x0 + 0.5 * cw;
+      const xEnd = even ? x0 + 0.75 * cw : x0 + cw - barW / 2;
+      parts.push(bar(xEnd - xStart, barW, t, (xStart + xEnd) / 2, y, 0));
+      // 末端"锦"花头（短竖棂）：**从横棂上沿起** ⇒ 不与横棂同面重叠；
+      // 右端也**退半个棂宽** ⇒ 不与竖棂重叠。
+      if (r % 2 === 1) {
+        parts.push(bar(barW, rh * 0.42, t, xEnd - barW / 2, y + barW / 2 + rh * 0.21, 0));
       }
     }
   }
