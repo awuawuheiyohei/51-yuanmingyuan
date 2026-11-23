@@ -1138,7 +1138,18 @@ async function loadScene() {
       let tgtZ = s.z;
       let placed = false;
       const eyeH = Number(q.get('ey') || 1.7);
-      const aimH = heightAt(s.x, s.z) + Number(q.get('aim') || (close ? 5.5 : 6.4));
+      const baseAim = heightAt(s.x, s.z) + Number(q.get('aim') || (close ? 5.5 : 6.4));
+      /**
+       * 「抬高瞄准点」的一档：瞄到**檐口**而不是 5.5m 的墙身。
+       *
+       * ⚠ 院子小、院墙 2.9m 的景（如勤政亲贤、山高水长）：
+       *   站在院子外拍，视线在墙头处只有 ~2.5m 高 ⇒ **被墙挡住**
+       *   ⇒ 只能在院里拍 ⇒ 退不开 ⇒ 画面变成"特写"。
+       *   把瞄准点抬到檐口（~10m），视线在墙头处就高过 2.9m ⇒ 站得出去。
+       */
+      const highAim =
+        heightAt(s.x, s.z) + (SCENE_PROGRAM[s.name]?.main?.eave ?? 9) + 1.5;
+      let aimH = baseAim;
       const camEye = (cx, cz) => (heightAt(cx, cz) || heightAt(s.x, s.z)) + eyeH;
       /** 目标景的院墙范围（`layout.js` 同一份公式） */
       const yard = courtyardOf(s);
@@ -1186,7 +1197,8 @@ async function loadScene() {
         { name: '放宽树与假山', yard: 1, inYard: 1, corridor: 1, tree: 0, rock: 0, water: 0, sight: 0 },
         { name: '放宽游廊', yard: 1, inYard: 1, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
         { name: '允许站到院外', yard: 1, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
-        { name: '放宽院墙', yard: 0, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
+        { name: '抬高瞄准点', yard: 1, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0, high: 1 },
+        { name: '放宽院墙', yard: 0, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0, high: 1 },
       ];
       const pickForYaw = (yaw, tier) => {
         for (const d of dists) {
@@ -1220,6 +1232,7 @@ async function loadScene() {
       };
       let tierUsed = null;
       for (const tier of TIERS) {
+        aimH = tier.high ? highAim : baseAim;
         for (const yaw of yawList) {
           const p = pickForYaw(yaw, tier);
           if (!p) continue;
@@ -1281,7 +1294,7 @@ async function loadScene() {
       controls.update();
       if (q.get('dbgview')) {
         console.log(
-          `  [view] ${view} fps=${fps.length} cam=(${camX.toFixed(1)},${camZ.toFixed(1)}) tgt=(${tgtX.toFixed(1)},${tgtZ.toFixed(1)}) placed=${placed} tier=${tierUsed ? tierUsed.name : '兜底'}`
+          `  [view] ${view} fps=${fps.length} cam=(${camX.toFixed(1)},${camZ.toFixed(1)}) tgt=(${tgtX.toFixed(1)},${tgtZ.toFixed(1)}) placed=${placed} tier=${tierUsed ? tierUsed.name : '兜底'} 草丛=${grass.current ? grass.current.count() : 'n/a'}/近3m=${grass.current ? grass.current.nearCount(camera.position.x, camera.position.z, 3) : 'n/a'}`
         );
       }
     }

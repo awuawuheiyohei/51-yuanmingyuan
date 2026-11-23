@@ -43,7 +43,10 @@ while IFS= read -r n; do
   [ -z "$n" ] && continue
   enc=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$n")
   safe=$(python3 -c "import sys;print(sys.argv[1].replace('/','_'))" "$n")
+  # **两个距离都拍**：AGENTS 的验收规则是「13 m 看构造、30 m 看整体」
+  #   ⇒ d=14 拍构造细节（斗栱/棂心/匾额/栏板），d=45 拍整体。
   ./scripts/shot.sh "$OUT/$safe.png" "view=close&name=$enc&d=45" >/dev/null 2>&1
+  ./scripts/shot.sh "$OUT/${safe}__近14m.png" "view=close&name=$enc&d=14" >/dev/null 2>&1
   echo "  ✔ $n"
 done <<< "$WITH"
 

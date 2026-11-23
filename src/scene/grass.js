@@ -63,8 +63,14 @@ function bladeGeometry(h, w, bend) {
   g.computeVertexNormals();
   // 顶点色：根部深、梢部浅（自阴影感）
   const cols = new Float32Array(15);
-  const cBase = [0.13, 0.17, 0.07];
-  const cTip = [0.34, 0.44, 0.16];
+  const cBase = [0.11, 0.15, 0.07];
+  /**
+   * ⚠⚠ 草梢原来偏黄（0.34, 0.44, 0.16 ⇒ sRGB 约 0.62/0.69/0.44 = **枯草黄**），
+   *   而地面贴图是**偏冷的绿** ⇒ 近处（人眼高度、离相机 1~2 m）的几丛
+   *   在画面上读作"一根根荧光黄刺"（实测思永斋、万方安和两景最刺眼）。
+   *   ⇒ 草梢压回**偏蓝的嫩绿**，与地面同族。
+   */
+  const cTip = [0.25, 0.37, 0.16];
   const per = [
     cBase, cBase, cBase, cBase, cTip,
   ];
@@ -307,8 +313,16 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
         inst.setMatrixAt(n, mtx);
         // 每丛一点色差（黄绿↔蓝绿）
         const t = ((h >>> 23) % 100) / 100;
-        // 每丛一点色差：偏黄的枯草 ↔ 偏蓝的嫩草（幅度要小，不然像撒了荧光棒）
-        colr.setRGB(0.80 + t * 0.30, 0.86 - t * 0.10, 0.72 - t * 0.30);
+        /**
+         * 每丛一点色差：偏黄的枯草 ↔ 偏蓝的嫩草（**幅度要小**，不然像撒了荧光棒）。
+         *
+         * ⚠⚠ 2026-11-23 修正：原来蓝色被压掉 **58%**（0.72 → 0.42）、
+         *   红色还往上加 10% ⇒ 大部分草丛与地面贴图**几乎同色而看不见**，
+         *   少数色差大的就变成"一根根荧光黄刺"（人眼高度近景最刺眼）。
+         *   实测：草铺了 37,824 丛，但画面里只看得见几根孤零零的黄刺。
+         *   ⇒ 把幅度收窄到 ±8% 以内，让草整体读作**一层草皮**。
+         */
+        colr.setRGB(0.93 + t * 0.14, 0.95 - t * 0.03, 0.90 - t * 0.08);
         inst.setColorAt(n, colr);
         n++;
       }
@@ -316,10 +330,35 @@ export function buildGrass(sceneData, heightAt, footprints = [], waterLevel = nu
     inst.count = n;
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    /**
+     * ⚠⚠ **必须重算包围球**，否则整片草会被视锥剔除掉。
+     *
+     * `InstancedMesh` 的视锥剔除用的是**实例矩阵算出来的包围球**；
+     * `refill()` 把实例搬到新相机周围后没有重算 ⇒ 包围球还留在
+     * **上一次铺草的位置**（默认全园视角）⇒ 相机一离开那个点，
+     * 整片草就被剔掉，只剩几丛"碰巧还在包围球里"的漏网之鱼
+     * （实测：草铺了 37,824 丛，画面里只看得见 2 丛）。
+     */
+    inst.computeBoundingSphere();
+    inst.computeBoundingBox();
   }
 
   return {
     group,
+    /** 当前实际铺了多少丛（诊断用） */
+    count: () => inst.count,
+    /** 相机周围 r 米内铺了多少丛（诊断用：近景密度对不对） */
+    nearCount(camX, camZ, r) {
+      const m = new THREE.Matrix4();
+      const pos = new THREE.Vector3();
+      let n = 0;
+      for (let i = 0; i < inst.count; i++) {
+        inst.getMatrixAt(i, m);
+        pos.setFromMatrixPosition(m);
+        if (Math.hypot(pos.x - camX, pos.z - camZ) < r) n++;
+      }
+      return n;
+    },
     /** 相机移动时重铺（超过 3 m 才重算） */
     update(camX, camZ) {
       if (Math.hypot(camX - lastX, camZ - lastZ) < 3) return;
