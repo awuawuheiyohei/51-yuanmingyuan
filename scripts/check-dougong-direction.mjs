@@ -27,7 +27,7 @@ import { buildStructure } from '../src/scene/buildings/parts/structure.js';
 import { deriveDimensions } from '../src/scene/buildings/modular.js';
 
 const CASES = {
-  daxie: { name: '大歇山（九州清晏主殿）', rank: 'grand', mian: 7, jin: 5, platform: 'xumizuo', roof: 'xieshan', tile: 'huang' },
+  daxie: { name: '大歇山（九洲清晏主殿）', rank: 'grand', mian: 7, jin: 5, platform: 'xumizuo', roof: 'xieshan', tile: 'huang' },
   xieshan: { name: '歇山（奉三无私殿）', rank: 'hall', mian: 7, jin: 5, platform: 'xumizuo', roof: 'xieshan', tile: 'hui' },
 };
 

@@ -123,7 +123,7 @@ function sampleDem(tiles, lon, lat) {
  */
 const SCENES = [
   { name: '正大光明', lon: 116.290597, lat: 40.001945, source: 'guide' },
-  { name: '九州清晏', lon: 116.290179, lat: 40.003573, source: 'guide' },
+  { name: '九洲清晏', lon: 116.290179, lat: 40.003573, source: 'guide' },
   { name: '勤政亲贤', lon: 116.292393, lat: 40.002241, source: 'guide' },
   { name: '镂月开云', lon: 116.292315, lat: 40.003656, source: 'guide' },
   { name: '天然图画', lon: 116.291981, lat: 40.004986, source: 'guide' },
@@ -143,11 +143,11 @@ const SCENES = [
   { name: '澹泊宁静', lon: 116.290203, lat: 40.007891, source: 'guide' },
   { name: '水木明瑟', lon: 116.290293, lat: 40.008824, source: 'guide' },
   { name: '濂溪乐处', lon: 116.287732, lat: 40.00915, source: 'guide' },
-  { name: '日光琳宇', lon: 116.28589, lat: 40.008072, source: 'guide' },
+  { name: '日天琳宇', lon: 116.28589, lat: 40.008072, source: 'guide' },
   { name: '汇芳书院', lon: 116.286328, lat: 40.010133, source: 'guide' },
   { name: '多稼如云', lon: 116.288295, lat: 40.010475, source: 'guide' },
-  { name: '跃鸾飞', lon: 116.290906, lat: 40.011506, source: 'guide', alias: '鱼跃鸢飞' },
-  { name: '西峰秀', lon: 116.292437, lat: 40.010308, source: 'guide', alias: '西峰秀色' },
+  { name: '鱼跃鸢飞', lon: 116.290906, lat: 40.011506, source: 'guide' },
+  { name: '西峰秀色', lon: 116.292437, lat: 40.010308, source: 'guide' },
   { name: '坐石临流', lon: 116.29255, lat: 40.007461, source: 'guide' },
   { name: '曲院风荷', lon: 116.293944, lat: 40.004753, source: 'guide' },
   // 洞天深处 = **四十景之一**，在勤政亲贤以东（导览图 px 3184,3470，标注旁画着四座方形院落）。
@@ -161,10 +161,10 @@ const SCENES = [
   //   ⇒ 真实布局就是实测那组「西—中—东」三岛；导览图只画了主岛+西北一岛（画法有误）。
   { name: '蓬岛瑶台', lon: 116.2981067, lat: 40.0082312, source: 'osm', alias: 'OSM 福海内环（实测中岛）' },
   { name: '平湖秋月', lon: 116.29605, lat: 40.010754, source: 'guide' },
-  { name: '宜书房', lon: 116.299513, lat: 40.011303, source: 'guide', alias: '藏密楼' },
+  { name: '四宜书屋', lon: 116.299513, lat: 40.011303, source: 'guide', alias: '藏密楼' },
   { name: '北远山村', lon: 116.28836, lat: 40.011536, source: 'osm' },
   { name: '廓然大公', lon: 116.294319, lat: 40.010766, source: 'guide' },
-  { name: '洁身浴德', lon: 116.295579, lat: 40.006796, source: 'guide' },
+  { name: '澡身浴德', lon: 116.295579, lat: 40.006796, source: 'guide' },
   { name: '夹镜鸣琴', lon: 116.298331, lat: 40.006112, source: 'guide' },
   { name: '别有洞天', lon: 116.301109, lat: 40.006342, source: 'guide' },
   { name: '接秀山房', lon: 116.301675, lat: 40.008412, source: 'guide' },
@@ -1214,7 +1214,7 @@ async function main() {
    *   故岛位取图上；实测环只用来**认岛**（哪座是哪处景点）。
    *
    * ⚠ 原来这里是"凡是 `waterKind==='lake' && rock>=0.4` 的景都堆岛"，
-   *   结果把**濂溪乐处、西峰秀**也堆成了岛（那两处不在福海）⇒ 改为显式指定。
+   *   结果把**濂溪乐处、西峰秀色**也堆成了岛（那两处不在福海）⇒ 改为显式指定。
    */
   const islandSpecs = islandDefs;
   if (islandSpecs.length) {

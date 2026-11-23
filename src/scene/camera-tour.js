@@ -61,7 +61,7 @@ export function buildTour(sceneData, heightAt) {
     );
   }
 
-  // 2. 九州清晏及周边
+  // 2. 九洲清晏及周边
   {
     const t = S('九洲清晏', 0, 5, 0);
     shot(

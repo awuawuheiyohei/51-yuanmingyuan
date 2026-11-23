@@ -64,7 +64,7 @@ export const OVERHANG_PAD = 1.6;
  * 屋面除了出檐，还有**翼角起翘**的水平伸出（可达 2~3m），
  * 而 `OVERHANG_PAD = 1.6` 只够"两栋殿宇的屋面不打架"。
  * 相机避障要用更大的余量，否则相机会站在别殿的**翼角底下** ——
- * 实测九州清晏就漏了 0.9m，镜头直接怼进奉三无私殿的檐下，
+ * 实测九洲清晏就漏了 0.9m，镜头直接怼进奉三无私殿的檐下，
  * 拍出一堆裸露的梁架（看着像穿模，其实是机位问题）。
  */
 export const AVOID_PAD = 2.8;
@@ -152,7 +152,7 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
     const rotS = Math.abs(Math.sin(rot || 0));
     // ⚠ 必须加 **OVERHANG_PAD**（出檐 + 翼角起翘的水平伸出），
     //   否则这张占地表比真实屋面小一圈 ⇒ 主程序的机位避障会漏判
-    //   （实测九州清晏就漏了 1.6m，镜头直接怼进奉三无私殿的屋檐底下）。
+    //   （实测九洲清晏就漏了 1.6m，镜头直接怼进奉三无私殿的屋檐底下）。
     const hw = ((spec.width || 0) * rotC + (spec.depth || 0) * rotS) / 2 + AVOID_PAD;
     const hd = ((spec.width || 0) * rotS + (spec.depth || 0) * rotC) / 2 + AVOID_PAD;
     outFootprints.push({
@@ -258,6 +258,8 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
     // 御书楹联（目前只有正大光明殿有实记）
     couplet: program.couplet || null,
     doors: centerDoors(m.mian),
+    // ⚠ 四面为门（鱼跃鸢飞考据实记：「四面为门，各五楹」）
+    doorsAllSides: !!m.doorsAllSides,
     caojing: m.mian >= 5,
     rise: Math.max(2.0, D.bayW * 0.26),
   };

@@ -31,7 +31,7 @@ import { GABLE_TRIM } from '../src/scene/buildings/parts/roof.js';
 
 const CASES = {
   daxie: {
-    name: '大歇山（九州清晏主殿）',
+    name: '大歇山（九洲清晏主殿）',
     type: 'xieshan',
     width: 38.98,
     depth: 22.61,

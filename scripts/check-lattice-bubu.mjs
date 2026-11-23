@@ -24,7 +24,7 @@
 import * as THREE from 'three';
 import { buildBubuJin, bubuJinGrid } from '../src/scene/buildings/parts/lattice.js';
 
-/** 典型一扇槅扇（九州清晏主殿明间，实测：格心 1.254m × 3.788m） */
+/** 典型一扇槅扇（九洲清晏主殿明间，实测：格心 1.254m × 3.788m） */
 const CASES = [
   { name: '大歇山明间槅扇', w: 1.254, h: 3.788, t: 0.042 },
   { name: '小式槅扇（窄）', w: 0.62, h: 2.1, t: 0.042 },

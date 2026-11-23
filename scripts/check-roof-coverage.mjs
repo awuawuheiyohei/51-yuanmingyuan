@@ -22,7 +22,7 @@ import { buildRoof } from '../src/scene/buildings/parts/roof.js';
 
 const CASES = [
   {
-    name: '大歇山（九州清晏主殿 grand 7×5）',
+    name: '大歇山（九洲清晏主殿 grand 7×5）',
     spec: {
       width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, type: 'xieshan',
       overhang: 1.42, overhangX: 1.14, hipRunX: 5.43, upturn: 0.8, bulge: 0.45, segments: 30,
@@ -123,7 +123,7 @@ for (const c of CASES) {
       // ⚠⚠ 必须命中 **tile**，不能拿 'board'（望板）顶替：
       //   望板是屋面下方 7.5cm 的一块 clone，两者有同样的洞。
       //   只要有 board 就判过 ⇒ **"屋面缺瓦、只剩望板"这类问题永远测不出来**
-      //   （九州清晏的歇山就长期这样：从外面直接看见褐色望板与穿出来的檩架）。
+      //   （九洲清晏的歇山就长期这样：从外面直接看见褐色望板与穿出来的檩架）。
       samples.tile++;
       rc.set(new THREE.Vector3(x, ridgeY + 3, z), down);
       rc.far = 60;

@@ -2011,7 +2011,7 @@ const COUNT = {
 };
 
 /** 只有这几景配銮驾（品级最高的中轴几景） */
-const REGALIA_SCENES = ['正大光明', '九州清晏', '勤政亲贤', '鸿慈永祜'];
+const REGALIA_SCENES = ['正大光明', '九洲清晏', '勤政亲贤', '鸿慈永祜'];
 
 export function buildFigures(sceneData, heightAt) {
   const group = new THREE.Group();

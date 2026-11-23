@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { buildRoof } from '../src/scene/buildings/parts/roof.js';
 
 const CASES = {
-  daxie: { name: '大歇山（九州清晏主殿）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
+  daxie: { name: '大歇山（九洲清晏主殿）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
   xieshan: { name: '歇山（奉三无私殿）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 10.1, rise: 8.44, overhang: 1.14, hipRunX: 4.91 },
   wudian: { name: '庑殿（正大光明殿）', type: 'wudian', width: 32.48, depth: 20.46, eaveY: 9.6, rise: 8.2, overhang: 1.4, hipRunX: 6.2 },
 };

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { buildRoof } from '../src/scene/buildings/parts/roof.js';
 
 const CASES = [
-  { name: '大歇山（九州清晏主殿）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
+  { name: '大歇山（九洲清晏主殿）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
   { name: '歇山（奉三无私殿）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 10.1, rise: 8.44, overhang: 1.14, hipRunX: 4.91 },
   { name: '歇山（圆明园殿）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 11.9, rise: 5.0, overhang: 1.14 },
 ];

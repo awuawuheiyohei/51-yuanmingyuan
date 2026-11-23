@@ -26,7 +26,7 @@ import { deriveDimensions } from '../src/scene/buildings/modular.js';
 
 const CASES = {
   daxie: {
-    name: '大歇山（九州清晏主殿）',
+    name: '大歇山（九洲清晏主殿）',
     rank: 'grand',
     mian: 7,
     jin: 5,

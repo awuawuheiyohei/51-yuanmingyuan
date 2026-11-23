@@ -461,6 +461,14 @@ export function buildStructure(spec) {
     wallType = 'brick',
     hasDougong = spec.hasDougong ?? true,
     doors = [],
+    /**
+     * **四面为门**（鱼跃鸢飞考据实记：「四面为门，各五楹」）。
+     *
+     * ⚠ 默认只有**正面**开门；开启后背面（北）与两侧（东/西）也做隔扇门。
+     *   实现方式：背面墙与侧墙不再是一整片实墙，而是**按开间分段**，
+     *   门位那一段让开门洞 + 贴四扇槅扇（与正面同制式）。
+     */
+    doorsAllSides = false,
     caojing = false,
     wallThick = 0.5,
     /** 柱径：由斗口制模数推导（layout.js 传入）；没给就自己兜一个 */
@@ -1139,8 +1147,108 @@ export function buildStructure(spec) {
     const wOffZ = spec.position ? spec.position[2] : 0;
     const tint = (x, y, z) => wallTint(x + wOff, y + wOffY, z + wOffZ);
 
+    /**
+     * 正面（南，+Z）墙心线。
+     *
+     * ⚠ 必须定义在 `buildLeaves` **之前** —— 它被当作默认参数引用，
+     *   若定义在后面就是 TDZ（暂时性死区）错误。
+     */
+    const frontZ = depth / 2 - wallThick / 2;
+
+    /**
+     * 一开间的**四扇槅扇**（门扇 / 窗扇通用）：框料 / 绦环板 / 步步锦格心 / 裙板，
+     * 全是实体。
+     *
+     * ⚠ 槅扇之间要**几乎无缝**（真实槅扇是紧挨着的）：
+     *   每扇只取格宽的 0.94 ⇒ 四扇之间露出 4 条黑缝，
+     *   从正面看像"四扇门之间有黑缝"，其实那是后面的暗底。
+     *
+     * @param cx  开间中心（**沿面宽方向**的绝对坐标）
+     * @param bw  开间净宽
+     * @param at  目标面位置：`'front'` | `'back'` | `'side'`
+     * @param sideCx 侧面的开间中心（沿 Z；正面/背面不用）
+     * @param sideSx 侧面朝向：`+1` = 东面(+X) / `-1` = 西面(−X)
+     *
+     * ⚠ **旋转与平移的顺序**：槅扇先建在**局部坐标**（面宽沿 X、从开间中心向两边排开），
+     *   再整体 `rotateY(rotY)`，最后才平移到面上的位置。
+     *   · 若先旋转再按世界 X 偏移 ⇒ 侧面的偏移轴就错了（槅扇会排到墙里去）。
+     *   · 若局部用**绝对** X 再平移一次开间中心 ⇒ 位置会**平移两倍**（隔扇跑到墙外）。
+     */
+    const buildLeaves = (cx, bw, at = 'front', sideCx = 0, sideSx = 1) => {
+      const leafW = (bw - colDia * 1.2) / 4;
+      // 各面的法线朝向、局部 X 的落位、面的法线位置
+      const cfg =
+        at === 'back'
+          ? { rotY: Math.PI, px: cx, pz: -depth / 2 + wallThick / 2 }
+          : at === 'side'
+            ? {
+                // 侧面：面宽沿 Z ⇒ 绕 Y 转 ±90°（转后局部 X 落到 Z 上）
+                rotY: sideSx > 0 ? Math.PI / 2 : -Math.PI / 2,
+                px: sideSx * (width / 2 - wallThick / 2),
+                pz: sideCx,
+              }
+            : { rotY: 0, px: cx, pz: frontZ };
+      for (let k = 0; k < 4; k++) {
+        // ⚠ 局部 X 是**相对开间中心**的（正负各半）
+        const lx = -(bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
+        const { frame, lattice, panel, paper } = buildShanGeParts(
+          leafW * 0.995,
+          wallH * 0.985
+        );
+        // ① 局部坐标：沿 X 排开，贴在 z = wallThick*0.12 的面上
+        for (const part of [frame, lattice, panel, paper]) {
+          if (!part) continue;
+          part.translate(lx, floorY + wallH / 2, wallThick * 0.12);
+          // ② 整体旋转到目标面
+          if (cfg.rotY) part.rotateY(cfg.rotY);
+          // ③ 平移到面上的位置
+          part.translate(cfg.px, 0, cfg.pz);
+        }
+        // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
+        bucket(geoms, KEY.lacquer).push(frame);
+        bucket(geoms, KEY.lacquerDark).push(panel);
+        bucket(geoms, KEY.lattice).push(lattice);
+        // 格心背后裱纸：清式门窗是纸窗，不是黑洞
+        if (paper) bucket(geoms, KEY.paper).push(paper);
+      }
+    };
+
     const backW = width - colDia;
-    {
+    if (doorsAllSides) {
+      /**
+       * **四面为门**：背面墙按进深开间分段，门位开洞 + 贴四扇槅扇。
+       *
+       * 做法（与正面同制式）：
+       *   · 门位那一间：不建实墙，建**暗底**（殿内是暗的）+ 四扇槅扇 + 门楣
+       *   · 其余间：实墙照旧（作为窗后的墙），但**往后退**，前面再贴四扇槅扇
+       */
+      const backZ = -depth / 2 + wallThick / 2;
+      const backDoorJ = Math.floor(jin / 2); // 背面门在正中一进深
+      for (let j = 0; j < jin; j++) {
+        const cz = (colZs[j] + colZs[j + 1]) / 2;
+        const bw2 = bayD - colDia;
+        if (j === backDoorJ) {
+          // 门洞内的暗底
+          const back = new THREE.BoxGeometry(bw2, wallH, 0.1);
+          back.translate(0, floorY + wallH / 2, backZ + wallThick * 0.42);
+          bucket(geoms, KEY.dark).push(back);
+          // 槅扇（背面朝向 -Z）
+          buildLeaves(0, bw2, 'back');
+          // 门楣
+          const lintel = new THREE.BoxGeometry(bw2, 0.22, wallThick * 1.1);
+          lintel.translate(0, floorY + wallH - 0.11, backZ - wallThick * 0.1);
+          bucket(geoms, KEY.wood).push(lintel);
+        } else {
+          // 实墙（作为窗后的墙，要往后退）
+          const [sgx, sgy, sgz] = boxSegs(bw2, wallH, wallThick);
+          const panel = new THREE.BoxGeometry(bw2, wallH, wallThick, sgx, sgy, sgz);
+          scaleBoxUV(panel, bw2, wallH, wallThick);
+          panel.translate(0, floorY + wallH / 2, backZ + wallThick * 0.62);
+          applyTint(panel, tint);
+          bucket(geoms, KEY.wall).push(panel);
+        }
+      }
+    } else {
       const [sgx, sgy, sgz] = boxSegs(backW, wallH, wallThick);
       const back = new THREE.BoxGeometry(backW, wallH, wallThick, sgx, sgy, sgz);
       scaleBoxUV(back, backW, wallH, wallThick);
@@ -1151,16 +1259,52 @@ export function buildStructure(spec) {
 
     for (const sx of [-1, 1]) {
       const sideD = depth - colDia;
-      const [sgx, sgy, sgz] = boxSegs(wallThick, wallH, sideD);
-      const side = new THREE.BoxGeometry(wallThick, wallH, sideD, sgx, sgy, sgz);
-      scaleBoxUV(side, wallThick, wallH, sideD);
-      side.translate(sx * (width / 2 - wallThick / 2), floorY + wallH / 2, 0);
-      applyTint(side, tint);
-      bucket(geoms, KEY.wall).push(side);
+      const sideX = sx * (width / 2 - wallThick / 2);
+      if (doorsAllSides) {
+        /**
+         * 侧墙同样按**面阔**开间分段：正中一开间开门（隔扇 + 暗底 + 门楣），
+         * 其余间为实墙 + 槛窗。
+         */
+        const sideDoorI = Math.floor(mian / 2);
+        for (let i = 0; i < mian; i++) {
+          const cx = (colXs[i] + colXs[i + 1]) / 2;
+          const bw2 = bayWidths[i] - colDia;
+          const isDoor = i === sideDoorI;
+          if (isDoor) {
+            // 暗底（门洞内）
+            const back = new THREE.BoxGeometry(0.1, wallH, bw2);
+            back.translate(sideX - sx * wallThick * 0.42, floorY + wallH / 2, cx);
+            bucket(geoms, KEY.dark).push(back);
+            // 槅扇：侧面朝向 ±X（面宽沿 Z ⇒ 从 Z=0 排开）
+            buildLeaves(0, bw2, 'side', cx, sx);
+            // 门楣
+            const lintel = new THREE.BoxGeometry(wallThick * 1.1, 0.22, bw2);
+            lintel.translate(sideX + sx * wallThick * 0.1, floorY + wallH - 0.11, cx);
+            bucket(geoms, KEY.wood).push(lintel);
+          } else {
+            // 实墙（往后退，前面贴槛窗）
+            const [sgx, sgy, sgz] = boxSegs(wallThick, wallH, bw2);
+            const panel = new THREE.BoxGeometry(wallThick, wallH, bw2, sgx, sgy, sgz);
+            scaleBoxUV(panel, wallThick, wallH, bw2);
+            panel.translate(sideX - sx * wallThick * 0.62, floorY + wallH / 2, cx);
+            applyTint(panel, tint);
+            bucket(geoms, KEY.wall).push(panel);
+          }
+        }
+      } else {
+        const [sgx, sgy, sgz] = boxSegs(wallThick, wallH, sideD);
+        const side = new THREE.BoxGeometry(wallThick, wallH, sideD, sgx, sgy, sgz);
+        scaleBoxUV(side, wallThick, wallH, sideD);
+        side.translate(sideX, floorY + wallH / 2, 0);
+        applyTint(side, tint);
+        bucket(geoms, KEY.wall).push(side);
+      }
 
       // 两侧山墙开槛窗：真框料 + 步步锦格心
       for (let j = 0; j < jin; j++) {
         const cz = (colZs[j] + colZs[j + 1]) / 2;
+        // 四面为门时，正中的一间已改为门（门自带槅扇），不再叠槛窗
+        if (doorsAllSides && j === Math.floor(jin / 2)) continue;
         const win = buildShanGeParts(bayD * 0.52, wallH * 0.46);
         for (const part of [win.frame, win.lattice, win.panel, win.paper]) {
           if (!part) continue;
@@ -1182,36 +1326,8 @@ export function buildStructure(spec) {
 
     // 正面（南，+Z）：门所在开间做成隔扇，其余实墙
     // 墙体收进柱径，柱子在开间之间露出来（清式"墙包柱"的做法）
-    const frontZ = depth / 2 - wallThick / 2;
+    // ⚠ `frontZ` 已在上面定义；`buildLeaves` 已在上面定义（四面为门时背/侧墙也要用）。
     const doorSet = new Set(doors);
-    /**
-     * 正面一开间的**四扇槅扇**（门扇 / 窗扇通用）：
-     * 框料 / 绦环板 / 步步锦格心 / 裙板，全是实体。
-     *
-     * ⚠ 槅扇之间要**几乎无缝**（真实槅扇是紧挨着的）：
-     *   每扇只取格宽的 0.94 ⇒ 四扇之间露出 4 条黑缝，
-     *   从正面看像"四扇门之间有黑缝"，其实那是后面的暗底。
-     */
-    const buildLeaves = (cx, bw) => {
-      const leafW = (bw - colDia * 1.2) / 4;
-      for (let k = 0; k < 4; k++) {
-        const lx = cx - (bw - colDia * 1.2) / 2 + leafW * (k + 0.5);
-        const { frame, lattice, panel, paper } = buildShanGeParts(
-          leafW * 0.995,
-          wallH * 0.985
-        );
-        frame.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-        lattice.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-        panel.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-        if (paper) paper.translate(lx, floorY + wallH / 2, frontZ + wallThick * 0.12);
-        // 框料素朱红漆、绦环板/裙板素黑漆、格心是棂条 + 背后的暗色门洞
-        bucket(geoms, KEY.lacquer).push(frame);
-        bucket(geoms, KEY.lacquerDark).push(panel);
-        bucket(geoms, KEY.lattice).push(lattice);
-        // 格心背后裱纸：清式门窗是纸窗，不是黑洞
-        if (paper) bucket(geoms, KEY.paper).push(paper);
-      }
-    };
     for (let i = 0; i < mian; i++) {
       const cx = (colXs[i] + colXs[i + 1]) / 2;
       const bw = bayWidths[i]; // 本开间实际宽（各间不等宽）

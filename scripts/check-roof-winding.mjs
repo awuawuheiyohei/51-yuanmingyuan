@@ -6,7 +6,7 @@
  *
  * 屋面网格里若有三角形的**绕向反了**，three.js 默认 `FrontSide` 材质会把它们
  * **背面剔除** ⇒ 画面上就是"屋面缺了一块"，露出底下的梁架。
- * 九州清晏（歇山 + 黄琉璃）近景里左上角整片屋面消失、只剩红梁与黄椽，
+ * 九洲清晏（歇山 + 黄琉璃）近景里左上角整片屋面消失、只剩红梁与黄椽，
  * 右上角黄面与褐色面交错 —— 都是这个症状。
  *
  * ## 判据
@@ -22,11 +22,11 @@ import { buildRoof } from '../src/scene/buildings/parts/roof.js';
 
 const CASES = [
   // ⚠ 参数必须与运行时**完全一致**，否则查不到真问题：
-  //   九州清晏主殿 = grand 级 7×5 ⇒ 面阔 38.98m、檐高 9.17m、
+  //   九洲清晏主殿 = grand 级 7×5 ⇒ 面阔 38.98m、檐高 9.17m、
   //   举高 = 38.98×0.26 = 10.13m（**大歇山**），出檐 = 斗栱出挑 + 0.35。
-  { name: '大歇山（九州清晏主殿 grand 7×5）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
+  { name: '大歇山（九洲清晏主殿 grand 7×5）', type: 'xieshan', width: 38.98, depth: 22.61, eaveY: 9.17, rise: 10.13, overhang: 1.42, hipRunX: 5.43 },
   { name: '歇山（奉三无私殿 hall 7×5）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 10.1, rise: 8.44, overhang: 1.14, hipRunX: 4.91 },
-  { name: '歇山（九州清晏主殿）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 11.9, rise: 5.0, overhang: 1.14 },
+  { name: '歇山（九洲清晏主殿）', type: 'xieshan', width: 32.48, depth: 20.46, eaveY: 11.9, rise: 5.0, overhang: 1.14 },
   { name: '卷棚歇山（正大光明殿）', type: 'juanpengxieshan', width: 32.48, depth: 20.46, eaveY: 7.4, rise: 4.0, overhang: 1.14 },
   { name: '悬山', type: 'xuanshan', width: 12, depth: 8, eaveY: 4.5, rise: 2.2, overhang: 1.0 },
   { name: '硬山', type: 'yingshan', width: 12, depth: 8, eaveY: 4.5, rise: 2.2, overhang: 1.0 },
