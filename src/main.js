@@ -805,17 +805,54 @@ async function loadScene() {
   const nearCorridor = (x, z) => distToCorridor(x, z) < 4.0;
 
   /**
-   * **树也要算障碍** —— 机位站进树冠里 ⇒ 画面是松枝和树干（实测
+   * **树也要算障碍** —— 机位站进树冠里 ⇒ 画面是树枝树干（实测
    * `?view=close&name=九州清晏` 进了院子就撞进一棵松树）。
    *
-   * 判据：与树干水平距离 < 5 m（树冠半径量级）且树高 > 2 m（排除草/矮丛）。
+   * ⚠ 避让半径要**随树高放大**：树冠半径远大于树干。
+   *   只按 5m 避让 ⇒ 机位离树 5.1m 仍然被树冠糊住整幅画面
+   *   （实测思永斋 / 紫碧山房 / 九州清晏 / 含卫城四景"画面里只有树"）。
    */
   const treeList = (sceneData.trees || []).filter((t) => t.h > 2);
   const nearTree = (x, z) => {
     for (const t of treeList) {
       const dx = t.x - x;
       const dz = t.z - z;
-      if (dx * dx + dz * dz < 25) return true;
+      const clear = Math.max(6, t.h * 0.5);
+      if (dx * dx + dz * dz < clear * clear) return true;
+    }
+    return false;
+  };
+
+  /**
+   * **假山（叠石）也要算障碍** —— 石头堆 6~14m 高、半径 3~12m，
+   * 机位贴上去就是一堵石墙
+   * （实测镂月开云 / 山高水长 / 多稼如云 / 夹镜鸣琴四景被石头挡死）。
+   *
+   * ⚠ 假山**从来不在 `fps`（建筑占地表）里** ⇒ 之前的选机位完全看不见它们。
+   */
+  const rockList = sceneData.rockery || [];
+  const nearRock = (x, z) => {
+    for (const r of rockList) {
+      const dx = x - r.x;
+      const dz = z - r.z;
+      const clear = (r.r || 4) + 3;
+      if (dx * dx + dz * dz < clear * clear) return true;
+    }
+    return false;
+  };
+
+  /** 机位不能站在水里（拍出来半屏是水） */
+  const waterList = (sceneData.water || []).filter((w) => w.ring && w.ring.length > 2);
+  const inWater = (x, z) => {
+    for (const w of waterList) {
+      let inside = false;
+      const ring = w.ring;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, zi] = ring[i];
+        const [xj, zj] = ring[j];
+        if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return true;
     }
     return false;
   };
@@ -923,6 +960,53 @@ async function loadScene() {
     return false;
   };
 
+  /**
+   * 两条 2D 线段求交（用于「视线段 × 院墙段」）。
+   * @returns {{t:number,x:number,z:number}|null} t 是第一个线段上的参数
+   */
+  const segSegHit = (x0, z0, x1, z1, ax, az, bx, bz) => {
+    const d1x = x1 - x0;
+    const d1z = z1 - z0;
+    const d2x = bx - ax;
+    const d2z = bz - az;
+    const den = d1x * d2z - d1z * d2x;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((ax - x0) * d2z - (az - z0) * d2x) / den;
+    const u = ((ax - x0) * d1z - (az - z0) * d1x) / den;
+    if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+    return { t, x: x0 + d1x * t, z: z0 + d1z * t };
+  };
+
+  /**
+   * **视线是否被院墙（高 2.9 m）挡住** —— 按**高度**判，不是「机位在不在院里」。
+   *
+   * ⚠⚠ 2026-11-23 修正：原来用「机位必须在院墙矩形内」这种**二元**判据，
+   *   ���机位被死死钉在院墙边上（镂月开云只退到 39 m），
+   *   而 40 m 面阔的大殿屋面就从画面上方切过去 ⇒ 构图全毁。
+   *   ⇒ 物理上正确的判据是：**视线在穿过院墙处的高度够不够**。
+   *     相机 1.7 m、目标 5.5 m、院墙 2.9 m ⇒
+   *     只要院墙离相机足够远，视线就**从墙头上面掠过** ⇒ 墙不挡。
+   *
+   * @param {object|null} yard 目标景的院墙矩形（`courtyardOf`）
+   */
+  const yardWallBlocked = (cx, cz, camY, tx, tz, tgtY, yard) => {
+    if (!yard) return false;
+    const segs = [
+      [yard.minX, yard.minZ, yard.maxX, yard.minZ],
+      [yard.maxX, yard.minZ, yard.maxX, yard.maxZ],
+      [yard.maxX, yard.maxZ, yard.minX, yard.maxZ],
+      [yard.minX, yard.maxZ, yard.minX, yard.minZ],
+    ];
+    for (const [ax, az, bx, bz] of segs) {
+      const hit = segSegHit(cx, cz, tx, tz, ax, az, bx, bz);
+      if (!hit) continue;
+      const y = camY + hit.t * (tgtY - camY);
+      const gy = heightAt(hit.x, hit.z) || 0;
+      if (y < gy + 2.9) return true; // 墙挡住了
+    }
+    return false;
+  };
+
   /** 视线上**第一座**挡路的建筑（返回它的占地矩形），没有则 null */
   const firstBlocker = (x0, z0, x1, z1) => {
     let best = null;
@@ -935,6 +1019,49 @@ async function loadScene() {
       }
     }
     return best;
+  };
+
+  /**
+   * **视线是否被假山/树挡住**（2026-11-23）。
+   *
+   * ⚠⚠ 原来只查"相机脚下有没有东西"（`nearRock`/`nearTree`），
+   *   那是**平面距离**判据 ⇒ 相机与主体之间隔着石头/树时完全看不出来。
+   *   实测镂月开云：相机换到了没石头的地方，但**视线**正好从一堆石头旁穿过
+   *   ⇒ 石头占满画面。
+   * ⇒ 正确做法是**沿视线段**判：石头/树在视线上、且该处视线高度低于它的高度 ⇒ 挡。
+   *
+   * @param {number} x0,z0 相机
+   * @param {number} x1,z1 目标
+   * @param {number} y0,y1 相机/目标的高度
+   */
+  const sightBlockedBy = (x0, z0, y0, x1, z1, y1) => {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const L2 = dx * dx + dz * dz;
+    /** 线段上距圆心最近点的参数 t 与距离 */
+    const near = (cx, cz) => {
+      let t = L2 > 0 ? ((cx - x0) * dx + (cz - z0) * dz) / L2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      return { t, d: Math.hypot(x0 + dx * t - cx, z0 + dz * t - cz) };
+    };
+    for (const r of rockList) {
+      const h = near(r.x, r.z);
+      if (h.d < (r.r || 4) + 1) {
+        const y = y0 + h.t * (y1 - y0);
+        const gy = heightAt(r.x, r.z) || 0;
+        if (y < gy + (r.h || 6)) return true;
+      }
+    }
+    for (const t of treeList) {
+      const cr = Math.max(3, t.h * 0.35); // 树冠半径
+      const h = near(t.x, t.z);
+      if (h.d < cr) {
+        const y = y0 + h.t * (y1 - y0);
+        const gy = heightAt(t.x, t.z) || 0;
+        if (y < gy + t.h) return true;
+      }
+    }
+    return false;
   };
 
 
@@ -989,7 +1116,22 @@ async function loadScene() {
        *   这时不能硬拍 —— 硬拍就是怼在殿墙上拍裸露梁架。
        *   做法：退到最外围，**改拍视线上第一座建筑**（即最南那一进）。
        */
-      const yawList = [yaw0, yaw0 - 0.3, yaw0 + 0.3, yaw0 - 0.55, yaw0 + 0.6];
+      /**
+       * 方位候选：**加密到 9 个**。
+       * 原来只有 5 个（yaw0 ± 0.3/0.55/0.6）⇒ 常常一个都放不下，
+       * 只好退到很近的位置，屋面就切过画面。
+       */
+      const yawList = [
+        yaw0,
+        yaw0 - 0.25,
+        yaw0 + 0.25,
+        yaw0 - 0.5,
+        yaw0 + 0.5,
+        yaw0 - 0.75,
+        yaw0 + 0.75,
+        yaw0 - 1.0,
+        yaw0 + 1.0,
+      ];
       let camX = 0;
       let camZ = 0;
       let tgtX = s.x;
@@ -1007,50 +1149,92 @@ async function loadScene() {
        *   在加了"机位必须在园内"这条约束后会**一个都放不下**。
        * ⇒ 必须保留"往里挪"的候选（14m 起），否则整景拍不出来。
        */
+      /**
+       * 距离候选：**按「离请求距离 d0 有多近」排序**。
+       *
+       * ⚠⚠ 2026-11-23 修正：原来是「先远后近」+「同方位取**最大**可用距离」，
+       *   结果机位一律退到最远（141 m）⇒ 主体缩成远处一个小点（思永斋）。
+       *   摄影上要的是**离目标多远**，不是"能站多远"。
+       *   ⇒ 改成：候选按 |d − d0| 从小到大排，先命中最接近请求距离的那个。
+       */
       const dists = [];
-      for (let d = d0; d <= d0 + 96; d += 6) dists.push(d);
-      for (let d = d0 - 6; d >= 14; d -= 6) dists.push(d);
+      for (let d = 14; d <= d0 + 96; d += 6) dists.push(d);
+      dists.sort((a, b) => Math.abs(a - d0) - Math.abs(b - d0));
       /**
        * 选机位的优先级：**先保方位（yaw0 = 三分角构图），同一方位取**最大**可用距离**。
        *
        * ⚠⚠ 原来"按 dists 顺序碰巧取第一个可用"是错的：
        *   dists 是"先远后近"的，而园界是凹多边形 ⇒ 远的距离全出园、
        *   近的（14m）反而在园内且不被挡 ⇒ 就会**一头扎进柱廊里**。
-       *   ⇒ 必须**在每个方位上挑最大的可用距离**，再按方位优先级取舍。
+       *   ⇒ 现在 dists 已按 |d − d0| 排序 ⇒ "第一个可用"就是**最接近请求距离**的那个。
        */
-      const pickForYaw = (yaw, needYard = true) => {
+      /**
+       * 选机位：**分层放宽**。
+       *
+       * ⚠⚠ 2026-11-23 全园 46 景批量出图后发现的共性：
+       *   原来的避障表只认「建筑 + 园墙 + 院墙 + 游廊 + 树(5m)」，
+       *   **假山完全没在里面** ⇒ 镂月开云/山高水长/多稼如云/夹镜鸣琴四景
+       *   被石头挡死；树的避让半径太小 ⇒ 思永斋/紫碧山房/九州清晏/含卫城
+       *   四景画面里只有树。
+       *   ⇒ 每层内部仍是「先保方位（yaw0 = 三分角构图），同一方位取**最大**可用距离」，
+       *   层与层之间按"最可能是元凶"的顺序放宽。
+       */
+      const TIERS = [
+        { name: '严格', yard: 1, inYard: 1, corridor: 1, tree: 1, rock: 1, water: 1, sight: 1 },
+        { name: '放宽水边', yard: 1, inYard: 1, corridor: 1, tree: 1, rock: 1, water: 0, sight: 1 },
+        { name: '放宽视线挡', yard: 1, inYard: 1, corridor: 1, tree: 1, rock: 1, water: 0, sight: 0 },
+        { name: '放宽树与假山', yard: 1, inYard: 1, corridor: 1, tree: 0, rock: 0, water: 0, sight: 0 },
+        { name: '放宽游廊', yard: 1, inYard: 1, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
+        { name: '允许站到院外', yard: 1, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
+        { name: '放宽院墙', yard: 0, inYard: 0, corridor: 0, tree: 0, rock: 0, water: 0, sight: 0 },
+      ];
+      const pickForYaw = (yaw, tier) => {
         for (const d of dists) {
           const cx = s.x + Math.sin(yaw) * d;
           const cz = s.z + Math.cos(yaw) * d;
           // ⚠ 园墙 4.5m 是实体屏障 ⇒ 机位必须在园内，否则只拍得到一堵墙
           if (!inGarden(cx, cz)) continue;
-          // ⚠ 院墙 2.9m 同理 ⇒ 机位要在**院子里面**（否则下半截全是墙）
+          // ⚠ 院墙 2.9m：按**视线高度**判（不是"机位在不在院里"）
+          //   ⇒ 机位可以退到院外，只要视线从墙头上面掠过。
+          if (tier.yard && yardWallBlocked(cx, cz, camEye(cx, cz), s.x, s.z, aimH, yard))
+            continue;
+          // ⚠ 但**优先站在院里**（院墙入画很丑）⇒ 前面几层要求机位在院内，
+          //   只有实在放不下才退到"允许站到院外"那层。
           if (
-            needYard &&
+            tier.inYard &&
             yard &&
             !(cx >= yard.minX && cx <= yard.maxX && cz >= yard.minZ && cz <= yard.maxZ)
           )
             continue;
-          // ⚠ 游廊同理：站进廊子里 ⇒ 画面全是廊柱瓦檐
-          if (nearCorridor(cx, cz)) continue;
-          // ⚠ 树同理：站进树冠里 ⇒ 画面是树枝树干
-          if (nearTree(cx, cz)) continue;
+          if (tier.corridor && nearCorridor(cx, cz)) continue;
+          if (tier.tree && nearTree(cx, cz)) continue;
+          if (tier.rock && nearRock(cx, cz)) continue;
+          if (tier.water && inWater(cx, cz)) continue;
           if (inBuilding(cx, cz, camEye(cx, cz))) continue;
           if (viewBlocked(cx, cz, s.x, s.z, camEye(cx, cz), aimH)) continue;
+          // ⚠ 视线段本身是否被假山/树穿过（"脚下没东西"不等于"看得见"）
+          if (tier.sight && sightBlockedBy(cx, cz, camEye(cx, cz), s.x, s.z, aimH)) continue;
           return { cx, cz, d };
         }
         return null;
       };
-      for (const yaw of yawList) {
-        const p = pickForYaw(yaw, true);
-        if (!p) continue;
-        camX = p.cx;
-        camZ = p.cz;
-        placed = true;
-        break;
+      let tierUsed = null;
+      for (const tier of TIERS) {
+        for (const yaw of yawList) {
+          const p = pickForYaw(yaw, tier);
+          if (!p) continue;
+          camX = p.cx;
+          camZ = p.cz;
+          placed = true;
+          tierUsed = tier;
+          break;
+        }
+        if (placed) break;
       }
       if (!placed) {
         // 退到最外围，改为拍「视线上第一座建筑」
+        // ⚠ 这一档**仍然要避开假山与水**（站进石头堆里 / 站在水里出不来），
+        //   只放宽树/游廊/院墙。
         let outer = null;
         for (const yaw of yawList) {
           for (const d of dists) {
@@ -1059,6 +1243,8 @@ async function loadScene() {
             if (!inGarden(cx, cz)) continue;
             if (nearCorridor(cx, cz)) continue;
             if (nearTree(cx, cz)) continue;
+            if (nearRock(cx, cz)) continue;
+            if (inWater(cx, cz)) continue;
             if (inBuilding(cx, cz, camEye(cx, cz))) continue;
             if (!outer || d > outer.d) outer = { cx, cz, d };
           }
@@ -1095,7 +1281,7 @@ async function loadScene() {
       controls.update();
       if (q.get('dbgview')) {
         console.log(
-          `  [view] ${view} fps=${fps.length} cam=(${camX.toFixed(1)},${camZ.toFixed(1)}) tgt=(${tgtX.toFixed(1)},${tgtZ.toFixed(1)}) placed=${placed}`
+          `  [view] ${view} fps=${fps.length} cam=(${camX.toFixed(1)},${camZ.toFixed(1)}) tgt=(${tgtX.toFixed(1)},${tgtZ.toFixed(1)}) placed=${placed} tier=${tierUsed ? tierUsed.name : '兜底'}`
         );
       }
     }

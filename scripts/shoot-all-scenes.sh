@@ -4,20 +4,40 @@
 # ⚠ 景名是中文 ⇒ URL 里**必须**用 python3 的 urllib.parse.quote 生成
 #   （手写百分号编码错过一次：「晏」写成「安」⇒ 静默拍到别的景）。
 #
+# ⚠⚠ **只拍"有建筑"的景**：`scene.json` 的锚点里有 6 个**空锚点**
+#   （福海/水流云在是自然景点；紫碧山房/含卫城/思永斋/涵月楼这 4 个四十景
+#   **目前没有建筑实现**）⇒ 拍它们只会得到一张空草地，那不是"构图失败"。
+#   ⇒ 脚本把空锚点**单独列出来**，不混进验收清单。
+#
+# ⚠ macOS 自带的是 **bash 3.2** ⇒ 没有 `mapfile`/`readarray`
+#   ⇒ 用 while-read 逐行处理（POSIX 兼容）。
+#
 # 用法： scripts/shoot-all-scenes.sh [输出目录]
 set -u
 cd "$(dirname "$0")/.."
 OUT="${1:-/tmp/scene-shots}"
 mkdir -p "$OUT"
 
-# ⚠ macOS 自带的是 **bash 3.2** ⇒ 没有 `mapfile`/`readarray`
-# ⇒ 用 while-read 逐行处理（POSIX 兼容）。
-node -e "
-const s=require('./public/scene/scene.json');
-for(const sc of s.scenes) if(!sc.western) console.log(sc.name);
-" > "$OUT/.names.txt"
-TOTAL=$(wc -l < "$OUT/.names.txt" | tr -d ' ')
-echo "共 $TOTAL 景 → $OUT"
+# ---- 有建筑的景（`SCENE_PROGRAM` 里有程序）+ 空锚点清单 ----
+node --input-type=module > "$OUT/.plan.txt" <<'NODE'
+import fs from 'node:fs';
+const R = process.cwd();
+const s = JSON.parse(fs.readFileSync(`${R}/public/scene/scene.json`, 'utf8'));
+const { SCENE_PROGRAM } = await import(`${R}/src/scene/scenes-program.js`);
+const withB = [], empty = [];
+for (const sc of s.scenes) {
+  if (sc.western) continue;
+  (SCENE_PROGRAM[sc.name] ? withB : empty).push(sc.name);
+}
+console.log(`#WITH\t${withB.join('\t')}`);
+console.log(`#EMPTY\t${empty.join('\t')}`);
+NODE
+
+WITH=$(grep '^#WITH' "$OUT/.plan.txt" | cut -f2- | tr '\t' '\n')
+EMPTY=$(grep '^#EMPTY' "$OUT/.plan.txt" | cut -f2- | tr '\t' '\n')
+
+echo "有建筑 $(printf '%s\n' "$WITH" | grep -c .) 景 → $OUT"
+echo "空锚点（无建筑、不拍）：$(printf '%s ' $EMPTY)"
 
 while IFS= read -r n; do
   [ -z "$n" ] && continue
@@ -25,6 +45,7 @@ while IFS= read -r n; do
   safe=$(python3 -c "import sys;print(sys.argv[1].replace('/','_'))" "$n")
   ./scripts/shot.sh "$OUT/$safe.png" "view=close&name=$enc&d=45" >/dev/null 2>&1
   echo "  ✔ $n"
-done < "$OUT/.names.txt"
-rm -f "$OUT/.names.txt"
+done <<< "$WITH"
+
+rm -f "$OUT/.plan.txt"
 echo "完成：$OUT"
