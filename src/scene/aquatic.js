@@ -70,28 +70,52 @@ function lotusLeaf(r) {
   return g;
 }
 
-/** 芦苇：一丛细长叶（每丛 3~5 片）+ 一支穗 */
+/**
+ * 芦苇：一丛细长叶（每丛 3~5 片）+ 一支穗
+ *
+ * ⚠⚠ 2026-11-23 修正（1.70m 眼高近景体检时发现）：
+ *   原来叶是**上宽下窄的平板矩形**、材质是**纯色 0x8a9459 无顶点色**
+ *   ⇒ 近看就是"一根根塑料吸管插在地上"（实测思永斋岸边的芦苇最刺眼）。
+ *   真实芦苇：① 叶**上窄下宽**（尖端收细）；② 根部**深绿**、梢部**枯黄**。
+ *   ⇒ 这里给叶加**收尖**与**根绿梢黄的顶点色渐变**（色是材质色的乘数）。
+ */
 function reedClump(h) {
   const parts = [];
   const n = 3 + Math.floor(Math.random() * 0); // 固定 3 片，避免用到 Math.random
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
     const lean = 0.12 + (i % 3) * 0.07;
-    const blade = new THREE.PlaneGeometry(0.055, h, 1, 3);
+    const blade = new THREE.PlaneGeometry(0.055, h, 1, 4);
     const pos = blade.attributes.position;
+    const cols = new Float32Array(pos.count * 3);
     for (let v = 0; v < pos.count; v++) {
       const y = pos.getY(v);
-      const t = (y + h / 2) / h;
+      const t = (y + h / 2) / h; // 0 = 根，1 = 梢
+      // **收尖**：越往上越窄（末端收到 12%）
+      pos.setX(v, pos.getX(v) * (1 - 0.88 * t));
       pos.setX(v, pos.getX(v) + Math.cos(a) * lean * t * t * h);
       pos.setZ(v, pos.getZ(v) + Math.sin(a) * lean * t * t * h);
+      // 根深绿 → 梢枯黄（材质色 0x8a9459 的乘数）
+      const k = 0.52 + t * 0.62; // 根 0.52（深）→ 梢 1.14（枯黄）
+      cols[v * 3] = k;
+      cols[v * 3 + 1] = k * (1 - t * 0.06);
+      cols[v * 3 + 2] = k * (1 - t * 0.42); // 越往上越黄（蓝被压掉）
     }
+    blade.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     blade.computeVertexNormals();
     blade.translate(Math.cos(a) * 0.04, h / 2, Math.sin(a) * 0.04);
     parts.push(blade);
   }
-  // 穗
+  // 穗（深枯色，与叶梢同族）
   const spike = new THREE.CylinderGeometry(0.022, 0.012, h * 0.22, 5);
   spike.translate(0, h * 0.92, 0);
+  const sc = new Float32Array(spike.attributes.position.count * 3);
+  for (let v = 0; v < spike.attributes.position.count; v++) {
+    sc[v * 3] = 1.05;
+    sc[v * 3 + 1] = 0.95;
+    sc[v * 3 + 2] = 0.5;
+  }
+  spike.setAttribute('color', new THREE.BufferAttribute(sc, 3));
   parts.push(spike);
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
@@ -138,6 +162,8 @@ export function buildAquatic(sceneData, heightAt) {
   });
   const reedMat = new THREE.MeshStandardMaterial({
     color: 0x8a9459,
+    // ⚠ 顶点色是材质色的**乘数**（根深绿→梢枯黄的渐变靠它）
+    vertexColors: true,
     roughness: 0.9,
     side: THREE.DoubleSide,
   });
