@@ -183,7 +183,15 @@ const spec = {
   couplet: spec0.couplet || null,
   doors: centerDoors(D.mian),
   caojing: D.mian >= 5,
-  rise: Math.max(2.0, D.bayW * 0.26),
+  /**
+   * ⚠⚠ `rise` 必须用 **`D.width`**（整座面阔），不是 `D.bayW`（单间宽）。
+   *   `layout.js` 里写的是 `const bayW = D.width;`（一个**命名坑**：
+   *   变量叫 bayW、值却是面阔），后面 `rise: Math.max(2.0, D.bayW * 0.26)`
+   *   用的就是这个别名 ⇒ 实际 rise = 38.98 × 0.26 = **10.13**。
+   *   照抄成 `D.bayW`（= 6.336）⇒ rise = 2.0 ⇒ **导出的屋面是平的**，
+   *   白模里看到的一切屋面构件都建立在错误的屋面上。
+   */
+  rise: Math.max(2.0, D.width * 0.26),
   overhang: spec0.overhang,
   hipRunX: spec0.hipRunX,
 };
@@ -272,4 +280,8 @@ console.log('   各桶:', JSON.stringify(perBucket));
 console.log(
   `   建筑：宽 ${D.width.toFixed(2)} × 深 ${D.depth.toFixed(2)}，檐高 ${D.eaveY.toFixed(2)}，` +
     `台基 ${D.platformH.toFixed(2)}，斗口 ${D.doukou.toFixed(3)}，斗栱跳 ${D.dougongJumps}`
+);
+console.log(
+  `   屋面：rise=${rise.toFixed(2)} ⇒ 脊高 ${(spec.eaveY + rise).toFixed(2)}` +
+    `（檐高 ${spec.eaveY.toFixed(2)} + rise）· 出檐 ${overhang.toFixed(2)} · 翼角 ${spec.hipRunX.toFixed(2)}`
 );
