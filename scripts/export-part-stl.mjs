@@ -63,6 +63,25 @@ const CASES = {
     plaque: '正大光明',
     couplet: ['心天之心而宵衣旰食', '乐民之乐以和性怡情'],
   },
+  /**
+   * ⚠ 2026-11-23 新增：**鱼跃鸢飞四面为门方殿**
+   *
+   * 《日下旧闻考》：「鱼跃鸢飞，**四面为门，各五楹**。」
+   *   ⇒ 面阔五间 × 进深五间（= 方殿），且背/东/西三面也要开门。
+   *   这是**唯一**开了 `doorsAllSides` 的景 ⇒ 用它给新几何做白模体检。
+   */
+  yuyue: {
+    name: '鱼跃鸢飞方殿（四面为门）',
+    rank: 'hall',
+    mian: 5,
+    jin: 5,
+    platform: 'xumizuo',
+    roof: 'xieshan',
+    caihua: 'xuanzi',
+    tile: 'lv',
+    plaque: '鱼跃鸢飞',
+    doorsAllSides: true,
+  },
 };
 
 const args = Object.fromEntries(
@@ -182,6 +201,8 @@ const spec = {
   plaqueText: spec0.plaque,
   couplet: spec0.couplet || null,
   doors: centerDoors(D.mian),
+  // ⚠ 四面为门（鱼跃鸢飞考据实记）—— 见 structure.js
+  doorsAllSides: !!spec0.doorsAllSides,
   caojing: D.mian >= 5,
   /**
    * ⚠⚠ `rise` 必须用 **`D.width`**（整座面阔），不是 `D.bayW`（单间宽）。
@@ -283,5 +304,7 @@ console.log(
 );
 console.log(
   `   屋面：rise=${rise.toFixed(2)} ⇒ 脊高 ${(spec.eaveY + rise).toFixed(2)}` +
-    `（檐高 ${spec.eaveY.toFixed(2)} + rise）· 出檐 ${overhang.toFixed(2)} · 翼角 ${spec.hipRunX.toFixed(2)}`
+    `（檐高 ${spec.eaveY.toFixed(2)} + rise）· 出檐 ${overhang.toFixed(2)}` +
+    ` · 翼角 ${(spec.hipRunX ?? 0).toFixed(2)}` +
+    (spec.doorsAllSides ? ' · **四面为门**' : '')
 );

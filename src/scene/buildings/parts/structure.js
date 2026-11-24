@@ -1216,34 +1216,44 @@ export function buildStructure(spec) {
     const backW = width - colDia;
     if (doorsAllSides) {
       /**
-       * **四面为门**：背面墙按进深开间分段，门位开洞 + 贴四扇槅扇。
+       * **四面为门**：背面墙（北，−Z）按**面阔**分段，门位开洞 + 贴四扇槅扇。
+       *
+       * ⚠⚠ 分段方向必须与墙的**延伸方向**一致：
+       *   · 背墙沿 **X** 延伸（长 = 面阔 `width`）⇒ 按 `mian`（面阔开间）分段
+       *   · 侧墙沿 **Z** 延伸（长 = 进深 `depth`）⇒ 按 `jin`（进深开间）分段
+       *   本轮一开始把这两者**写反**了 ⇒
+       *     ① 背墙按 jin 分段：4 段全叠在面阔中央（x∈[−1.3,1.3]），
+       *        **背墙左右 20m 完全没有墙**；
+       *     ② 侧墙按 mian 分段：段宽取了面阔开间宽（≈4.9m），
+       *        而侧墙总长只有进深（15m）⇒ **两端各伸出 4.2m**，
+       *        画面上就是山墙端两片「翼状竖板」戳出屋檐。
        *
        * 做法（与正面同制式）：
        *   · 门位那一间：不建实墙，建**暗底**（殿内是暗的）+ 四扇槅扇 + 门楣
        *   · 其余间：实墙照旧（作为窗后的墙），但**往后退**，前面再贴四扇槅扇
        */
       const backZ = -depth / 2 + wallThick / 2;
-      const backDoorJ = Math.floor(jin / 2); // 背面门在正中一进深
-      for (let j = 0; j < jin; j++) {
-        const cz = (colZs[j] + colZs[j + 1]) / 2;
-        const bw2 = bayD - colDia;
-        if (j === backDoorJ) {
+      const backDoorI = Math.floor(mian / 2); // 背面门在正中一开间（面阔方向）
+      for (let i = 0; i < mian; i++) {
+        const cx = (colXs[i] + colXs[i + 1]) / 2;
+        const bw2 = bayWidths[i] - colDia;
+        if (i === backDoorI) {
           // 门洞内的暗底
           const back = new THREE.BoxGeometry(bw2, wallH, 0.1);
-          back.translate(0, floorY + wallH / 2, backZ + wallThick * 0.42);
+          back.translate(cx, floorY + wallH / 2, backZ + wallThick * 0.42);
           bucket(geoms, KEY.dark).push(back);
-          // 槅扇（背面朝向 -Z）
-          buildLeaves(0, bw2, 'back');
+          // 槅扇（背面朝向 -Z），局部 X 从开间中心向两边排开
+          buildLeaves(cx, bw2, 'back');
           // 门楣
           const lintel = new THREE.BoxGeometry(bw2, 0.22, wallThick * 1.1);
-          lintel.translate(0, floorY + wallH - 0.11, backZ - wallThick * 0.1);
+          lintel.translate(cx, floorY + wallH - 0.11, backZ - wallThick * 0.1);
           bucket(geoms, KEY.wood).push(lintel);
         } else {
           // 实墙（作为窗后的墙，要往后退）
           const [sgx, sgy, sgz] = boxSegs(bw2, wallH, wallThick);
           const panel = new THREE.BoxGeometry(bw2, wallH, wallThick, sgx, sgy, sgz);
           scaleBoxUV(panel, bw2, wallH, wallThick);
-          panel.translate(0, floorY + wallH / 2, backZ + wallThick * 0.62);
+          panel.translate(cx, floorY + wallH / 2, backZ + wallThick * 0.62);
           applyTint(panel, tint);
           bucket(geoms, KEY.wall).push(panel);
         }
@@ -1262,31 +1272,34 @@ export function buildStructure(spec) {
       const sideX = sx * (width / 2 - wallThick / 2);
       if (doorsAllSides) {
         /**
-         * 侧墙同样按**面阔**开间分段：正中一开间开门（隔扇 + 暗底 + 门楣），
-         * 其余间为实墙 + 槛窗。
+         * 侧墙（东/西）沿 **Z** 延伸（长 = 进深 `depth`）
+         * ⇒ 按**进深**开间（`jin`）分段：正中一进深开门（隔扇 + 暗底 + 门楣），
+         *   其余间为实墙 + 槛窗。
+         *
+         * ⚠ 分段方向必须与墙的延伸方向一致（见上面背墙处的说明）。
          */
-        const sideDoorI = Math.floor(mian / 2);
-        for (let i = 0; i < mian; i++) {
-          const cx = (colXs[i] + colXs[i + 1]) / 2;
-          const bw2 = bayWidths[i] - colDia;
-          const isDoor = i === sideDoorI;
+        const sideDoorJ = Math.floor(jin / 2);
+        for (let j = 0; j < jin; j++) {
+          const cz = (colZs[j] + colZs[j + 1]) / 2;
+          const bw2 = bayD - colDia;
+          const isDoor = j === sideDoorJ;
           if (isDoor) {
             // 暗底（门洞内）
             const back = new THREE.BoxGeometry(0.1, wallH, bw2);
-            back.translate(sideX - sx * wallThick * 0.42, floorY + wallH / 2, cx);
+            back.translate(sideX - sx * wallThick * 0.42, floorY + wallH / 2, cz);
             bucket(geoms, KEY.dark).push(back);
-            // 槅扇：侧面朝向 ±X（面宽沿 Z ⇒ 从 Z=0 排开）
-            buildLeaves(0, bw2, 'side', cx, sx);
+            // 槅扇：侧面朝向 ±X（面宽沿 Z ⇒ 局部 X 从 0 向两边排开）
+            buildLeaves(0, bw2, 'side', cz, sx);
             // 门楣
             const lintel = new THREE.BoxGeometry(wallThick * 1.1, 0.22, bw2);
-            lintel.translate(sideX + sx * wallThick * 0.1, floorY + wallH - 0.11, cx);
+            lintel.translate(sideX + sx * wallThick * 0.1, floorY + wallH - 0.11, cz);
             bucket(geoms, KEY.wood).push(lintel);
           } else {
             // 实墙（往后退，前面贴槛窗）
             const [sgx, sgy, sgz] = boxSegs(wallThick, wallH, bw2);
             const panel = new THREE.BoxGeometry(wallThick, wallH, bw2, sgx, sgy, sgz);
             scaleBoxUV(panel, wallThick, wallH, bw2);
-            panel.translate(sideX - sx * wallThick * 0.62, floorY + wallH / 2, cx);
+            panel.translate(sideX - sx * wallThick * 0.62, floorY + wallH / 2, cz);
             applyTint(panel, tint);
             bucket(geoms, KEY.wall).push(panel);
           }
