@@ -36,6 +36,7 @@
  */
 import * as THREE from 'three';
 import { buildStructure } from '../src/scene/buildings/parts/structure.js';
+import { buildRoof } from '../src/scene/buildings/parts/roof.js';
 import { deriveDimensions } from '../src/scene/buildings/modular.js';
 
 /**
@@ -435,6 +436,86 @@ if (offFaces >= 4) {
     console.log(
       `  ✓ 墙身未超出建筑平面（面阔 ±${hw.toFixed(1)}m / 进深 ±${hd.toFixed(1)}m，容差 ${OVERHANG}m）`
     );
+  }
+}
+
+/**
+ * ---- 判据：**脊瓜柱不得戳出屋面**（白模里那根"竖线"）
+ *
+ * ⚠ 2026-11-24 在 3D设计 白模里看到每座歇山殿的屋脊上方有一根**细竖线**，
+ *   一度以为是"脊瓜柱穿出屋面"的 bug。
+ *   实际是**正脊构件（ridge，0.21m 见方的细长盒体）**在等轴测下的投影 ——
+ *   渲染时被瓦面遮住，白模里才显形。
+ *   真正要查的是**脊瓜柱**（托脊檩的短柱）有没有真的穿出屋面。
+ *
+ * 判据：对每座歇山/庑殿建筑，在每个中柱线位置取脊瓜柱顶，
+ *       从柱顶**往上 0.5m 往下打射线** ⇒ 必须先命中屋面（否则说明柱露在屋面外）。
+ *
+ * ⚠ 射线要从**上方往下**打（`Mesh.raycast` 按 material.side 剔背面，
+ *   屋面法线朝上，从下往上打一律打不中）。
+ */
+{
+  const { geoms } = buildStructure({ ...SPEC, doorsAllSides: true });
+  // 屋面几何（射线用）
+  const roofGeoms = buildRoof({
+    width: SPEC.width,
+    depth: SPEC.depth,
+    eaveY: SPEC.eaveY,
+    platformH: SPEC.platformH,
+    roof: SPEC.roof,
+    caihua: SPEC.caihua,
+    tile: SPEC.tile,
+    columnColor: SPEC.columnColor,
+    wallType: SPEC.wallType,
+    rise: SPEC.rise,
+    overhang: 1.42,
+    hipRunX: SPEC.width * 0.26,
+    mian: SPEC.mian,
+    jin: SPEC.jin,
+    wallTint: () => 1,
+  }).geoms;
+  const meshes = [];
+  for (const [k, l] of roofGeoms.entries()) {
+    for (const g of l) {
+      if (!g || !g.isBufferGeometry) continue;
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+      m.updateMatrixWorld();
+      meshes.push(m);
+    }
+  }
+  const rc = new THREE.Raycaster();
+  const midXs = D.colXs.filter((x) => Math.abs(x) < D.width * 0.26);
+  let checked = 0;
+  const stuck = [];
+  for (const x of midXs.length ? midXs : [0]) {
+    // 该 x 处的脊瓜柱顶（wood 桶里、细长、位于脊高附近）
+    let top = null;
+    for (const g of geoms.get('wood') || []) {
+      if (!g || !g.isBufferGeometry) continue;
+      g.computeBoundingBox();
+      const b = g.boundingBox;
+      if (
+        b.max.y > SPEC.eaveY &&
+        b.max.x - b.min.x < 0.5 &&
+        Math.abs((b.min.x + b.max.x) / 2 - x) < 0.5
+      ) {
+        if (top === null || b.max.y > top) top = b.max.y;
+      }
+    }
+    if (top === null) continue;
+    checked++;
+    rc.set(new THREE.Vector3(x, top + 0.5, 0), new THREE.Vector3(0, -1, 0));
+    const hits = rc.intersectObjects(meshes, false);
+    const roofY = hits.length ? hits[0].point.y : -Infinity;
+    if (top > roofY + 0.02) {
+      stuck.push(`x=${x.toFixed(1)} 柱顶 ${top.toFixed(2)} 屋面 ${roofY.toFixed(2)}`);
+    }
+  }
+  if (stuck.length) {
+    fail(`${stuck.length}/${checked} 处脊瓜柱戳出屋面：`);
+    for (const s of stuck.slice(0, 5)) console.log(`      · ${s}`);
+  } else {
+    console.log(`  ✓ ${checked} 处脊瓜柱均被屋面覆盖（白模里的"竖线"是正脊投影，非穿模）`);
   }
 }
 

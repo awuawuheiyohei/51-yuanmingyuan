@@ -156,6 +156,9 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
     const hw = ((spec.width || 0) * rotC + (spec.depth || 0) * rotS) / 2 + AVOID_PAD;
     const hd = ((spec.width || 0) * rotS + (spec.depth || 0) * rotC) / 2 + AVOID_PAD;
     outFootprints.push({
+      // ⚠ 记下**所属景名** —— 取景时要用它筛出"这一景的建筑"，
+      //   否则 `?view=close&name=<别景的配建筑名>` 会找不到任何建筑。
+      scene: scene.name,
       minX: scene.x + dx - hw,
       maxX: scene.x + dx + hw,
       minZ: scene.z + dz - hd,
