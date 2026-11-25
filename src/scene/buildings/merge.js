@@ -78,7 +78,21 @@ export function mergeGroupByMaterial(group) {
           key = mat;
           matToKey.set(mat, key);
         }
-        if (!buckets.has(key)) buckets.set(key, { mat, geos: [] });
+        if (!buckets.has(key)) buckets.set(key, { mat, geos: [], srcs: new Set(), owners: new Set() });
+        // 记录这个桶由哪些**源构件名**合并而来。
+        //
+        // 合并后 mesh.name 只能放一个名字（材质名或 type-color）⇒ **构件类别丢了**。
+        // 白模体检要靠「构件类别」上色（墙/柱/槅扇/格心/斗栱 各一色），
+        // 出问题时才能一眼看出是哪一档坏了 ⇒ 把源名字集合存进 userData。
+        //
+        // ⚠ 纯增量：不影响渲染、不影响 draw call。
+        buckets.get(key).srcs.add(child.userData?.bucketKey || child.name || '');
+        /**
+         * 记录**源建筑名**（合并会把建筑 group 清空 ⇒ 名字会丢）。
+         * 白模体检页用它做「聚焦某一座建筑」（`?focus=名字`）。
+         */
+        const owner = child.userData?.ownerName || child.parent?.userData?.ownerName || '';
+        if (owner) buckets.get(key).owners.add(owner);
         const g = child.geometry.clone();
         g.applyMatrix4(child.matrixWorld);
         // ⚠⚠ **属性集必须统一**（和索引状态一样）。
@@ -106,7 +120,7 @@ export function mergeGroupByMaterial(group) {
   for (const child of [...group.children]) group.remove(child);
   for (const child of others) group.add(child);
 
-  for (const [key, { mat, geos }] of buckets) {
+  for (const [key, { mat, geos, srcs, owners }] of buckets) {
     if (!geos.length) continue;
     // ⚠⚠ 合并前必须**统一索引状态**（全 indexed 或全 non-indexed）。
     //   `mergeGeometries` 遇到混合状态只会在 console 打一行 error 并
@@ -142,6 +156,17 @@ export function mergeGroupByMaterial(group) {
     mesh.name =
       mat?.name ||
       `${mat?.type || 'Mesh'}-${mat?.color?.getHexString?.() ?? '0'}`;
+    /**
+     * **源构件类别**（桶键）集合。
+     *
+     * 合并后 mesh.name 只能放一个字符串 ⇒ 构件类别信息丢失。
+     * 白模体检（`scripts/white.html`）要靠它按类别上色：
+     * 墙/柱/槅扇/格心/斗栱 各一色 ⇒ 出问题能一眼看出是哪一档坏了。
+     *
+     * ⚠ 纯增量字段：渲染层不读它 ⇒ 不影响 draw call、不影响性能。
+     */
+    if (srcs && srcs.size) mesh.userData.bucketKeys = [...srcs];
+    if (owners && owners.size) mesh.userData.ownerNames = [...owners];
     group.add(mesh);
   }
   return group;

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>白模体检</title>
+    <style>
+      html, body { margin: 0; background: #101418; color: #cfd8e3; font: 12px/1.5 monospace; }
+      /* ⚠ 标题栏高度**固定**为 44px：拼图脚本（make-white-sheet.mjs）
+           按 (0, 44) 定位第一格 ⇒ 改这里必须同步改那个脚本。 */
+      #bar { padding: 0 10px; height: 44px; line-height: 44px; background: #182028;
+             border-bottom: 1px solid #2a3440; overflow: hidden; white-space: nowrap; }
+      #sheet { display: block; }
+      .cell { position: relative; }
+      .cell > b { position: absolute; left: 4px; top: 2px; color: #7fd4ff; font-weight: 700;
+                  text-shadow: 0 0 4px #000; z-index: 2; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">白模体检 · 加载中…</div>
+    <div id="sheet"></div>
+
+    <script type="module">
+      /**
+       * **整景白模多视图体检页**
+       *
+       * ## 为什么要有这个
+       *
+       * 上一轮用 3D设计（cq-viewer）逐景看白模，抓到 3 个「渲染里完全看不出来」的
+       * 真几何 bug（斗栱出挑方向错 90°、步步锦横棂跑格、分段方向写反⇒翼状竖板）。
+       * 但那条路是**手工**的：一景一景导 STL、手工切四个视角，
+       * ⇒ 42 景里只扫了 5 景，剩下 37 景一直排着。
+       *
+       * 本页把这件事**通用化**（交接文档 §6④ 的待办）：
+       * 一次浏览器会话里把**全部景**的白模都渲染成正交四视图联表，
+       * 逐景人眼过一遍。
+       *
+       * ## 走的是**真实构建路径**
+       *
+       * ⚠ 不要用 `export-scene-stl.mjs` 的那套「手搓 spec」——
+       *   它自己重新推导尺寸，与 `layout.js` 的真实布局（斗口制推导 +
+       *   `separateFootprints` 分离）**不同源** ⇒ 检出来的不是真问题。
+       * ⇒ 这里直接 `buildLayout(sceneData, heightAt)`，
+       *   拿到的是**与运行时逐三角面一致**的几何。
+       *
+       * ## 渲染
+       *
+       * · **正交相机**（CAD 惯例）：看清真实比例与正立面，不受透视畸变干扰
+       * · 每景四视图：**等轴测 / 正视(+Z,南) / 右视(+X,东) / 俯视**
+       * · 按**材质桶**着色（不是纯白）：出问题时能一眼看出「哪一档构件」坏了
+       * · 关闭裁剪面剔除之外的一切特效：不加阴影/雾 ⇒ 纯几何体检
+       */
+      import * as THREE from 'three';
+      import { buildLayout } from '/src/scene/layout.js';
+      import { makeHeightSampler } from '/src/scene/terrain.js';
+
+      const params = new URLSearchParams(location.search);
+      const bar = document.getElementById('bar');
+      const sheet = document.getElementById('sheet');
+
+      /** 材质桶 → 体检配色（白模用：高对比、便于区分构件类别） */
+      const BUCKET_COLOR = {
+        tile: '#c8ccd2', ridge: '#8f98a6', board: '#6b5a45', eave: '#9aa3b0',
+        wall: '#b2544a', wood: '#8d5a3b', column: '#a03b32', lacquer: '#c05a4e',
+        lacquerDark: '#4a3f3a', lattice: '#d8c48a', paper: '#e8e0c8',
+        caihua: '#4e7fa8', dougong: '#e0a030', dougongTrim: '#f0d890',
+        stone: '#b8b2a4', ceiling: '#7a6a55', dark: '#2a2724',
+        gold: '#e8c040', finial: '#d8b040', plaque: '#7a2f28',
+        couplet: '#6a2020', couplet2: '#6a2020',
+      };
+
+      const DEFAULT_COLOR = '#8fa0b4';
+
+      /**
+       * **建筑本体**的构件桶（用于把铺地/院墙等环境几何剔出白模）。
+       *
+       * ⚠ 整景合并后，一景的铺地（name='paving'）与院墙（'wallcap'）会
+       *   和建筑构件混在同一批 mesh 里。俯视图若把它们算进包围盒，
+       *   建筑就缩成一小块 ⇒ 体检失真。
+       */
+      const BUILDING_BUCKETS = new Set([
+        'tile', 'ridge', 'eave', 'board', 'stone', 'column', 'lacquer',
+        'lacquerDark', 'lattice', 'paper', 'caihua', 'dougong', 'dougongTrim',
+        'wall', 'wood', 'ceiling', 'dark', 'gold', 'finial', 'plaque',
+        'couplet', 'couplet2', 'shanhua',
+      ]);
+
+      /**
+       * 这个 mesh 是不是建筑本体（而非铺地/院墙/收边石）。
+       *
+       * ⚠ 兼容：`mergeGroupByMaterial` 是**后来**才把 `userData.bucketKeys`
+       *   记下来的（2026-11-25 重檐修复那轮）。旧版合并后没有这个字段 ⇒
+       *   这时回退到按 **mesh.name** 判定（合并后 name = 材质名或 type-color，
+       *   铺地是 'paving'、院墙是 'wallcap'）。
+       */
+      function isBuildingMesh(mesh) {
+        const keys = mesh.userData?.bucketKeys;
+        if (keys && keys.length) {
+          return keys.some((k) => BUILDING_BUCKETS.has(k));
+        }
+        // 回退：排除明显的环境层构件名
+        const n = mesh.name || '';
+        if (n === 'paving' || n === 'wallcap' || n === 'pave-edge') return false;
+        return true;
+      }
+
+      /** 桶名 → 颜色（合并后 mesh.userData.bucketKeys 里存的是源桶键） */
+      function colorOf(name) {
+        if (!name) return DEFAULT_COLOR;
+        if (BUCKET_COLOR[name]) return BUCKET_COLOR[name];
+        // 合并后可能带后缀（材质实例名），取前缀
+        const base = Object.keys(BUCKET_COLOR).find((k) => name.startsWith(k));
+        return base ? BUCKET_COLOR[base] : DEFAULT_COLOR;
+      }
+
+      /**
+       * 取一个 mesh 的**构件类别**。
+       *
+       * `mergeGroupByMaterial` 合并后 mesh.name 只能放一个字符串 ⇒ 类别丢失；
+       * 靠 `userData.bucketKeys`（源桶键集合）取回。
+       * ⚠ 一个材质桶可能由多个构件类别合成（如 tile + ridge 共用材质），
+       *   取第一个即可 —— 白模只需要大致区分。
+       */
+      function bucketOf(mesh) {
+        const keys = mesh.userData?.bucketKeys;
+        if (keys && keys.length) return keys[0];
+        // 回退：合并后 name = 材质名或 type-color ⇒ 用前缀匹配取桶
+        const n = mesh.name || '';
+        const hit = Object.keys(BUCKET_COLOR).find((k) => n === k || n.startsWith(k));
+        return hit || n;
+      }
+
+      async function main() {
+        // ⚠ 必须用**根路径**：本页在 /scripts/ 下，相对路径会解析成
+        //   /scripts/scene/scene.json ⇒ vite 回退到 index.html ⇒ JSON 解析炸。
+        const res = await fetch('/scene/scene.json');
+        if (!res.ok) throw new Error('scene.json 加载失败: ' + res.status);
+        const sceneData = await res.json();
+        const heightAt = makeHeightSampler(sceneData);
+
+        bar.textContent = '构建场景几何…';
+        const t0 = performance.now();
+        const layout = buildLayout(sceneData, heightAt);
+        const group = layout.group;
+        group.updateMatrixWorld(true);
+        const buildMs = Math.round(performance.now() - t0);
+
+        // 只留四十景 + 西洋楼建筑（去掉地形/水/树/假山 —— 那是环境层，不是本次体检对象）
+        const keep = new Set(['scenes', 'existing-buildings', 'western']);
+        const roots = [];
+        group.traverse((o) => {
+          if (o.parent === group && keep.has(o.name)) roots.push(o);
+        });
+
+        // 逐景收集：scenes 组下每个子 group 名为 `scene-<景名>`
+        const clusters = [];
+        const scenesGroup = group.getObjectByName('scenes');
+        if (scenesGroup) {
+          for (const c of scenesGroup.children) {
+            const name = c.name.replace(/^scene-/, '');
+            clusters.push({ name, obj: c });
+          }
+        }
+        const westGroup = group.getObjectByName('western');
+        if (westGroup) clusters.push({ name: '西洋楼', obj: westGroup });
+
+        bar.textContent = `构建 ${buildMs}ms · ${clusters.length} 景`;
+
+        // 景筛选：?scene=名字,名字 或 ?from=N&to=M
+        const only = params.get('scene');
+        let list = clusters;
+        if (only) {
+          const want = only.split(',').map((s) => s.trim());
+          list = clusters.filter((c) => want.includes(c.name));
+        } else if (params.get('from') != null) {
+          const from = Number(params.get('from'));
+          const to = Number(params.get('to') ?? from + 1);
+          list = clusters.slice(from, to);
+        }
+
+        const views = [
+          { key: 'iso', label: '等轴测' },
+          { key: 'front', label: '正视(南)' },
+          { key: 'right', label: '右视(东)' },
+          { key: 'top', label: '俯视' },
+        ];
+        const cell = Number(params.get('cell') || 460);
+
+        /**
+         * 视图筛选：`?views=iso,front` 只出指定视图。
+         * ⚠ cell 很大时 4 个视图会换行 ⇒ 图会被截断 ⇒ 检查单景时用 `?views=` 缩小。
+         */
+        const viewFilter = params.get('views');
+        const viewList = viewFilter
+          ? views.filter((v) => viewFilter.split(',').includes(v.key))
+          : views;
+
+        for (const cl of list) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.style.display = 'flex';
+          row.style.flexWrap = 'wrap';
+          sheet.appendChild(row);
+
+          // 只取**建筑本体**的 mesh（剔除铺地/院墙/收边石）
+          // ⇒ 包围盒只反映殿宇，俯视图才看得清
+          const buildingMeshes = [];
+          cl.obj.traverse((o) => {
+            if (o.isMesh && o.geometry && isBuildingMesh(o)) buildingMeshes.push(o);
+          });
+          if (!buildingMeshes.length) continue;
+
+          // 包围盒（只算建筑本体）
+          const bbox = new THREE.Box3();
+          for (const m of buildingMeshes) bbox.expandByObject(m);
+          if (!isFinite(bbox.min.x)) continue;
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          const center = new THREE.Vector3();
+          bbox.getCenter(center);
+
+          /**
+           * 聚焦某一组构件：`?focus=主殿,配殿` —— 只框这些名字的构件，
+           * 用于细看某一座建筑（全景太小看不清细节）。
+           */
+          const focus = params.get('focus');
+          if (focus) {
+            const want = focus.split(',').map((s) => s.trim());
+            const sub = [];
+            for (const m of buildingMeshes) {
+              const owners = m.userData?.ownerNames || [];
+              if (owners.some((o) => want.includes(o))) sub.push(m);
+            }
+            if (sub.length) {
+              const b2 = new THREE.Box3();
+              for (const m of sub) b2.expandByObject(m);
+              bbox.copy(b2);
+              bbox.getSize(size);
+              bbox.getCenter(center);
+            }
+          }
+
+          for (const v of viewList) {
+            const wrap = document.createElement('div');
+            wrap.className = 'cell';
+            const cv = document.createElement('canvas');
+            cv.width = cell;
+            cv.height = cell;
+            cv.style.width = cell + 'px';
+            cv.style.height = cell + 'px';
+            const lab = document.createElement('b');
+            lab.textContent = `${cl.name} · ${v.label}`;
+            wrap.appendChild(cv);
+            wrap.appendChild(lab);
+            row.appendChild(wrap);
+            renderView(cv, buildingMeshes, v.key, bbox, center, size);
+          }
+        }
+
+        // 通知外部（截图脚本读这个标记）
+        window.__whiteReady = true;
+        document.title = 'READY';
+        bar.textContent = `完成 · ${list.length} 景 · ${viewList.length} 视图/景`;
+      }
+
+      /** 单个正交视图渲染 */
+      function renderView(canvas, buildingMeshes, viewKey, bbox, center, size) {
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(1);
+        renderer.setSize(canvas.width, canvas.height, false);
+        renderer.setClearColor(0x0d1117, 1);
+        renderer.autoClear = true;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0d1117);
+
+        // 把该景的建筑几何搬进来（只复制一次，后续视图复用同一批 Mesh）
+        if (!buildingMeshes.__holder) {
+          const holder = new THREE.Group();
+          for (const o of buildingMeshes) {
+            const m = new THREE.Mesh(o.geometry, o.material);
+            m.name = o.name;
+            m.userData = o.userData;
+            holder.add(m);
+          }
+          // 已经是世界坐标（layout 里 group 在原点），直接加
+          scene.add(holder);
+          buildingMeshes.__holder = holder;
+        } else {
+          scene.add(buildingMeshes.__holder);
+        }
+
+        // 白模材质：按构件类别着色，关掉贴图/阴影
+        const matCache = new Map();
+        const holder = buildingMeshes.__holder;
+        holder.traverse((o) => {
+          if (!o.isMesh) return;
+          const key = colorOf(bucketOf(o));
+          if (!matCache.has(key)) {
+            matCache.set(
+              key,
+              new THREE.MeshLambertMaterial({ color: new THREE.Color(key) })
+            );
+          }
+          o.material = matCache.get(key);
+          o.castShadow = false;
+          o.receiveShadow = false;
+        });
+
+        // 相机
+        const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1e6, 1e6);
+        const radius = Math.max(size.x, size.y, size.z) * 0.62 + 6;
+        const aspect = 1;
+        if (viewKey === 'iso') {
+          cam.position.set(center.x + radius * 1.2, center.y + radius * 1.0, center.z + radius * 1.2);
+          cam.up.set(0, 1, 0);
+        } else if (viewKey === 'front') {
+          // 从南(+Z)看向北
+          cam.position.set(center.x, center.y, center.z + radius * 3);
+          cam.up.set(0, 1, 0);
+        } else if (viewKey === 'right') {
+          // 从东(+X)看向西
+          cam.position.set(center.x + radius * 3, center.y, center.z);
+          cam.up.set(0, 1, 0);
+        } else {
+          // 俯视
+          cam.position.set(center.x, center.y + radius * 3, center.z);
+          cam.up.set(0, 0, -1);
+        }
+        cam.lookAt(center);
+        const half = radius * aspect;
+        cam.left = -half;
+        cam.right = half;
+        cam.top = half;
+        cam.bottom = -half;
+        cam.near = -1e6;
+        cam.far = 1e6;
+        cam.updateProjectionMatrix();
+
+        // 纯几何照明。
+        //
+        // ⚠ 光照强度要**克制**：环境光 + 方向光叠太高会把所有构件曝成一片白
+        //   （第一版 ambient 1.45 + dir 1.5 ⇒ 什么颜色都看不见）。
+        //   白模要靠**明暗关系**读形体，也靠颜色区分构件类别 ⇒ 都不能过曝。
+        scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        const d1 = new THREE.DirectionalLight(0xffffff, 1.05);
+        d1.position.set(1, 1.6, 1.2);
+        scene.add(d1);
+        const d2 = new THREE.DirectionalLight(0xffffff, 0.35);
+        d2.position.set(-1.2, 0.5, -0.8);
+        scene.add(d2);
+
+        renderer.render(scene, cam);
+      }
+
+      main().catch((e) => {
+        bar.textContent = '错误: ' + e.message;
+        bar.style.background = '#5a1a1a';
+        window.__whiteError = e.message;
+        console.error(e);
+      });
+    </script>
+  </body>
+</html>

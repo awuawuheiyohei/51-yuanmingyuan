@@ -88,6 +88,9 @@ export function buildBuilding(spec) {
   const rise = form.rise ?? Math.max(1.8, form.width * 0.26);
 
   // 重檐：下檐（腰檐）在外，上檐抬高；柱网上达上檐，下檐处再挑一层斗栱
+  //
+  // ⚠ `lowerRise` 是「腰檐外檐口 → 上檐檐口」的**总抬升量**，
+  //   roof.js 会把它拆成「腰檐坡高 + 楼身高」两段（见 buildRoof 的注释）。
   const lowerRise = form.doubleEave ? Math.max(0.9, rise * 0.3) : 0;
 
   // 先建屋顶、后建结构：
@@ -112,8 +115,24 @@ export function buildBuilding(spec) {
 
   const structure = buildStructure({
     ...form,
-    eaveY: form.eaveY + lowerRise,
+    /**
+     * ⚠ 重檐的 `eaveY` 必须是**上檐檐口**。
+     *
+     * ⚠⚠ 2026-11-25 白模体检发现的 bug：这里写死 `form.eaveY + lowerRise`，
+     *   而 roof.js 侧已经把抬升拆成了「腰檐坡高 + 楼身高」两段
+     *   ⇒ 两边的上檐檐口高度**对不上**（结构层比屋面低了 lowerSlope）。
+     *   ⇒ 上檐斗栱按结构层的高度坐下去 ⇒ **悬空**，
+     *     且腰檐与上檐之间没有承托它的**雷公柱**。
+     *
+     * ⇒ 改为**直接取屋面算出来的上檐檐口**（roof.meta.upperEaveY），
+     *   两边由同一个量决定，不再各算各的。
+     */
+    eaveY: form.doubleEave
+      ? (roof.meta?.upperEaveY ?? form.eaveY + lowerRise)
+      : form.eaveY,
     lowerEaveY: form.doubleEave ? form.eaveY : null,
+    /** 腰檐内圈高度（楼身下沿）—— 重檐专用 */
+    lowerInnerY: form.doubleEave ? roof.meta?.lowerInnerY : null,
     dougongScale: dgScale,
     couplet: form.couplet || null,
     // 屋面高度场：屋架据此定位檩条
@@ -195,6 +214,12 @@ export function buildBuilding(spec) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = key;
+    // 合并后 mesh.name 只放得下一个字符串 ⇒ 构件类别会丢。
+    // 这里把桶键另存一份，供 `mergeGroupByMaterial` 汇总进 userData.bucketKeys，
+    // 白模体检（scripts/white.html）靠它按类别上色。
+    mesh.userData.bucketKey = key;
+    // 建筑名（合并时 group 会被清空 ⇒ 名字会丢，先记在 mesh 上）
+    mesh.userData.ownerName = group.name || '';
     group.add(mesh);
     for (const g of valid) if (g !== geo) g.dispose();
   }

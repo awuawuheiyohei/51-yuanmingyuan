@@ -439,6 +439,9 @@ function buildSceneCluster(scene, heightAt, rnd, outFootprints = [], edgeParts =
       b.name = a.name;
       b.userData.sceneName = scene.name;
     }
+    // 建筑名标记：合并后 group 会被清空 ⇒ 名字会丢。
+    // 白模体检页靠它做「聚焦某一座建筑」（`?focus=名字`）。
+    b.userData.ownerName = a.name || '';
   }
 
   /* ---- 曲桥（program.bridges）----

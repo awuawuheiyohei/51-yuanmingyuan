@@ -513,15 +513,41 @@ export function buildStructure(spec) {
       floorY = platformH;
     }
 
-    // 踏跺（台阶 + 垂带 + 御路）：正面（南，+Z）
-    const sw = Math.min(bayW * 2.8, 9.5);
+    /**
+     * 踏跺（台阶 + 垂带 + 御路）：正面（南，+Z）
+     *
+     * ⚠⚠ **宽度必须按建筑面阔收窄**（2026-11-25 白模体检发现的 bug）：
+     *   原来 `sw = min(bayW * 2.8, 9.5)` —— **完全不看建筑多宽**。
+     *   ⇒ 单间小建筑（面阔 2.60m、bayW 2.60）算出 **sw = 7.28m**，
+     *     比建筑本身还宽 **4.68m** ⇒ 踏跺与御路从台基里「长」出去一截，
+     *     远看就是一条脱开的台阶。
+     *   ⇒ 实测波及全园 **41 座**小建筑（亭/牌楼/钟鼓楼/小匡庐…）。
+     *
+     * 清式：踏跺是**明间前的一阶**，宽度 ≈ 明间宽（最多 2~3 间），
+     * 且**不得超过建筑面阔**。
+     */
+    const sw = Math.max(
+      Math.min(bayW, width * 0.9), // 至少一间宽，且不超面阔
+      Math.min(bayW * 2.8, 9.5, width - 0.8) // 上限：2~3 间宽 + 9.5m + 不超面阔
+    );
     const steps = buildSteps(sw, platformH, 1.6, 1);
     steps.translate(0, 0, depth / 2 + 0.95);
     bucket(geoms, KEY.stone).push(steps);
 
-    // 正面栏杆（望柱 + 栏板），踏跺两侧
+    /**
+     * 正面栏杆（望柱 + 栏板），踏跺两侧。
+     *
+     * ⚠⚠ **宽度必须为正才建**（同上那个 bug 的另一半）：
+     *   原来 `rw = Math.max(2, (width - sw) / 2 - 0.4)` ——
+     *   `Math.max(2, …)` 把**负数兜成 2**（本意是"至少 2m"，
+     *   但当踏跺比建筑还宽时 `(width-sw)/2` 是负的 ⇒ 兜底后反而**造出**
+     *   一段本不该有的栏杆），而且它被放在
+     *   `sx * (sw/2 + rw/2 + 0.25)` = 离建筑 3.6m 的地方
+     *   ⇒ **一段望柱+华板勾栏浮在半空、没有任何承托**。
+     *   ⇒ 改成：宽度算出来为负 ⇒ **不建栏杆**（清式：踏跺占满时两侧无栏）。
+     */
     for (const sx of [-1, 1]) {
-      const rw = Math.max(2, (width - sw) / 2 - 0.4);
+      const rw = (width - sw) / 2 - 0.4;
       if (rw < 1.2) continue;
       const rail = buildRailing(rw, 0, 1.0, 1);
       rail.translate(sx * (sw / 2 + rw / 2 + 0.25), platformH, depth / 2 + 0.55);
@@ -576,6 +602,20 @@ export function buildStructure(spec) {
       : eaveY - floorY - beamH - dgHeight;
   const isPerimeter = (i, j) => i === 0 || i === mian || j === 0 || j === jin;
 
+  /**
+   * **斗栱顶 → 檐口**的净空（米）。
+   *
+   * 单檐实测：斗栱顶 8.546、檐口 9.17 ⇒ 净空 **0.624**。
+   * 这段净空里放**垫栱板**（封檐），板的下沿接斗栱顶、上沿到檐口略下。
+   *
+   * ⚠ 重檐的**上檐**必须用**同一个净空**来定位斗栱顶，
+   *   否则上檐斗栱会坐到"几乎贴住檐口"的位置 ⇒ 没有空间封檐板，
+   *   且斗栱几乎戳出檐口（2026-11-25 白模体检发现的 bug）。
+   *
+   * ⇒ 写成常量，让单檐与上檐**同源**，不再各算各的。
+   */
+  const DG_TOP_TO_EAVE = 0.624;
+
   const addColumn = (x, z, h) => {
     const g = new THREE.CylinderGeometry(colDia / 2, colDia / 2 * 1.02, h, 12);
     g.translate(x, floorY + h / 2, z);
@@ -585,6 +625,23 @@ export function buildStructure(spec) {
     const b = buildColumnBase(colDia);
     b.translate(x, floorY, z);
     bucket(geoms, KEY.stone).push(b);
+  };
+
+  /**
+   * 加一段**上层柱**（雷公柱）：从 `baseY` 起，高 `h`。
+   *
+   * ⚠⚠ **重檐建筑必须有它**（2026-11-25 白模体检发现）：
+   *   重檐歇山的**上层柱**从腰檐楼身直上上檐，承托上檐斗栱。
+   *   原来只建一层柱（到腰檐 7.49m），而上檐斗栱坐在 12.01m
+   *   ⇒ **上檐斗栱悬空 4.5m**，从檐下往里看是一段没有柱的空楼身。
+   *
+   * 清式制度：重檐建筑下层柱网通高，上层柱（雷公柱）立于腰檐楼身之上。
+   */
+  const addUpperColumn = (x, z, baseY, h) => {
+    if (h <= 0.05) return;
+    const g = new THREE.CylinderGeometry(colDia / 2 * 0.94, colDia / 2, h, 12);
+    g.translate(x, baseY + h / 2, z);
+    bucket(geoms, KEY.lacquer).push(g);
   };
 
   for (let i = 0; i <= mian; i++) {
@@ -718,6 +775,63 @@ export function buildStructure(spec) {
       bucket(geoms, KEY.dougong).push(g);
     }
 
+    /* --------------------------------------------- 重檐：上层柱（雷公柱） */
+    /**
+     * **上层柱**：从腰檐柱顶直上上檐，承托上檐斗栱。
+     *
+     * ⚠⚠ 2026-11-25 白模体检发现的**真 bug**（全园 2 景：鸿慈永祜、方壶胜境）：
+     *   原来只有一层柱（柱顶 = 台基 + 柱高 = 7.49m），
+     *   而上檐斗栱坐在 **12.01m** ⇒ **上檐斗栱悬空 4.5m**，
+     *   腰檐与上檐之间是一段**没有柱的空楼身**（从檐下往里看直接看穿）。
+     *   ⇒ 且这两景的上檐**从未被任何自检覆盖**（检查脚本都把 doubleEave 写死 false）。
+     *
+     * 清式制度：重檐建筑**下层柱网通高**，腰檐挑出为下檐；
+     * 上檐斗栱坐在**上层柱（雷公柱）**头，上层柱立于腰檐楼身之上。
+     *
+     * ⚠ 上层柱只立在**檐柱与金柱**的位置（承上檐斗栱的那几圈），
+     *   中间不设柱 —— 与真实重檐一致（中间是空井/亭）。
+     */
+    if (spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6) {
+      /**
+       * 上檐斗栱的**坐高**。
+       *
+       * ⚠⚠ 必须与后面那排上檐斗栱**用同一个公式**（同源），
+       *   否则雷公柱柱头与斗栱坐高对不上 ⇒ 斗栱悬空在柱头上方。
+       *   公式：斗栱顶 = 上檐檐口 − DG_TOP_TO_EAVE（与单檐同源），
+       *         坐高 = 斗栱顶 − 上檐那排斗栱自身高（0.86 倍）。
+       */
+      const upperDgTop = eaveY - DG_TOP_TO_EAVE;
+      const upperDgBase = upperDgTop - dgHeight * 0.86;
+      /**
+       * 雷公柱的**柱脚**：腰檐内圈（楼身下沿）。
+       *
+       * ⚠ 用 `spec.lowerInnerY`（屋面算出来的腰檐内圈高度），
+       *   不用下层柱顶 —— 腰檐屋面盖在下层柱头**之上**，
+       *   雷公柱要从腰檐屋面内侧的楼身升起，穿过腰檐的坡面。
+       */
+      const upperColBase = Math.max(
+        spec.lowerInnerY ?? floorY + colH + beamH,
+        floorY + colH + beamH
+      );
+      const upperColH = upperDgBase - upperColBase;
+      if (upperColH > 0.2) {
+        for (let i = 0; i <= mian; i++) {
+          for (let j = 0; j <= jin; j++) {
+            if (!isPerimeter(i, j)) continue;
+            addUpperColumn(colXs[i], colZs[j], upperColBase, upperColH);
+          }
+        }
+        // 金柱位置同样要立上层柱（上檐两山也有斗栱）
+        if (jin >= 5) {
+          for (const j of [1, jin - 1]) {
+            for (let i = 1; i < mian; i++) {
+              addUpperColumn(colXs[i], colZs[j], upperColBase, upperColH);
+            }
+          }
+        }
+      }
+    }
+
     // 柱头科：每个柱位一攒
     //
     // ⚠⚠ **出挑方向必须朝各自的檐口外面**（局部 ENU：+X 东、+Z 南）。
@@ -824,9 +938,48 @@ export function buildStructure(spec) {
        *   原来只补一道、而且是从主斗栱顶一直补到**上檐**檩底 ——
        *   那道板正好横在**腰檐与上檐之间**，把二层的隔扇窗带整个盖住 ✗。
        */
-      const addBan = (topY, botY) => {
+      const addBan = (topY, botY, tag) => {
         const h = botY - topY;
-        if (h <= 0.05) return;
+        /**
+         * ⚠⚠ **静默失败是这个函数最大的坑**（2026-11-25 白模体检发现）：
+         *   `if (h <= 0.05) return;` 会把「参数传反」这类错误**无声吞掉** ——
+         *   板根本没生成，渲染里只是"少了一道封檐板"，看不出任何异常。
+         *   实测：上檐那道传成了 `addBan(eaveY - fangH, eaveY - 0.24)`
+         *   ⇒ top(12.83) > bot(12.69) ⇒ h 为负 ⇒ 直接 return
+         *   ⇒ **上檐的封檐板从来没有生成过**（彩画桶里查不到 12m 那一条）。
+         *
+         * ⇒ 改为**指名道姓地抛错**：参数顺序写反是编程错误，不能静默。
+         *
+         * ⚠⚠ **但「区间很薄」不是编程错误**：
+         *   清式里**垫栱板（替木）就在斗栱顶与檐檩之间**，而斗栱本来就
+         *   直接承檐檩 ⇒ 两者贴在一起，板厚只有几厘米到二三十厘米。
+         *   实测单檐 hall：斗栱顶 6.880、檐檩 6.879~7.001 ⇒ 板厚 0.12m；
+         *   side/tower/gate 等级斗栱小 ⇒ 板厚只有 0.03m —— **这是真实构造**。
+         *   ⇒ 不能拿「薄」当错误。
+         *
+         *   真正要抓的是**参数顺序反了**（top > bot ⇒ h 为负）：
+         *   实测上檐那道传成 `addBan(eaveY - fangH, eaveY - 0.24)`，
+         *   top(12.83) > bot(12.69) ⇒ **上檐封檐板从来没有生成过**。
+         *
+         * ⚠⚠ **但「没有斗栱」也不是编程错误**：
+         *   小式建筑（`doukou = 0`，如 `rank: 'corridor'` 的穿堂）
+         *   本来就没有斗栱，柱顶 ≈ 檐口 ⇒ 垫栱板区间退化到 0，
+         *   这时**本来就不该有垫栱板** ⇒ 正常跳过，不报错。
+         *   （实测日天琳宇的两座穿堂：top 2.020 / bot 2.030，h=0.01。）
+         */
+        if (h <= 0.05) {
+          // 无斗栱 ⇒ 没有垫栱板可言，正常跳过
+          if (!hasDougong || dgHeight <= 1e-6) return;
+          // h 为负 ⇒ 参数顺序反了 ⇒ 编程错误，指名道姓地抛出来
+          if (h <= 0) {
+            throw new Error(
+              `buildStructure: 垫栱板区间非法（${tag}）：top=${topY.toFixed(3)} ` +
+                `bot=${botY.toFixed(3)} ⇒ h=${h.toFixed(3)} ≤ 0（参数顺序反了？）`
+            );
+          }
+          // h 在 (0, 0.05] ⇒ 板太薄，跳过（真实构造里斗栱直接顶檐檩时会出现）
+          return;
+        }
         // 前后檐（沿 X）
         for (const j of [0, jin]) {
           for (let i = 0; i < mian; i++) {
@@ -848,16 +1001,44 @@ export function buildStructure(spec) {
         }
       };
       if (isDouble) {
-        addBan(dgTop, spec.lowerEaveY - 0.24); // 腰檐
-        addBan(eaveY - fangH, eaveY - 0.24); // 上檐
+        // 腰檐：主斗栱顶 → 腰檐檩底
+        addBan(dgTop, spec.lowerEaveY - 0.24, '腰檐');
+        /**
+         * 上檐：上檐斗栱顶 → 上檐檐口略下。
+         *
+         * ⚠⚠ 2026-11-25 修（两处）：
+         * ① **上檐斗栱的坐高**原来写死 `eaveY - fangH - dgHeight*0.86`，
+         *    那是**下层柱网**的额枋尺度（fangH = 1 斗口）。
+         *    ⇒ 上檐斗栱坐到 12.005m、顶 12.83m，而上檐檐口才 12.93m
+         *    ⇒ 斗栱顶离檐口只剩 10cm ⇒ **没有空间封檐板**，
+         *      且斗栱**几乎戳出檐口**。
+         *    ⇒ 改为**与单檐同源**的算法：斗栱顶 = 檐口 − 单檐同样的落差。
+         *      单檐：斗栱顶 = eaveY − 0.624（斗栱顶到檐口的净空）。
+         *      上檐：斗栱顶 = eaveY − 0.624 ⇒ 坐高 = 斗栱顶 − 斗栱自身高。
+         *
+         * ② **上檐封檐板**原来传 `addBan(eaveY - fangH, eaveY - 0.24)`，
+         *    top > bot ⇒ h 为负 ⇒ 被 `if (h <= 0.05) return` **静默跳过**
+         *    ⇒ **上檐的封檐板从来没有生成过**（彩画桶里查不到上檐那条）。
+         */
+        const upperDgTop = eaveY - DG_TOP_TO_EAVE;
+        const upperDgBase = upperDgTop - dgHeight * 0.86;
+        addBan(upperDgTop, eaveY - 0.24, '上檐');
       } else {
-        addBan(dgTop, eaveY - 0.24);
+        addBan(dgTop, eaveY - 0.24, '单檐');
       }
     }
 
-    // 重檐：下檐（腰檐）再挑一层斗栱，坐在同一圈柱头的中段
+    // 重檐：上檐再挑一层斗栱，坐在**雷公柱**头上
     if (spec.lowerEaveY != null && spec.lowerEaveY < eaveY - 0.6) {
       const lowerUnit = buildDougongParts(dgScale * 0.86, 'x');
+      /**
+       * ⚠⚠ 坐高必须与雷公柱柱头**完全一致**（同源公式）：
+       *   斗栱顶 = 上檐檐口 − DG_TOP_TO_EAVE，坐高 = 斗栱顶 − 自身高。
+       *   原来写 `eaveY - fangH - dgHeight*0.86`（下层柱网的额枋尺度）
+       *   ⇒ 斗栱坐到 12.005m，而雷公柱柱头在别处 ⇒ **悬空 0.5m**。
+       */
+      const upperDgTop = eaveY - DG_TOP_TO_EAVE;
+      const upperDgBase = upperDgTop - dgHeight * 0.86;
       for (const [x, z, rot] of placements) {
         const dir = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
         // ⚠ 旋转必须是 `rot − π/2`，理由见上面主檐那排的注释
@@ -866,11 +1047,7 @@ export function buildStructure(spec) {
           .makeRotationY(rot - Math.PI / 2)
           .setPosition(
             x + dir.x * out,
-            // ⚠⚠ 这排斗栱是**上檐**的，必须坐在**上檐**的高度上
-            //   （eaveY = 腰檐高 + lowerRise 才是上檐）。
-            //   原来放在 `spec.lowerEaveY - ...`（腰檐的高度）⇒
-            //   与主檐那排斗栱**叠在一起**（两排重合、位置全错）。
-            eaveY - fangH - dgHeight * 0.86,
+            upperDgBase,
             z + dir.z * out
           );
         const g = lowerUnit.body.clone();

@@ -99,20 +99,48 @@ export function buildRoof(spec) {
   const { doubleEave, ...rest } = spec;
   if (!doubleEave) return buildRoofCore(rest);
 
-  /* ---- 重檐（清式"重檐歇山"）：下檐（腰檐）一圈 + 上檐 ---- */
+  /**
+   * ---- 重檐（清式"重檐歇山"）：下檐（腰檐）一圈 + 楼身 + 上檐 ----
+   *
+   * ⚠⚠ 2026-11-25 白模体检发现的**真 bug**（全园 2 景：鸿慈永祜、方壶胜境）。
+   *
+   * **原来的三层高度是错的**：
+   *   · 腰檐（`buildLowerEave`）：外檐口 `rest.eaveY`，内圈 `rest.eaveY + lowerRise`
+   *   · 上檐（`buildRoofCore`）：檐口 `rest.eaveY + lowerRise`
+   * ⇒ 腰檐的**内圈**与上檐的**檐口**落在**同一高度** ⇒ 两层屋面在那里重叠，
+   *   而**中间没有楼身**。
+   *   ⇒ 结构层更糟：上檐斗栱坐在 12.01m（用下层柱网的额枋尺度算出来的），
+   *     而上檐檐口在 12.93m ⇒ **斗栱悬空 0.9m**，且腰檐与上檐之间
+   *     **没有任何柱子承托上檐斗栱**（清式应有"雷公柱"）。
+   *
+   * **清式重檐歇山的正确层次**（自下而上）：
+   *   ① 台基 → 下层柱网 → **腰檐斗栱**（挑在下层柱头）→ 腰檐屋面
+   *      腰檐：外檐口在 `rest.eaveY`，向内升 `lowerRise` 到**腰檐内圈**
+   *   ② **楼身**：腰檐内圈 → 上檐檐口（这一段是墙与窗）
+   *   ③ **上层柱（雷公柱）** 从楼身升起 → **上檐斗栱** → 上檐屋面
+   *      上檐：檐口在 `rest.eaveY + lowerRise + bodyH`
+   *
+   * ⇒ 把 `lowerRise` 拆成两段：**腰檐坡高** + **楼身高**，
+   *   三层才真正分开，结构层也能据此建出雷公柱。
+   */
   const geoms = new Map();
   const inset = Math.max(1.1, Math.min(2.4, Math.min(rest.width, rest.depth) * 0.085));
-  const lowerRise = spec.lowerRise ?? Math.max(0.9, (rest.rise ?? 3) * 0.3);
+  const totalRise = spec.lowerRise ?? Math.max(0.9, (rest.rise ?? 3) * 0.3);
+  // 腰檐坡高：占抬升量的一半多一点（腰檐是坡屋面，需要足够的坡度）
+  const lowerSlope = Math.max(0.9, totalRise * 0.55);
+  // 楼身高：腰檐内圈 → 上檐檐口（雷公柱所在的那一段）
+  const bodyH = Math.max(1.6, totalRise - lowerSlope);
   const Wx = rest.width / 2 + (rest.overhang ?? 1.3);
   const Wz = rest.depth / 2 + (rest.overhang ?? 1.3);
 
-  const lower = buildLowerEave(Wx, Wz, rest.eaveY, lowerRise, inset);
+  const lower = buildLowerEave(Wx, Wz, rest.eaveY, lowerSlope, inset);
   const upper = buildRoofCore({
     ...rest,
     width: rest.width - 2 * inset,
     depth: rest.depth - 2 * inset,
-    eaveY: rest.eaveY + lowerRise,
-    rise: Math.max(1.4, (rest.rise ?? 3) - lowerRise),
+    // 上檐檐口 = 腰檐外檐口 + 腰檐坡高 + 楼身高
+    eaveY: rest.eaveY + lowerSlope + bodyH,
+    rise: Math.max(1.4, (rest.rise ?? 3) - lowerSlope),
   });
 
   for (const src of [lower, upper]) {
@@ -123,7 +151,15 @@ export function buildRoof(spec) {
   }
   return {
     geoms,
-    meta: { ...upper.meta, doubleEave: true, lowerEaveY: rest.eaveY },
+    meta: {
+      ...upper.meta,
+      doubleEave: true,
+      lowerEaveY: rest.eaveY,
+      /** 腰檐内圈高度（楼身下沿） */
+      lowerInnerY: rest.eaveY + lowerSlope,
+      /** 上檐檐口高度（楼身上沿） */
+      upperEaveY: rest.eaveY + lowerSlope + bodyH,
+    },
     // 重檐：屋架对应的是**上檐**，所以用 upper 的高度场
     surfAt: upper.surfAt,
     surfAtXY: upper.surfAtXY,
